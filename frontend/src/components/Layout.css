@@ -1,0 +1,291 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+.sidebar-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+  letter-spacing: -0.01em;
+}
+
+.sidebar-logo-icon {
+  color: var(--accent);
+}
+
+.sidebar-nav {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-weight: 450;
+  color: var(--text-2);
+  transition: background 0.12s, color 0.12s;
+}
+
+.sidebar-link:hover {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.sidebar-link--active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.sidebar-link--active:hover {
+  background: var(--accent-hover);
+}
+
+/* ── Main content area ───────────────────────────────── */
+.layout-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+/* ── Page shell shared styles ────────────────────────── */
+.page {
+  padding: 36px 40px;
+  max-width: 900px;
+}
+
+.page-header {
+  margin-bottom: 32px;
+}
+
+.page-title {
+  font-size: 24px;
+  font-weight: 650;
+  color: var(--text-1);
+  margin: 0 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.page-subtitle {
+  font-size: 14px;
+  color: var(--text-2);
+  margin: 0;
+}
+
+/* ── Card ───────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.card + .card {
+  margin-top: 12px;
+}
+
+/* ── Btn ───────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  transition: background 0.12s, opacity 0.12s;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--accent);
+  color: #0f0f0f;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: #f0dfc8;
+}
+
+.btn--secondary {
+  background: var(--surface-3);
+  color: var(--text-1);
+  border: 1px solid var(--border-2);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--text-3);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--surface-3);
+  color: var(--text-1);
+}
+
+.btn--danger {
+  background: var(--red-bg);
+  color: var(--red);
+  border: 1px solid rgba(248,113,113,0.2);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: rgba(248,113,113,0.15);
+}
+
+.btn--sm {
+  padding: 5px 11px;
+  font-size: 12px;
+  gap: 5px;
+}
+
+/* ── Form elements ──────────────────────────────────── */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.field input,
+.field textarea,
+.field select {
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+  font-size: 14px;
+  padding: 9px 12px;
+  transition: border-color 0.12s;
+  outline: none;
+}
+
+.field input:focus,
+.field textarea:focus,
+.field select:focus {
+  border-color: var(--accent);
+}
+
+.field textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.55;
+}
+
+.field select option {
+  background: var(--surface-2);
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.form-row-3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px;
+}
+
+/* ── Badge ──────────────────────────────────────────── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 100px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.badge--green {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.badge--amber {
+  background: rgba(251,191,36,0.1);
+  color: var(--amber);
+}
+
+.badge--neutral {
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+
+/* ── Divider ────────────────────────────────────────── */
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 20px 0;
+}
+
+/* ── Empty state ─────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-3);
+}
+
+.empty-state p {
+  font-size: 14px;
+  margin: 8px 0 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .layout { flex-direction: column; }
+  .sidebar { width: 100%; height: auto; position: static; flex-direction: row; flex-wrap: wrap; padding: 12px; gap: 8px; }
+  .sidebar-nav { flex-direction: row; flex-wrap: wrap; }
+  .page { padding: 20px 16px; }
+  .form-row, .form-row-3 { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,116 @@
+.repo-import-toggle {
+  gap: 6px;
+}
+
+.repo-import-panel {
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.repo-import-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.repo-import-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.repo-import-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.45;
+  max-width: 640px;
+}
+
+.repo-import-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.repo-import-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.repo-import-tab--active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.repo-import-controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.repo-import-field {
+  min-width: 180px;
+}
+
+.repo-import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.repo-import-file-input {
+  display: none;
+}
+
+.repo-import-file-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.repo-import-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
+
+.repo-import-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: #fbbf24;
+}
+
+.repo-import-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.repo-import-error {
+  margin: 0;
+  font-size: 13px;
+  color: #fca5a5;
+}
+
+.repo-import-actions {
+  display: flex;
+  justify-content: flex-end;
+}

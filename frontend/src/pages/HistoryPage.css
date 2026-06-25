@@ -1,0 +1,136 @@
+.history-page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.history-page .page-header {
+  margin-bottom: 20px;
+}
+
+.history-page .empty-state {
+  text-align: left;
+  padding: 0;
+  color: var(--text-2);
+}
+
+.history-empty-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  max-width: 560px;
+}
+
+.history-empty-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-3, #666);
+}
+
+.history-empty-block p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.history-empty-block p + p {
+  margin-top: 6px;
+}
+
+.history-empty-hint {
+  font-size: 13px;
+  color: var(--text-3, #666);
+}
+
+.history-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.history-error {
+  color: #fca5a5;
+  font-size: 14px;
+}
+
+.history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.history-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+}
+
+.history-card-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.history-card-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+}
+
+.history-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.history-card-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--accent, #e8d5b7);
+}
+
+.history-card-meta-item--muted {
+  color: var(--text-3, #666);
+}
+
+.history-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.history-open-btn {
+  gap: 6px;
+}
+
+.history-delete-btn {
+  color: #f87171;
+  padding: 8px 10px;
+}
+
+.history-delete-btn:hover:not(:disabled) {
+  background: var(--red-bg, rgba(248, 113, 113, 0.08));
+}
+
+@media (max-width: 640px) {
+  .history-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .history-card-actions {
+    justify-content: flex-end;
+  }
+}

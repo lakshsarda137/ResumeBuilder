@@ -1,0 +1,113 @@
+.education-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.education-form-card,
+.education-meta-card {
+  margin-bottom: 20px;
+}
+
+.education-meta-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.education-meta-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.education-meta-fields .field {
+  margin: 0;
+}
+
+.education-list-area {
+  min-height: 80px;
+}
+
+.education-form-card form,
+.education-edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.education-form-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.education-section-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.education-section-sub {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.education-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.education-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.education-item-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.education-item-sub {
+  margin: 0 0 4px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.education-item-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.education-item-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.education-item-body {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.education-coursework {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}

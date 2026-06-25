@@ -1,0 +1,172 @@
+.format-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 24px;
+  background: #252538;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  flex-shrink: 0;
+}
+
+.format-toolbar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
+.format-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.format-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.format-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.format-btn--active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #93c5fd;
+}
+
+.format-select {
+  height: 28px;
+  min-width: 118px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  font-size: 12px;
+  font-family: inherit;
+  padding: 0 8px;
+  cursor: pointer;
+}
+
+.format-select:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.format-select--size {
+  width: 88px;
+}
+
+.format-toolbar-hint {
+  margin-left: 4px;
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.format-toolbar--active .format-toolbar-hint {
+  display: none;
+}
+
+.format-toolbar-trailing {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  padding-left: 12px;
+  flex-shrink: 0;
+}
+
+/* Canvas toolbar — dark bar above the resume page */
+.format-toolbar--canvas {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  padding: 7px 10px;
+  gap: 6px;
+}
+
+.format-toolbar--canvas .format-toolbar-label {
+  color: #888;
+}
+
+.format-toolbar--canvas .format-btn {
+  border-color: #555;
+  background: #363636;
+  color: #f0f0f0;
+}
+
+.format-toolbar--canvas .format-btn:hover:not(:disabled) {
+  background: #454545;
+  border-color: #666;
+  color: #fff;
+}
+
+.format-toolbar--canvas .format-btn:disabled {
+  opacity: 1;
+  color: #666;
+  background: #333;
+  border-color: #444;
+}
+
+.format-toolbar--canvas .format-btn--active {
+  background: rgba(232, 213, 183, 0.15);
+  border-color: #e8d5b7;
+  color: #e8d5b7;
+}
+
+.format-toolbar--canvas .format-select {
+  border-color: #555;
+  background: #363636;
+  color: #f0f0f0;
+}
+
+.format-toolbar--canvas .format-select:disabled {
+  opacity: 1;
+  color: #666;
+  background: #333;
+}
+
+.format-toolbar--canvas .format-toolbar-hint {
+  color: #777;
+}
+
+.format-toolbar-jd-btn {
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #363636;
+  color: #c8c8c8;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.format-toolbar-jd-btn:hover {
+  background: #454545;
+  border-color: #666;
+  color: #f0f0f0;
+}
+
+.format-toolbar-jd-btn--on {
+  background: rgba(232, 213, 183, 0.12);
+  border-color: #e8d5b7;
+  color: #e8d5b7;
+}

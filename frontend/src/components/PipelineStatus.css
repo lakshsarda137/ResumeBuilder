@@ -1,0 +1,136 @@
+.pipeline-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 24px 16px;
+  background: #0f172a;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.18);
+  color: #e2e8f0;
+  flex-shrink: 0;
+}
+
+.pipeline-steps {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.pipeline-step {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 0 4px;
+}
+
+.pipeline-step-connector {
+  position: absolute;
+  top: 9px;
+  right: calc(50% + 12px);
+  left: calc(-50% + 12px);
+  height: 3px;
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 999px;
+  z-index: 0;
+}
+
+.pipeline-step-connector--complete {
+  background: #f97316;
+}
+
+.pipeline-step-connector--error {
+  background: #f87171;
+}
+
+.pipeline-step-circle {
+  position: relative;
+  z-index: 1;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(148, 163, 184, 0.45);
+  background: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition:
+    background 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.pipeline-step-circle--complete {
+  background: #f97316;
+  border-color: #f97316;
+  color: #fff;
+}
+
+.pipeline-step-circle--active {
+  background: #f97316;
+  border-color: #f97316;
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.22);
+}
+
+.pipeline-step-circle--error {
+  background: #ef4444;
+  border-color: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.2);
+}
+
+.pipeline-step-label {
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+  color: #64748b;
+  max-width: 100%;
+}
+
+.pipeline-step-label--complete,
+.pipeline-step-label--active {
+  color: #f8fafc;
+  font-weight: 600;
+}
+
+.pipeline-step-label--error {
+  color: #fca5a5;
+  font-weight: 600;
+}
+
+.pipeline-status-detail {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: #7dd3fc;
+}
+
+.pipeline-status-detail--error {
+  color: #fca5a5;
+}
+
+@media (max-width: 768px) {
+  .pipeline-status {
+    padding-inline: 12px;
+  }
+
+  .pipeline-step-label {
+    font-size: 9px;
+  }
+
+  .pipeline-step-circle {
+    width: 16px;
+    height: 16px;
+  }
+
+  .pipeline-step-connector {
+    top: 7px;
+    right: calc(50% + 10px);
+    left: calc(-50% + 10px);
+  }
+}

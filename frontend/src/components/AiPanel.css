@@ -1,0 +1,169 @@
+.ai-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 24px 12px;
+  background: #111827;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  color: #e5e7eb;
+  flex-shrink: 0;
+}
+
+.ai-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-panel-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.ai-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.ai-panel-badge {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(248, 113, 113, 0.15);
+  color: #fca5a5;
+}
+
+.ai-panel-badge--ready {
+  background: rgba(74, 222, 128, 0.15);
+  color: #86efac;
+}
+
+.ai-panel-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.ai-panel-field select {
+  background: #1f2937;
+  color: #f9fafb;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.ai-panel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.ai-panel-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.ai-panel-btn--secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e5e7eb;
+}
+
+.ai-panel-btn--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.ai-panel-btn--primary {
+  background: #7c3aed;
+  color: #fff;
+}
+
+.ai-panel-btn--primary:hover:not(:disabled) {
+  background: #6d28d9;
+}
+
+.ai-panel-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #9ca3af;
+  min-width: 0;
+}
+
+.ai-panel-prompt textarea {
+  resize: vertical;
+  min-height: 44px;
+  max-height: 96px;
+  background: #1f2937;
+  color: #f9fafb;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.ai-panel-meta {
+  min-width: 0;
+}
+
+.ai-panel-meta:empty {
+  display: none;
+}
+
+.ai-panel-install,
+.ai-panel-status,
+.ai-panel-error {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.ai-panel-install {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #9ca3af;
+}
+
+.ai-panel-install code {
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.ai-panel-status {
+  color: #86efac;
+}
+
+.ai-panel-error {
+  color: #fca5a5;
+}
+
+@media (max-width: 900px) {
+  .ai-panel-fields {
+    grid-template-columns: 1fr;
+  }
+}

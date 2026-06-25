@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "Resume Builder AI Bridge",
+  "version": "1.4.9",
+  "description": "Sends resume PDFs to your logged-in Claude, ChatGPT, or Gemini web session.",
+  "permissions": ["tabs", "scripting", "storage"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://gemini.google.com/*",
+    "https://www.linkedin.com/*",
+    "https://linkedin.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["page-bridge.js"],
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": ["http://localhost/*", "http://127.0.0.1/*"],
+      "js": ["content-app.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://claude.ai/*",
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*"
+      ],
+      "js": ["content-llm.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

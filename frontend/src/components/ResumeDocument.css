@@ -1,0 +1,313 @@
+/* Resume template — matches Laksh Sarda PDF layout (LaTeX-style single column) */
+
+.resume-page-wrapper {
+  position: relative;
+  margin-left: 130px;
+}
+
+.resume-page-wrapper:has(.resume-page--print) {
+  margin-left: 0;
+}
+
+.resume-page {
+  width: 8.5in;
+  padding: 0.5in 0.55in 0.45in;
+  background: #fff;
+  color: #000;
+  font-family: 'Times New Roman', Times, 'Liberation Serif', serif;
+  font-size: 10.5pt;
+  line-height: 1.15;
+  box-sizing: border-box;
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
+}
+
+/* Header */
+.resume-header {
+  text-align: center;
+  margin-bottom: 4pt;
+  position: relative;
+}
+
+.resume-name {
+  font-size: 22pt;
+  font-weight: 700;
+  margin: 0 0 2pt;
+  letter-spacing: 0.3pt;
+  line-height: 1.1;
+}
+
+.resume-contact-line {
+  font-size: 10pt;
+  margin: 0;
+  color: #000;
+  line-height: 1.2;
+}
+
+.resume-contact-inline {
+  display: inline;
+  position: relative;
+  white-space: nowrap;
+}
+
+.resume-contact-text {
+  display: inline;
+}
+
+.resume-contact-sep {
+  color: #000;
+  user-select: none;
+}
+
+/* Sections */
+.resume-section {
+  margin-top: 6pt;
+  position: relative;
+}
+
+.resume-section-header {
+  border-bottom: 0.75pt solid #000;
+  margin-bottom: 3pt;
+  padding-bottom: 1pt;
+}
+
+.resume-section-title {
+  font-size: 11pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5pt;
+  margin: 0;
+  line-height: 1.2;
+}
+
+/* Entries */
+.resume-entry {
+  margin-bottom: 4pt;
+  position: relative;
+}
+
+.resume-entry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8pt;
+}
+
+.resume-entry-title {
+  font-weight: 700;
+  font-style: italic;
+  flex: 1;
+  min-width: 0;
+}
+
+.resume-entry-header--second {
+  margin-top: 0;
+}
+
+.resume-entry-location {
+  font-weight: 400;
+  font-style: normal;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.resume-entry-date {
+  font-weight: 700;
+  font-style: italic;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.resume-entry-subtitle-text {
+  font-style: italic;
+}
+
+/* Bullets */
+.resume-bullets {
+  margin: 1pt 0 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resume-bullet-item {
+  position: relative;
+  padding-left: 12pt;
+  margin-bottom: 0.5pt;
+  text-align: justify;
+}
+
+.resume-bullet-item::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+}
+
+/* Skills */
+.resume-skills {
+  margin-top: 1pt;
+  position: relative;
+}
+
+.resume-skill-row {
+  margin-bottom: 0.5pt;
+  position: relative;
+}
+
+.resume-skill-label {
+  font-weight: 700;
+}
+
+.resume-skill-colon {
+  font-weight: 700;
+}
+
+/* Editable fields */
+.editable {
+  outline: none;
+  border-radius: 2px;
+  transition: background 0.15s, box-shadow 0.15s;
+  cursor: text;
+}
+
+.editable:hover {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.editable:focus {
+  background: rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 1.5px rgba(59, 130, 246, 0.45);
+}
+
+.editable--empty:not(:focus)::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  font-style: italic;
+  pointer-events: none;
+}
+
+/* Editor controls — positioned outside page flow */
+.resume-control {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 10px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 4px;
+  padding: 1px 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  line-height: 1.3;
+}
+
+.resume-control:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  color: #1e293b;
+}
+
+.resume-control--rail {
+  position: absolute;
+  left: -118px;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.resume-header .resume-control--rail[data-rail='contact'] {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.resume-entry .resume-control--rail[data-rail='bullet'] {
+  bottom: 22px;
+}
+
+.resume-section .resume-control--rail[data-rail='entry'] {
+  bottom: 0;
+}
+
+.resume-skills .resume-control--rail[data-rail='skill'] {
+  bottom: 0;
+}
+
+.resume-control--remove,
+.resume-control--remove-bullet {
+  position: absolute;
+  padding: 0 4px;
+  line-height: 1.3;
+  font-size: 11px;
+  color: #ef4444;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.resume-control--remove {
+  left: -24px;
+  top: 0;
+}
+
+.resume-control--remove-bullet {
+  left: -20px;
+  top: 1px;
+}
+
+.resume-control--remove-contact {
+  position: absolute;
+  top: -7px;
+  right: -9px;
+  padding: 0 3px;
+  font-size: 9px;
+  line-height: 1.1;
+  opacity: 0;
+  color: #ef4444;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.resume-contact-inline:hover .resume-control--remove-contact {
+  opacity: 1;
+}
+
+.resume-control--remove-entry {
+  position: absolute;
+  right: 0;
+  top: -2px;
+  font-size: 10px;
+  color: #ef4444;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.resume-control--inline {
+  display: inline;
+  margin-left: 4px;
+  font-size: 9px;
+  padding: 0 4px;
+  vertical-align: middle;
+}
+
+/* Print / PDF export */
+@media print {
+  .resume-page {
+    box-shadow: none;
+    margin: 0;
+    padding: 0.5in 0.55in 0.45in;
+  }
+
+  .resume-control,
+  .editable:hover,
+  .editable:focus {
+    background: transparent !important;
+    box-shadow: none !important;
+  }
+}
+
+.export-mode .resume-control,
+.resume-page--print .resume-control {
+  display: none !important;
+}
+
+.export-mode .editable:hover,
+.export-mode .editable:focus {
+  background: transparent !important;
+  box-shadow: none !important;
+}
