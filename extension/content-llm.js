@@ -474,67 +474,45 @@ function hasMeaningfulChange(text, baselineText) {
   return text.length >= baselineText.length + 10 || looksLikeResumeJson(text);
 }
 
+function hasSentinel(text) {
+  return /---END---/.test(text);
+}
+
+function getFullPageText() {
+  return document.body?.innerText?.trim() ?? '';
+}
+
 async function waitForAssistantResponse(provider, baselineText, timeoutMs = 180000) {
   const started = Date.now();
-  let lastText = '';
-  let lastChangeAt = started;
   let lastProgressAt = 0;
 
   while (Date.now() - started < timeoutMs) {
-    const streaming = isMessageStreaming(provider);
-    const detectedJson = getBestJsonResponseText(provider, baselineText);
-    const rawText = getLatestAssistantText(provider);
-    const text = detectedJson || rawText;
     const elapsedSeconds = Math.round((Date.now() - started) / 1000);
+    const streaming = isMessageStreaming(provider);
 
     if (Date.now() - lastProgressAt >= 1000) {
-      if (streaming) {
-        reportProgress('waiting', `Model is generating… (${elapsedSeconds}s)`);
-      } else if (looksLikeResumeJson(text)) {
-        reportProgress('waiting', `Finalizing JSON response… (${elapsedSeconds}s)`);
-      } else {
-        reportProgress('waiting', `Waiting for model response… (${elapsedSeconds}s)`);
-      }
+      reportProgress('waiting', streaming
+        ? `Model is generating… (${elapsedSeconds}s)`
+        : `Waiting for response… (${elapsedSeconds}s)`);
       lastProgressAt = Date.now();
     }
 
-    // Always track text changes — even during streaming, so stability detection
-    // works when the streaming indicator is stuck (e.g. model-unavailable banner).
-    if (text && text !== lastText) {
-      lastText = text;
-      lastChangeAt = Date.now();
-    }
-
-    const hasContent = hasMeaningfulChange(text, baselineText);
-    const looksLikeJson = hasContent && looksLikeResumeJson(text);
-    const stableMs = Date.now() - lastChangeAt;
-    // Text has stopped changing for 3s — treat as done regardless of streaming state.
-    const textIsStable = stableMs >= 3000 && lastText === text && text.length > 40;
-
-    // Skip if still streaming AND we have no JSON signal AND text isn't stable yet.
-    if (streaming && !detectedJson && !textIsStable) {
-      await sleep(350);
-      continue;
-    }
-
-    if (hasContent) {
-      const jsonComplete =
-        canParseResumeJson(text) &&
-        (hasCompleteJsonFence(text) || !/```json/i.test(text));
-
-      if (jsonComplete || (looksLikeJson && textIsStable)) {
-        await sleep(600);
-        const finalRaw = getLatestAssistantText(provider);
-        const finalJson = getBestJsonResponseText(provider, baselineText);
-        const best = finalJson || finalRaw || text;
-        if (canParseResumeJson(best)) {
-          return best;
-        }
-        // Parseable form not found but text looks right — return raw for caller to handle.
-        if (looksLikeJson) {
-          return text;
+    // Primary: sentinel string present anywhere on the page — model is done.
+    const pageText = getFullPageText();
+    if (hasSentinel(pageText)) {
+      await sleep(300);
+      const finalPage = getFullPageText();
+      const candidate = extractJsonCandidate(finalPage);
+      if (candidate) {
+        try {
+          JSON.parse(repairJson(candidate));
+          return candidate;
+        } catch {
+          // JSON malformed — fall through to fallback
         }
       }
+      // Sentinel seen but JSON extraction failed — return raw page text for caller
+      return finalPage;
     }
 
     await sleep(350);

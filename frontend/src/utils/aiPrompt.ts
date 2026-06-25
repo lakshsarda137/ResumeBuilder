@@ -52,7 +52,8 @@ const OUTPUT_RULES = `CRITICAL OUTPUT FORMAT — the editor can ONLY load JSON:
 ${RESUME_JSON_SCHEMA}
 3. For skills sections use the "skills" array and keep "entries" as [].
 4. Do not include commentary outside the JSON block.
-5. PRESERVE all existing section ids, entry ids, link ids, and skill ids from the input JSON — reuse them exactly even when reordering sections or entries. Only generate new ids for genuinely new items.`;
+5. PRESERVE all existing section ids, entry ids, link ids, and skill ids from the input JSON — reuse them exactly even when reordering sections or entries. Only generate new ids for genuinely new items.
+6. After the closing \`\`\` write exactly: ---END---`;
 
 const DEFAULT_USER_PROMPT =
   'Improve one bullet point for clarity and tighten the wording. Keep all facts accurate.';
@@ -112,7 +113,8 @@ ${REPO_IMPORT_SCHEMA}
 7. Dates as YYYY-MM when possible.
 8. Put ALL education (school, degree, major, GPA, graduation date, honors, relevant coursework) in profile.education — never in entries.
 9. Put skills, certifications, and other fixed facts in profile.skills_note / profile.other_fixed_facts.
-10. No commentary outside the JSON block.`;
+10. No commentary outside the JSON block.
+11. After the closing \`\`\` write exactly: ---END---`;
 
 export function buildRepoImportFromPdfPrompt(filename?: string): string {
   return `Extract repository warehouse material from the attached resume PDF. This is NOT for a formatted resume editor — it feeds a freewrite warehouse for later AI resume building.
@@ -209,6 +211,7 @@ CRITICAL OUTPUT FORMAT — the editor can ONLY load JSON:
 6. Generate stable unique string ids for baseline sections, entries, links, and skills.
 7. Reuse the corresponding baseline ids in optimized whenever an item came from the same resume item; only generate new ids for genuinely new optimized structure.
 8. Do not include commentary outside the JSON block.
+9. After the closing \`\`\` write exactly: ---END---
 
 OPTIMIZATION RULES:
 - Lead bullets with strong action verbs (Built, Led, Shipped, Reduced, Increased, etc.).
@@ -295,7 +298,7 @@ Continue in this same chat. Update the resume from your previous response.
 
 ${JD_HONESTY_RULES}
 
-Return ONLY the complete updated resume in one \`\`\`json code block using the same schema as before. Preserve jdComment fields unless your edit changes the match rationale.
+Return ONLY the complete updated resume in one \`\`\`json code block using the same schema as before. Preserve jdComment fields unless your edit changes the match rationale. After the closing \`\`\` write exactly: ---END---
 
 Current resume JSON:
 \`\`\`json
