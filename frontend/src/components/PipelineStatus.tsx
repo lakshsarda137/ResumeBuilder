@@ -105,7 +105,7 @@ export function PipelineStatus({ events, variant }: PipelineStatusProps) {
           </div>
         ))}
       </div>
-      {displayDetail ? (
+      {displayDetail && variant !== 'import' ? (
         <p className={`pipeline-status-detail${hasError ? ' pipeline-status-detail--error' : ''}`}>
           {displayDetail}
         </p>

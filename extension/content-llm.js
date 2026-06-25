@@ -401,6 +401,10 @@ function looksLikeCaptureJson(text) {
   if (/"entries"\s*:\s*\[/i.test(text)) {
     return true;
   }
+  // import payload shape: { source_label, profile, entries }
+  if (/"source_label"\s*:/.test(text) || (/"profile"\s*:/.test(text) && /"entries"\s*:/.test(text))) {
+    return true;
+  }
   return false;
 }
 
