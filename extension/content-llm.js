@@ -478,13 +478,13 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 1800
   const started = Date.now();
   let lastText = '';
   let lastChangeAt = started;
-  let sawStreaming = false;
   let lastProgressAt = 0;
 
   while (Date.now() - started < timeoutMs) {
     const streaming = isMessageStreaming(provider);
     const detectedJson = getBestJsonResponseText(provider, baselineText);
-    const text = detectedJson || getLatestAssistantText(provider);
+    const rawText = getLatestAssistantText(provider);
+    const text = detectedJson || rawText;
     const elapsedSeconds = Math.round((Date.now() - started) / 1000);
 
     if (Date.now() - lastProgressAt >= 1000) {
@@ -498,45 +498,41 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 1800
       lastProgressAt = Date.now();
     }
 
-    if (streaming && !detectedJson) {
-      sawStreaming = true;
+    // Always track text changes — even during streaming, so stability detection
+    // works when the streaming indicator is stuck (e.g. model-unavailable banner).
+    if (text && text !== lastText) {
+      lastText = text;
+      lastChangeAt = Date.now();
+    }
+
+    const hasContent = hasMeaningfulChange(text, baselineText);
+    const looksLikeJson = hasContent && looksLikeResumeJson(text);
+    const stableMs = Date.now() - lastChangeAt;
+    // Text has stopped changing for 3s — treat as done regardless of streaming state.
+    const textIsStable = stableMs >= 3000 && lastText === text && text.length > 40;
+
+    // Skip if still streaming AND we have no JSON signal AND text isn't stable yet.
+    if (streaming && !detectedJson && !textIsStable) {
       await sleep(350);
       continue;
     }
 
-    if (hasMeaningfulChange(text, baselineText)) {
-      if (text !== lastText) {
-        lastText = text;
-        lastChangeAt = Date.now();
-      }
-
-      const jsonReady =
+    if (hasContent) {
+      const jsonComplete =
         canParseResumeJson(text) &&
         (hasCompleteJsonFence(text) || !/```json/i.test(text));
 
-      if (jsonReady) {
-        // Wait for text to stabilise — stop streaming check is unreliable when
-        // the provider shows a model-unavailable banner (streaming indicator
-        // stays true even after generation is done). Instead we confirm the
-        // response hasn't grown in 1.5s, then return it regardless.
-        await sleep(1500);
-        const finalText = getLatestAssistantText(provider);
-        const best = (finalText && canParseResumeJson(finalText)) ? finalText : text;
+      if (jsonComplete || (looksLikeJson && textIsStable)) {
+        await sleep(600);
+        const finalRaw = getLatestAssistantText(provider);
+        const finalJson = getBestJsonResponseText(provider, baselineText);
+        const best = finalJson || finalRaw || text;
         if (canParseResumeJson(best)) {
           return best;
         }
-      }
-
-      if (
-        sawStreaming &&
-        looksLikeResumeJson(text) &&
-        Date.now() - lastChangeAt >= 2500
-      ) {
-        await sleep(1200);
-        const finalText = getLatestAssistantText(provider);
-        const best = (finalText && canParseResumeJson(finalText)) ? finalText : text;
-        if (canParseResumeJson(best)) {
-          return best;
+        // Parseable form not found but text looks right — return raw for caller to handle.
+        if (looksLikeJson) {
+          return text;
         }
       }
     }
