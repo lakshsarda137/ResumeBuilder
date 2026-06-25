@@ -23,6 +23,7 @@ import {
   flattenImportPayload,
   parseRepoImportResponse,
 } from '../utils/repoImport';
+import { PipelineStatus } from './PipelineStatus';
 import './RepoImportPanel.css';
 
 interface RepoImportPanelProps {
@@ -42,8 +43,16 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { bridgeReady, sendPdfAndWait, sendPromptAndWait, scrapeUrlAndWait } =
-    useAiBridge();
+  const {
+    bridgeReady,
+    sendPdfAndWait,
+    sendPromptAndWait,
+    scrapeUrlAndWait,
+    pipelineEvents,
+    pipelineVariant,
+    startPipeline,
+    pushPipeline,
+  } = useAiBridge();
 
   const handlePdfChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []).filter(
@@ -62,6 +71,7 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
     setWorking(true);
     setError(null);
     setStatus(null);
+    startPipeline('import');
 
     try {
       let totalCreated = 0;
@@ -172,6 +182,7 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
           ? ` Education: ${totalEducationCreated} new, ${totalEducationMerged} merged, ${totalEducationSkipped} skipped.`
           : '';
 
+      pushPipeline('preview_ready', 'Import complete');
       setStatus(
         `Done — ${totalCreated} new, ${totalMerged} merged, ${totalSkipped} skipped (duplicates). All saved as freewrite.${ongoingSummary}${educationSummary}`,
       );
@@ -182,6 +193,7 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
       }
       onComplete?.();
     } catch (err) {
+      pushPipeline('error', err instanceof Error ? err.message : 'Import failed.');
       setError(err instanceof Error ? err.message : 'Import failed.');
       setStatus(null);
     } finally {
@@ -193,9 +205,11 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
     onComplete,
     pdfFiles,
     provider,
+    pushPipeline,
     scrapeUrlAndWait,
     sendPromptAndWait,
     sendPdfAndWait,
+    startPipeline,
     tab,
   ]);
 
@@ -327,6 +341,8 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
           Install/reload the Chrome extension, then refresh this page.
         </p>
       ) : null}
+
+      <PipelineStatus events={pipelineEvents} variant={pipelineVariant} />
 
       {status ? <p className="repo-import-status">{status}</p> : null}
       {error ? <p className="repo-import-error">{error}</p> : null}

@@ -511,10 +511,15 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 1800
         (hasCompleteJsonFence(text) || !/```json/i.test(text));
 
       if (jsonReady) {
-        await sleep(1200);
+        // Wait for text to stabilise — stop streaming check is unreliable when
+        // the provider shows a model-unavailable banner (streaming indicator
+        // stays true even after generation is done). Instead we confirm the
+        // response hasn't grown in 1.5s, then return it regardless.
+        await sleep(1500);
         const finalText = getLatestAssistantText(provider);
-        if (!isMessageStreaming(provider) && canParseResumeJson(finalText || text)) {
-          return finalText || text;
+        const best = (finalText && canParseResumeJson(finalText)) ? finalText : text;
+        if (canParseResumeJson(best)) {
+          return best;
         }
       }
 
@@ -525,8 +530,9 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 1800
       ) {
         await sleep(1200);
         const finalText = getLatestAssistantText(provider);
-        if (!isMessageStreaming(provider) && canParseResumeJson(finalText || text)) {
-          return finalText || text;
+        const best = (finalText && canParseResumeJson(finalText)) ? finalText : text;
+        if (canParseResumeJson(best)) {
+          return best;
         }
       }
     }

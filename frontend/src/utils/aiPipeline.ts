@@ -5,7 +5,7 @@ export interface PipelineEvent {
   at: number;
 }
 
-export type PipelineVariant = 'optimize' | 'write' | 'edit_pdf' | 'improvement';
+export type PipelineVariant = 'optimize' | 'write' | 'edit_pdf' | 'improvement' | 'import';
 
 export type MilestoneStatus = 'pending' | 'active' | 'complete' | 'error';
 
@@ -63,6 +63,11 @@ export const PIPELINE_VARIANT_MILESTONES: Record<
     { id: 'prompt', label: 'Preparing prompt' },
     { id: 'refine', label: 'Applying improvements' },
     { id: 'display', label: 'Displaying resume' },
+  ],
+  import: [
+    { id: 'fetch', label: 'Reading profile / PDF' },
+    { id: 'extract', label: 'Extracting via Web AI' },
+    { id: 'merge', label: 'Merging into repository' },
   ],
 };
 
@@ -229,6 +234,32 @@ function applyImprovementEvent(event: PipelineEvent, state: FlowState) {
   }
 }
 
+function applyImportEvent(event: PipelineEvent, state: FlowState) {
+  const { step } = event;
+
+  if (step === 'error') {
+    state.errored = true;
+    return;
+  }
+
+  // fetch milestone: scrape done OR pdf attached
+  if (step === 'chat_ready' || step === 'pdf_attached' || step === 'attaching_pdf') {
+    state.completedThrough = Math.max(state.completedThrough, 0);
+    return;
+  }
+
+  // extract milestone: waiting for / got response
+  if (step === 'sent' || step === 'waiting' || step === 'response_detected') {
+    state.completedThrough = Math.max(state.completedThrough, 1);
+    return;
+  }
+
+  // merge milestone: parsing or done
+  if (step === 'parsing_json' || step === 'preview_ready') {
+    state.completedThrough = Math.max(state.completedThrough, 2);
+  }
+}
+
 function applyEvent(
   variant: PipelineVariant,
   event: PipelineEvent,
@@ -246,6 +277,9 @@ function applyEvent(
       break;
     case 'improvement':
       applyImprovementEvent(event, state);
+      break;
+    case 'import':
+      applyImportEvent(event, state);
       break;
     default:
       break;
