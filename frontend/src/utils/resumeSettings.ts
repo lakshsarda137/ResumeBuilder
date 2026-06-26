@@ -21,6 +21,13 @@ export interface ResumeRenderSettings {
   bodyFontSize: number;
   bulletFontSize: number;
   lineHeight: number;
+  pagePaddingTop: number;
+  pagePaddingLeft: number;
+  pagePaddingRight: number;
+  pagePaddingBottom: number;
+  sectionSpacing: number;
+  sectionHeaderSpacing: number;
+  entrySpacing: number;
   sectionHeadingBold: boolean;
   sectionHeadingItalic: boolean;
   sectionHeadingUppercase: boolean;
@@ -62,6 +69,13 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   bodyFontSize: 10.5,
   bulletFontSize: 10.5,
   lineHeight: 1.15,
+  pagePaddingTop: 0.5,
+  pagePaddingLeft: 0.55,
+  pagePaddingRight: 0.55,
+  pagePaddingBottom: 0.45,
+  sectionSpacing: 6,
+  sectionHeaderSpacing: 3,
+  entrySpacing: 4,
   sectionHeadingBold: true,
   sectionHeadingItalic: false,
   sectionHeadingUppercase: true,
@@ -110,6 +124,11 @@ export function mergeResumeRenderSettings(
 ): ResumeRenderSettings {
   const defaults = DEFAULT_RESUME_RENDER_SETTINGS;
   const templateIds = new Set(RESUME_RENDER_TEMPLATES.map((template) => template.id));
+  const legacyValue = value as
+    | (Partial<ResumeRenderSettings> & { pagePaddingHorizontal?: number })
+    | null
+    | undefined;
+  const legacyHorizontalPadding = legacyValue?.pagePaddingHorizontal;
   return {
     defaultTemplate:
       value?.defaultTemplate && templateIds.has(value.defaultTemplate)
@@ -153,6 +172,33 @@ export function mergeResumeRenderSettings(
     bodyFontSize: asNumber(value?.bodyFontSize, defaults.bodyFontSize, 8, 14),
     bulletFontSize: asNumber(value?.bulletFontSize, defaults.bulletFontSize, 8, 14),
     lineHeight: asNumber(value?.lineHeight, defaults.lineHeight, 1, 1.6),
+    pagePaddingTop: asNumber(value?.pagePaddingTop, defaults.pagePaddingTop, 0.35, 0.8),
+    pagePaddingLeft: asNumber(
+      value?.pagePaddingLeft ?? legacyHorizontalPadding,
+      defaults.pagePaddingLeft,
+      0.4,
+      0.8,
+    ),
+    pagePaddingRight: asNumber(
+      value?.pagePaddingRight ?? legacyHorizontalPadding,
+      defaults.pagePaddingRight,
+      0.4,
+      0.8,
+    ),
+    pagePaddingBottom: asNumber(
+      value?.pagePaddingBottom,
+      defaults.pagePaddingBottom,
+      0.35,
+      0.8,
+    ),
+    sectionSpacing: asNumber(value?.sectionSpacing, defaults.sectionSpacing, 3, 10),
+    sectionHeaderSpacing: asNumber(
+      value?.sectionHeaderSpacing,
+      defaults.sectionHeaderSpacing,
+      1,
+      6,
+    ),
+    entrySpacing: asNumber(value?.entrySpacing, defaults.entrySpacing, 1, 8),
     sectionHeadingBold: asBoolean(value?.sectionHeadingBold, defaults.sectionHeadingBold),
     sectionHeadingItalic: asBoolean(value?.sectionHeadingItalic, defaults.sectionHeadingItalic),
     sectionHeadingUppercase: asBoolean(value?.sectionHeadingUppercase, defaults.sectionHeadingUppercase),
@@ -217,6 +263,8 @@ export function buildSettingsInstructions(settings: ResumeRenderSettings): strin
   return [
     'Hard one page only.',
     `Use these section headings, in this order when supported by source material: ${settings.sectionHeadings.join(', ')}.`,
+    'Density contract: if source quality supports it, target 4-5 substantial experience/project entries and 11-13 total experience/project bullets. Do not underfill with only 2-3 entries or fewer than 10 bullets unless the selected source material is genuinely thin or irrelevant.',
+    'Use mostly 1-2 bullets per selected entry. Reserve 3 bullets only for the strongest and most job-relevant entry. Prefer adding one more source-supported high-signal bullet over leaving the resume sparse.',
     `Bullet-count contract for selected experience/project entries: use ${minBullets}-${maxBullets} bullet${maxBullets === 1 ? '' : 's'} per entry. This explicit setting overrides generic template guidance. If the resume would not fit one page, omit or merge lower-signal entries instead of exceeding ${maxBullets} bullet${maxBullets === 1 ? '' : 's'} on an entry.`,
     settings.defaultTemplate === 'keyword'
       ? keywordInstruction

@@ -11,7 +11,10 @@
 
 .resume-page {
   width: 8.5in;
-  padding: 0.5in 0.55in 0.45in;
+  padding: var(--resume-page-padding-top, 0.5in)
+    var(--resume-page-padding-right, 0.55in)
+    var(--resume-page-padding-bottom, 0.45in)
+    var(--resume-page-padding-left, 0.55in);
   background: #fff;
   color: #000;
   font-family: var(--resume-body-font, 'Times New Roman', Times, 'Liberation Serif', serif);
@@ -61,13 +64,13 @@
 
 /* Sections */
 .resume-section {
-  margin-top: 6pt;
+  margin-top: var(--resume-section-spacing, 6pt);
   position: relative;
 }
 
 .resume-section-header {
   border-bottom: 0.75pt solid #000;
-  margin-bottom: 3pt;
+  margin-bottom: var(--resume-section-header-spacing, 3pt);
   padding-bottom: 1pt;
 }
 
@@ -84,7 +87,7 @@
 
 /* Entries */
 .resume-entry {
-  margin-bottom: 4pt;
+  margin-bottom: var(--resume-entry-spacing, 4pt);
   position: relative;
 }
 

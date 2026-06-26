@@ -42,7 +42,7 @@ Extension version is in `extension/manifest.json` (currently **1.5.1**).
                                │ fetch /api/*
               ┌────────────────▼────────────────┐
               │  Express API  (localhost:3001)   │
-              │  server/index.cjs               │
+              │  backend/index.cjs              │
               │  better-sqlite3                  │
               │  ~/.resume-builder/data.db       │
               └─────────────────────────────────┘
@@ -120,7 +120,7 @@ ResumeBuilder/
 │       ├── jdNotes.ts              # Collect JD notes + anchor ids for sidebar
 │       ├── formatSelection.ts      # Selection helpers for FormatToolbar
 │       └── migrateResume.ts        # Legacy contact format migration
-├── server/
+├── backend/
 │   └── index.cjs                   # Express + better-sqlite3 API server (CommonJS)
 ├── extension/
 │   ├── manifest.json               # MV3 manifest
@@ -129,6 +129,7 @@ ResumeBuilder/
 │   ├── content-scrape.js           # On-demand profile/page text extraction (LinkedIn)
 │   ├── page-bridge.js              # Injected into page context (CSP-safe)
 │   └── content-llm.js              # DOM automation on LLM sites
+├── next_steps.md                   # Open product/prompt improvements to handle next
 └── Laksh_Sarda_Resume.pdf          # Original reference resume
 ```
 
@@ -163,7 +164,7 @@ ResumeBuilder/
 
 ### SQLite — `~/.resume-builder/data.db`
 
-Managed by `server/index.cjs` (better-sqlite3, WAL mode). Tables:
+Managed by `backend/index.cjs` (better-sqlite3, WAL mode). Tables:
 
 | Table | Purpose |
 |-------|---------|
@@ -179,7 +180,7 @@ Managed by `server/index.cjs` (better-sqlite3, WAL mode). Tables:
 
 ---
 
-## API routes (`server/index.cjs`)
+## API routes (`backend/index.cjs`)
 
 ```
 GET    /api/repo                           list all repo items
@@ -261,13 +262,16 @@ Opening `/resume` starts with a **wizard** (skip to editor anytime via **New bui
 2. Choose path:
    - **Optimize existing resume** — upload PDF + JD → one LLM call returns `{ baseline, optimized }`
    - **Build from repository** — choose build settings/custom conventions, then select freewrite sources from Repository + Ongoing (manual checkboxes or age filters)
-3. **Generate tailored resume** via Web AI (extension required)
-4. **AiResultModal** — id-scoped diff + preview with JD sidebar + post-generation renderer toggles + refine/apply
-5. **Editor** — inline edits; persistent Style panel; **AiPanel** for further Send PDF / improvements in linked chat
+3. **Preview prompt** — inspect/copy the exact prompt that will be sent before generation
+4. **Generate tailored resume** via Web AI (extension required)
+5. **AiResultModal** — id-scoped diff + preview with JD sidebar + post-generation renderer toggles + refine/apply
+6. **Editor** — inline edits; persistent Style panel; **AiPanel** for further Send PDF / improvements in linked chat
 
-Path A sends a single PDF-attached prompt that extracts the faithful baseline and optimized resume in one response, preserving the before/after diff without a second chat send. Path B sends **freewrite source material** (repo `mode=freewrite`; ongoing reflections or compiled freewrite), saved **Education Info** records/meta, a content-selection profile from `resumeBuildStyle.ts`, and user render/style preferences from `resumeSettings.ts`. Token estimates shown before generate. Repository builds refresh `/api/repo`, `/api/ongoing`, and `/api/education` immediately before prompt construction so saved UI edits are not replaced by stale wizard state.
+Path A sends a single PDF-attached prompt that extracts the faithful baseline and optimized resume in one response, preserving the before/after diff without a second chat send. Path B sends **freewrite source material** (repo `mode=freewrite`; ongoing reflections or compiled freewrite), saved **Education Info** records/meta, a content-selection profile from `resumeBuildStyle.ts`, and user render/style preferences from `resumeSettings.ts`. Token estimates are shown before generate. Repository builds and repository prompt preview both refresh `/api/repo`, `/api/ongoing`, and `/api/education` immediately before prompt construction so saved UI edits are not replaced by stale wizard state.
 
-Repository resume generation uses strict import-style JSON detection (`---JSON-START---` / `---JSON-END---`, balanced-object fallbacks, and substantive-content validation). Prompt schemas or placeholder JSON must never open an empty preview. The repository prompt has a hard one-page budget, must select high-signal entries instead of stuffing every source, must use saved education context rather than inventing education placeholders, and must not promote project/product URLs to personal contact links. Parser cleanup strips generated placeholder/editor artifacts such as `(edit)`, `Expected May 20XX`, and `GPA: X.XX` before content reaches the editor.
+Repository resume generation uses strict import-style JSON detection (`---JSON-START---` / `---JSON-END---`, balanced-object fallbacks, and substantive-content validation). Prompt schemas or placeholder JSON must never open an empty preview. The repository prompt has a hard one-page budget, targets 4-5 substantial entries and 11-13 total experience/project bullets when source quality supports it, must use saved education context rather than inventing education placeholders, and must not promote project/product URLs to personal contact links. Parser cleanup strips generated placeholder/editor artifacts such as `(edit)`, `Expected May 20XX`, and `GPA: X.XX` before content reaches the editor.
+
+Repository and Ongoing are separate editable pages. Matching records are kept visible as separate sources during generation; do not dedupe a repo freewrite source away just because an ongoing item has the same title/company/date. Open prompt-quality improvements such as action-verb variety, sparse evidence-driven bolding, source-number preservation, and measured one-page compression are tracked in `next_steps.md`.
 
 Generation does **not** lock the user into one visual template. The LLM returns `ResumeData` once; `AiResultModal`, the editor Style panel, and PDF export render that same JSON through the selected renderer.
 
@@ -292,17 +296,22 @@ Each change card shows:
 - **Template baseline**: LaTeX-style single column, US Letter (8.5×11in)
 - **WYSIWYG**: `EditableText` (`contentEditable`) on all fields; supports inline HTML (bold, italic, font, size)
 - **Post-apply style switching**: the editor toolbar's **Style** button opens a persistent style panel after generation/apply. Changing template, fonts, sizes, or italic/uppercase toggles updates the live preview and `#resume-export`.
-- **High-level style settings**: `ResumeRenderSettings` controls body/name/section-heading fonts, name/heading/body/bullet sizes, line height, section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, min/max bullets per experience, and generation notes.
+- **High-level style settings**: `ResumeRenderSettings` controls body/name/section-heading fonts, name/heading/body/bullet sizes, line height, page margins (top/right/bottom/left in inches), section/title-to-content/entry spacing (points), section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, min/max bullets per experience, and generation notes.
 - **Removed template**: stack-beside-names is intentionally gone. Do not reintroduce a layout that places a detected tech stack beside the entry name.
 - **Editor toolbar layout**: the top toolbar is a wrapping flex layout. Controls must wrap to a new row before they overlap; do not use a fixed grid that lets center/right controls collide.
 - **Editor chrome color**: after the editor opens, the toolbar, Style panel, and Web AI panel use the neutral/warm app palette. Do not reintroduce purple/blue panel backgrounds or purple primary actions in the editor chrome.
 - **Keyword renderer**: bolds configured keywords in the live editor and PDF export while preserving editable source text. Keyword emphasis is bold only: no color, background, highlight, or PDF annotation styling. Empty keyword terms are valid and must stay empty when the user clears the terms box.
+- **Generation bolding direction**: the LLM should not treat preferred keyword terms as a checklist. Future prompt updates should make bolding sparse and evidence-driven; see `next_steps.md`.
 - **Editor chrome**: `+ link`, `+ bullet`, `+ entry` buttons are `position: absolute` in the gray margin — they do **not** appear in PDF export
 - **`+ bullet` positioning**: sits at `bottom: 22px` on `.resume-entry` so it doesn't overlap the `+ entry` button which sits at `bottom: 0` on `.resume-section`
 
 ### Settings page (`SettingsPage.tsx`)
 
 `/settings` edits global defaults persisted under `resume-render-settings`. These defaults seed the wizard, result preview, editor Style panel, History snapshots, and PDF export. Wizard build settings can override them for a single generation; applying the generated resume carries those selected render settings into the editor. Min/max bullets per experience are prompt constraints for repository generation; they do not replace the editor's local one-page fit check.
+
+The Settings page includes a scaled live resume preview using the same `ResumeDocument` renderer as export, so margin, font, line-height, spacing, bold/italic, and template changes are visible before generation. Numeric labels include units: font and spacing controls are points, margins are inches, and line height is a unitless multiplier.
+
+All controlled number inputs keep a temporary typed draft so clearing and replacing a number does not immediately snap to clamped values while the user is mid-edit. Sanitized values are still saved back through `mergeResumeRenderSettings` when the draft is valid and synced back on blur/reset.
 
 ### Format toolbar (`FormatToolbar.tsx`)
 
@@ -521,10 +530,14 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | "Send button stayed disabled" after provider generated anyway | Submit verifier read a stale pre-submit composer node | Re-query live composer, poll for streaming/rendered prompt, and accept late parseable response evidence in `content-llm.js` |
 | Stale "Waiting for response" while provider is backgrounded | Provider has not visibly started generation in the hidden tab, or the UI throttled until the provider tab was viewed | Surface the background-tab waiting label; only treat as detection failure if generation finishes and capture still fails |
 | Repository edits not sent to LLM | Wizard used cached source arrays loaded before the user saved edits | Repository generation refetches repo, ongoing, and education immediately before building the prompt |
+| Repo edit hidden by matching Ongoing item | Source dedupe preferred ongoing over repo for same identity | Repo and ongoing sources keep `kind` in their identity key, so both remain visible/sendable |
+| Numeric Settings input jumps while typing | Controlled input saved through clamping/rounding on every keystroke | Keep a typed draft for each number input and sanitize on valid values/blur |
+| Need to inspect LLM input before spend | Prompt was built only inside the send path | Wizard has **Preview prompt**, using the same fresh prompt path as generation |
 | Generated resume has `(edit)` / fake GPA / fake contact | Prompt allowed editable placeholders or education/contact context was missing | Repository generation includes `/api/education`, prompt forbids visible editor notes, parser strips known placeholder artifacts |
 | Generated resume omits education | Wizard only sent repository/ongoing freewrite | Repository generation now sends saved Education Info records and meta notes with the prompt |
 | Applied resume cannot change template/style | Style controls existed only before generation | Editor toolbar **Style** panel changes renderer/fonts/sizes/toggles after apply and drives PDF export |
 | Downloaded PDF truncated at bottom | Export clipped text outside the single page without warning | Editor shows under/fit/over one-page status and `pdf.ts` blocks export when rendered content exceeds one page |
+| Resume is barely over one page | Small overflow can often be solved by layout, not content deletion | Editor can apply deterministic small-overflow fit tweaks up to 105% usage; larger overflow requires content edits/compression |
 | Purple/blue editor panel returned | `AiPanel.css` had its own hardcoded slate/purple colors outside the toolbar CSS | Keep `AiPanel.css`, `ResumeEditor.css`, and `FormatToolbar.css` on the neutral/warm palette; verify on an actual editor session |
 | Top toolbar controls overlap | Fixed grid columns let toolbar center/right groups collide at wide-but-crowded widths | Toolbar uses wrapping flex layout with constrained select width; verify with a saved session and JD notes visible |
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
@@ -548,6 +561,7 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 npm run dev       # API server (port 3001) + Vite dev server (port 5173) — use this
 npm run dev:ui    # Vite only (no API — repo/ongoing/history features won't work)
 npm run server    # API server only
+npm run estimate:line-budget # estimate current render characters per line
 npm run build     # tsc + vite build → dist/
 npm run lint      # ESLint
 ```
@@ -558,7 +572,7 @@ npm run lint      # ESLint
 
 - **React 19** + TypeScript + Vite 8
 - **react-router-dom v7** — client-side routing
-- **Express 5** + **better-sqlite3** — local API server (`server/index.cjs`, CommonJS)
+- **Express 5** + **better-sqlite3** — local API server (`backend/index.cjs`, CommonJS)
 - **Custom text-PDF writer** (`frontend/src/utils/pdf.ts`) — selectable client-side PDF export/send
 - **lucide-react** — icons
 - **concurrently** — runs API + Vite together
@@ -572,6 +586,8 @@ npm run lint      # ESLint
 ### Safe to change
 
 - `ResumeDocument.css` / canvas layout in `ResumeEditor.css` — toolbar is 8.5in wide above page; test PDF export after
+- `resumeFitModerator.ts` — deterministic layout-only small-overflow fitting; keep it conservative and re-measure after applying
+- `scripts/estimate-resume-line-budget.mjs` — heuristic line-budget estimator for prompt/layout tuning; renderer measurement remains source of truth
 - `FormatToolbar.tsx` / `formatSelection.ts` — selection must be preserved for dropdowns
 - `JdNotesPanel` highlight uses `data-jd-anchor` on `ResumeDocument` — keep ids in sync with `jdNotes.ts`
 - Prompt wording in `aiPrompt.ts`
@@ -591,7 +607,7 @@ npm run lint      # ESLint
 - `resumeDiff.ts` — match by stable ids only; never compare by section/entry index
 - `useAiBridge` message protocol — must stay in sync with the extension
 - `ResumeData` schema — update prompt, parser, and normalizer together
-- `server/index.cjs` schema changes — better-sqlite3 won't auto-migrate; handle manually or add migration logic
+- `backend/index.cjs` schema changes — better-sqlite3 won't auto-migrate; handle manually or add migration logic
 - `+ bullet` CSS position (`bottom: 22px`) — was deliberately offset to not overlap `+ entry`; don't reset to 0
 
 ### Do not do without user request
@@ -601,7 +617,7 @@ npm run lint      # ESLint
 - Inline script injection in extension (CSP blocks it)
 - Put JD comments inline on the resume page (sidebar only; hidden in PDF)
 - Put editor controls or format toolbar inside `.resume-page` document flow
-- Move the API server to ESM (`"type": "module"` in package.json would break `server/index.cjs`)
+- Move the API server to ESM (`"type": "module"` in package.json would break `backend/index.cjs`)
 
 ### Pages not yet built — intended design
 
@@ -615,15 +631,18 @@ npm run lint      # ESLint
 2. Download PDF → content present, single page, text selectable/extractable, 0 full-page image export
 3. Reload extension → refresh app → Bridge ready
 4. Wizard: optimize PDF with JD → one provider send returns baseline + optimized preview; step tracker advances correctly
-5. Wizard: build from repository → freewrite sources only → preview modal with JD sidebar highlight
-6. Editor: select text → font/size dropdowns apply; bold/italic work
-7. JD notes toggle → sidebar + hover/click highlight; hidden in PDF download
-8. Send PDF / improvement in editor → step circles below panel → linked chat refinements work
-9. Apply AI edits → version saved to `resume_versions`
-10. **Save** session → name on first save → **History** open restores editor state
-11. Repository **Import** PDF → freewrite entries created/merged; ongoing roles cross-linked on Ongoing page
-12. Repository + Ongoing CRUD survives reload
-13. `npm run dev` — both servers start; `/api/repo` returns `[]` not HTML
+5. Wizard: Preview prompt → repository path refetches saved repo/ongoing/education and shows copied prompt text before generation
+6. Wizard: build from repository → freewrite sources only → preview modal with JD sidebar highlight
+7. Settings: tweak margins/font/spacing → live mini preview updates; clearing/retyping numeric values does not snap mid-edit
+8. Editor: select text → font/size dropdowns apply; bold/italic work
+9. JD notes toggle → sidebar + hover/click highlight; hidden in PDF download
+10. Page fit over by <=105% → **Fit small overflow** applies deterministic layout tweaks and re-measures
+11. Send PDF / improvement in editor → step circles below panel → linked chat refinements work
+12. Apply AI edits → version saved to `resume_versions`
+13. **Save** session → name on first save → **History** open restores editor state
+14. Repository **Import** PDF → freewrite entries created/merged; current/ongoing entries created or updated on Ongoing page
+15. Repository + Ongoing CRUD survives reload
+16. `npm run dev` — both servers start; `/api/repo` returns `[]` not HTML
 
 ---
 

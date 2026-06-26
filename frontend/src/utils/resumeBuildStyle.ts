@@ -18,13 +18,14 @@ export const RESUME_BUILD_TEMPLATES: ResumeBuildStyleProfile[] = [
     name: 'Jake-style classic',
     summary: 'Dense, clean one-page SWE resume with understated headings.',
     font: 'Times New Roman / LaTeX-style serif, compact 10-10.5pt body.',
-    pageBudget: 'Hard one-page resume. Prefer 5-6 total entries, 12-15 bullets total, and compact skills. Never produce content likely to exceed one page.',
+    pageBudget: 'Hard one-page resume. Target 4-5 substantial entries and 11-13 experience/project bullets when source quality supports it. Never underfill with only 2-3 entries unless the source material is genuinely thin.',
     sectionOrder: ['Education', 'Experience', 'Projects', 'Technical Skills'],
     selectionRules: [
       'Prioritize depth over breadth: include only entries with enough source detail for credible bullets.',
       'Do not include weak entries just because they exist in the repository.',
       'If an entry has almost no task/project detail, omit it unless the job description makes it essential.',
-      'Use 1-3 bullets per selected entry. Do not give one entry 4 bullets while other entries stay thin; if a fourth bullet seems useful, include another strong entry or redistribute content instead.',
+      'Use mostly 1-2 bullets per selected entry. Reserve 3 bullets only for the strongest and most job-relevant entry.',
+      'Do not leave the resume sparse: if high-signal source material remains and the selected set is under 10 bullets, add another truthful bullet or entry before finalizing.',
       'Projects should compete with experience for space; do not stuff every project into the resume.',
     ],
     formattingRules: [
@@ -72,13 +73,14 @@ export const RESUME_BUILD_TEMPLATES: ResumeBuildStyleProfile[] = [
     name: 'Technical keyword forward',
     summary: 'One-page resume with restrained technical emphasis and concise subtitles.',
     font: 'Times-style serif, concise technical subtitles.',
-    pageBudget: 'Hard one-page resume. Use 5-6 entries, 12-15 bullets total, and compact technical subtitles.',
+    pageBudget: 'Hard one-page resume. Target 4-5 substantial entries, 11-13 bullets total, and compact technical subtitles when source quality supports it.',
     sectionOrder: ['Education', 'Experience', 'Projects', 'Technical Skills'],
     selectionRules: [
       'Select entries with both technical depth and job relevance.',
       'Do not include entries with only title/date/company and no implementation detail.',
       'Favor entries whose source material names systems, architecture, tools, metrics, or measurable impact.',
-      'Limit weaker entries to one bullet or omit them. Use 1-3 bullets per selected entry, never 4.',
+      'Limit weaker entries to one bullet or omit them. Use mostly 1-2 bullets per selected entry, reserve 3 only for the strongest entry, and never use 4.',
+      'Do not underfill: if high-signal technical material remains and the selected set is under 10 bullets, include another truthful bullet or entry before finalizing.',
     ],
     formattingRules: [
       'List concise tools in subtitles for experiences/projects only when the source supports them; the subtitle must stay on the line below the title.',

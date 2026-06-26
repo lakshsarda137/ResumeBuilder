@@ -240,3 +240,56 @@ Correct fix:
 - show under/fit/over one-page status in the editor,
 - block export/send when rendered content is over one page instead of creating a truncated PDF,
 - keep the text-PDF writer path; do not return to canvas/raster export.
+
+---
+
+## Session: Wizard Source Preview / Generation Quality Follow-Up (2026-06-26)
+
+### Repo and Ongoing source masking
+Repository and Ongoing are separate user-editable pages. The prior source dedupe treated matching repo and ongoing records as one identity and preferred ongoing, which could hide an edited repository freewrite source from the LLM prompt.
+
+Correct fix:
+- keep `source.kind` in the repository-source identity key,
+- keep matching repo and ongoing records visible as separate selectable sources,
+- refetch repo, ongoing, and education before both generation and prompt preview.
+
+### Prompt preview was needed before spending provider tokens
+The user needed to inspect the exact prompt before resume generation, especially after stale-source and source-masking bugs.
+
+Correct fix:
+- add a wizard **Preview prompt** button,
+- for repository mode, build the preview through the same fresh source path as Generate,
+- include copy support so the prompt can be audited outside the modal.
+
+### Numeric bullet settings fought normal typing
+Min/max bullet controls were controlled number inputs whose values were passed through `mergeResumeRenderSettings` on every keystroke. Clearing or replacing a value could immediately clamp/round it and make the UI appear to "throw its own numbers."
+
+Correct fix:
+- keep a typed draft string for min/max bullet inputs,
+- update sanitized settings only when the draft is a valid finite value,
+- sync the visible draft back to sanitized settings on blur/reset.
+
+### Render setting number inputs repeated the same typing bug
+The same controlled-number-input mistake came back when margin, font-size, line-height, and spacing controls were added. Each input used the sanitized `settings` value directly and called `mergeResumeRenderSettings` on every keystroke. Pressing backspace produced an empty string, `Number('')` became `0`, and the merge/clamp logic immediately snapped the input to its minimum value. The user could not clear a field and type a replacement naturally.
+
+Correct fix:
+- every controlled numeric setting needs a typed draft string, not just bullet min/max,
+- update persisted/sanitized settings only when the draft parses as a finite number,
+- leave blank/partial drafts visible while the user is editing,
+- sync the draft back to the sanitized setting on blur/reset,
+- do not wire new number inputs directly to clamped settings values.
+
+### Remaining generation quality work
+The generated resume still showed prompt-quality problems:
+- repeated bullet-opening action verbs,
+- poor automatic bolding,
+- over-reliance on preferred keyword terms,
+- omission of useful source-supported numbers,
+- output measuring about 115% of one page.
+
+Documented next steps:
+- add an action-verb self-audit,
+- make bolding sparse and evidence-driven instead of keyword-list-driven,
+- prioritize preserving source metrics and numbers,
+- target 85-92% first-pass page fullness,
+- use measured overflow for a second compression pass when needed.

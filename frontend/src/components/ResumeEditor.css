@@ -250,6 +250,12 @@
   padding-inline: 10px;
 }
 
+.toolbar-btn--fit {
+  padding-inline: 10px;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  color: #fecaca;
+}
+
 .editor-style-panel {
   display: grid;
   grid-template-columns:

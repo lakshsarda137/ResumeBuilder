@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import {
   Download,
@@ -24,6 +25,10 @@ import {
 } from '../utils/pdf';
 import { resumeHasJdNotes } from '../utils/jdNotes';
 import { getDefaultAiUserPrompt } from '../utils/aiPrompt';
+import {
+  buildSmallOverflowFitSettings,
+  canModerateSmallOverflow,
+} from '../utils/resumeFitModerator';
 import {
   RESUME_RENDER_TEMPLATES,
   loadResumeRenderSettings,
@@ -68,6 +73,13 @@ function pageFitText(fit: ResumePageFit | null) {
   return `Fits 1 page (${percent}%)`;
 }
 
+function pageFitTitle(fit: ResumePageFit | null) {
+  if (!fit) {
+    return 'Measured from the PDF export layout';
+  }
+  return `Measured from the PDF export layout: ${(fit.usageRatio * 100).toFixed(1)}% used`;
+}
+
 function loadShowJdNotes(): boolean {
   try {
     const stored = localStorage.getItem(SHOW_JD_NOTES_KEY);
@@ -102,6 +114,7 @@ export function ResumeEditor() {
   const [renderSettings, setRenderSettingsState] = useState(loadResumeRenderSettings);
   const [stylePanelOpen, setStylePanelOpen] = useState(false);
   const [pageFit, setPageFit] = useState<ResumePageFit | null>(null);
+  const [fitModeratorNotice, setFitModeratorNotice] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.85);
   const [exporting, setExporting] = useState(false);
   const [aiPanelBusy, setAiPanelBusy] = useState(false);
@@ -123,7 +136,22 @@ export function ResumeEditor() {
 
   const updateRenderSettings = useCallback(
     (patch: Partial<ResumeRenderSettings>) => {
+      setFitModeratorNotice(null);
       setRenderSettings(mergeResumeRenderSettings({ ...renderSettings, ...patch }));
+    },
+    [renderSettings, setRenderSettings],
+  );
+
+  const applySmallOverflowFit = useCallback(
+    (fit: ResumePageFit) => {
+      const result = buildSmallOverflowFitSettings(renderSettings, fit);
+      if (!result.changed) {
+        setFitModeratorNotice(result.message);
+        return result;
+      }
+      setRenderSettings(result.settings);
+      setFitModeratorNotice(result.message);
+      return result;
     },
     [renderSettings, setRenderSettings],
   );
@@ -337,8 +365,19 @@ export function ResumeEditor() {
   const handleDownload = useCallback(async () => {
     setExporting(true);
     try {
-      const fit = await inspectResumePageFit('resume-export');
+      let fit = await inspectResumePageFit('resume-export');
       setPageFit(fit);
+      if (canModerateSmallOverflow(fit)) {
+        const result = buildSmallOverflowFitSettings(renderSettings, fit);
+        if (result.changed) {
+          flushSync(() => {
+            setRenderSettings(result.settings);
+            setFitModeratorNotice(result.message);
+          });
+          fit = await inspectResumePageFit('resume-export');
+          setPageFit(fit);
+        }
+      }
       if (fit.status === 'over') {
         const overflowInches = fit.overflowPt / 72;
         alert(
@@ -353,7 +392,7 @@ export function ResumeEditor() {
     } finally {
       setExporting(false);
     }
-  }, [resumeFilename]);
+  }, [renderSettings, resumeFilename, setRenderSettings]);
 
   const handleWizardComplete = useCallback(
     (
@@ -503,10 +542,24 @@ export function ResumeEditor() {
           </button>
           <span
             className={`editor-page-fit editor-page-fit--${pageFit?.status ?? 'checking'}`}
-            title="Measured from the PDF export layout"
+            title={pageFitTitle(pageFit)}
           >
             {pageFitText(pageFit)}
           </span>
+          {canModerateSmallOverflow(pageFit) ? (
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn--fit"
+              onClick={() => {
+                if (pageFit) {
+                  applySmallOverflowFit(pageFit);
+                }
+              }}
+              title="Apply deterministic spacing and size tweaks for small overflow"
+            >
+              Fit small overflow
+            </button>
+          ) : null}
           <button
             type="button"
             className={`toolbar-btn toolbar-btn--style${stylePanelOpen ? ' toolbar-btn--toggle-on' : ''}`}
@@ -519,9 +572,9 @@ export function ResumeEditor() {
         </div>
 
         <div className="editor-toolbar-right">
-          {saveFlash ? (
+          {fitModeratorNotice || saveFlash ? (
             <span className="editor-save-toast" role="status" aria-live="polite">
-              {saveFlash}
+              {fitModeratorNotice ?? saveFlash}
             </span>
           ) : null}
           <button
@@ -647,7 +700,7 @@ export function ResumeEditor() {
               </select>
             </label>
             <label className="editor-style-field editor-style-field--number">
-              <span>Name</span>
+              <span>Name (pt)</span>
               <input
                 type="number"
                 min={16}
@@ -660,7 +713,7 @@ export function ResumeEditor() {
               />
             </label>
             <label className="editor-style-field editor-style-field--number">
-              <span>Headings</span>
+              <span>Headings (pt)</span>
               <input
                 type="number"
                 min={8}
@@ -673,7 +726,7 @@ export function ResumeEditor() {
               />
             </label>
             <label className="editor-style-field editor-style-field--number">
-              <span>Body</span>
+              <span>Body (pt)</span>
               <input
                 type="number"
                 min={8}

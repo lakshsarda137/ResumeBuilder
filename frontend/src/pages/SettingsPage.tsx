@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { RotateCcw, SlidersHorizontal } from 'lucide-react';
+import type { ResumeData } from '../types/resume';
+import { makeBullet } from '../types/resume';
 import {
   DEFAULT_RESUME_RENDER_SETTINGS,
   RESUME_RENDER_TEMPLATES,
@@ -9,6 +11,7 @@ import {
   saveResumeRenderSettings,
   type ResumeRenderSettings,
 } from '../utils/resumeSettings';
+import { ResumeDocument } from '../components/ResumeDocument';
 import './SettingsPage.css';
 
 const FONT_OPTIONS = [
@@ -19,6 +22,95 @@ const FONT_OPTIONS = [
   'Arial',
   'Inter',
 ];
+
+const SETTINGS_PREVIEW_RESUME: ResumeData = {
+  contact: {
+    name: 'Sample Candidate',
+    links: [
+      { id: 'preview-email', value: 'candidate@email.com' },
+      { id: 'preview-linkedin', value: 'linkedin.com/in/candidate' },
+      { id: 'preview-location', value: 'Houston, TX' },
+    ],
+  },
+  sections: [
+    {
+      id: 'preview-education',
+      type: 'education',
+      title: 'Education',
+      entries: [
+        {
+          id: 'preview-edu-1',
+          title: 'Rice University',
+          location: 'Houston, TX',
+          date: 'Aug 2025 - May 2029',
+          subtitle: 'B.S. in Computer Science and Mathematics',
+          bullets: [
+            makeBullet('GPA: 4.0/4.0; Relevant Coursework: Algorithms, Data Science, Linear Algebra.'),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'preview-experience',
+      type: 'experience',
+      title: 'Experience',
+      entries: [
+        {
+          id: 'preview-exp-1',
+          title: 'Product Engineering Intern',
+          location: 'Remote',
+          date: 'May 2026 - Aug 2026',
+          subtitle: 'React, TypeScript, FastAPI, PostgreSQL',
+          bullets: [
+            makeBullet(
+              'Built workflow tooling that reduced review latency by 35% across production dashboards.',
+            ),
+            makeBullet(
+              'Improved data validation and API error handling for 10k+ monthly user actions.',
+            ),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'preview-projects',
+      type: 'projects',
+      title: 'Projects',
+      entries: [
+        {
+          id: 'preview-project-1',
+          title: 'Resume Builder',
+          location: '',
+          date: '2026',
+          subtitle: 'React, Chrome Extension, PDF Export',
+          bullets: [
+            makeBullet(
+              'Created a local-first resume editor with AI-assisted generation and selectable text PDF export.',
+            ),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'preview-skills',
+      type: 'skills',
+      title: 'Technical Skills',
+      entries: [],
+      skills: [
+        {
+          id: 'preview-skills-1',
+          label: 'Languages',
+          items: 'Python, TypeScript, SQL, Java',
+        },
+        {
+          id: 'preview-skills-2',
+          label: 'Tools',
+          items: 'React, FastAPI, PostgreSQL, Docker, AWS',
+        },
+      ],
+    },
+  ],
+};
 
 function SettingToggle({
   label,
@@ -48,12 +140,205 @@ function updateSetting(
   return mergeResumeRenderSettings({ ...settings, ...patch });
 }
 
-export function SettingsPage() {
-  const [settings, setSettingsState] = useState(loadResumeRenderSettings);
+function bulletDraftsFromSettings(settings: ResumeRenderSettings) {
+  return {
+    min: String(settings.minBulletsPerExperience),
+    max: String(settings.maxBulletsPerExperience),
+  };
+}
 
-  function setSettings(next: ResumeRenderSettings) {
-    setSettingsState(next);
+type NumericSettingKey =
+  | 'nameFontSize'
+  | 'headingFontSize'
+  | 'bodyFontSize'
+  | 'bulletFontSize'
+  | 'lineHeight'
+  | 'pagePaddingLeft'
+  | 'pagePaddingRight'
+  | 'pagePaddingTop'
+  | 'pagePaddingBottom'
+  | 'sectionSpacing'
+  | 'sectionHeaderSpacing'
+  | 'entrySpacing';
+
+function numericDraftsFromSettings(settings: ResumeRenderSettings) {
+  return {
+    nameFontSize: String(settings.nameFontSize),
+    headingFontSize: String(settings.headingFontSize),
+    bodyFontSize: String(settings.bodyFontSize),
+    bulletFontSize: String(settings.bulletFontSize),
+    lineHeight: String(settings.lineHeight),
+    pagePaddingLeft: String(settings.pagePaddingLeft),
+    pagePaddingRight: String(settings.pagePaddingRight),
+    pagePaddingTop: String(settings.pagePaddingTop),
+    pagePaddingBottom: String(settings.pagePaddingBottom),
+    sectionSpacing: String(settings.sectionSpacing),
+    sectionHeaderSpacing: String(settings.sectionHeaderSpacing),
+    entrySpacing: String(settings.entrySpacing),
+  } satisfies Record<NumericSettingKey, string>;
+}
+
+function clampInteger(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+export function SettingsPage() {
+  const [{ settings, bulletDrafts, numericDrafts }, setPageState] = useState(() => {
+    const initialSettings = loadResumeRenderSettings();
+    return {
+      settings: initialSettings,
+      bulletDrafts: bulletDraftsFromSettings(initialSettings),
+      numericDrafts: numericDraftsFromSettings(initialSettings),
+    };
+  });
+
+  function setSettings(
+    next: ResumeRenderSettings,
+    syncBulletDrafts = false,
+    syncNumericDrafts = false,
+  ) {
+    setPageState((current) => ({
+      settings: next,
+      bulletDrafts: syncBulletDrafts
+        ? bulletDraftsFromSettings(next)
+        : current.bulletDrafts,
+      numericDrafts: syncNumericDrafts
+        ? numericDraftsFromSettings(next)
+        : current.numericDrafts,
+    }));
     saveResumeRenderSettings(next);
+  }
+
+  function updateBulletSetting(
+    field: 'minBulletsPerExperience' | 'maxBulletsPerExperience',
+    rawValue: string,
+  ) {
+    setPageState((current) => ({
+      ...current,
+      bulletDrafts: {
+        ...current.bulletDrafts,
+        [field === 'minBulletsPerExperience' ? 'min' : 'max']: rawValue,
+      },
+    }));
+
+    if (!rawValue.trim()) {
+      return;
+    }
+
+    const numericValue = Number(rawValue);
+    if (!Number.isFinite(numericValue)) {
+      return;
+    }
+
+    const patch: Partial<ResumeRenderSettings> = {};
+    if (field === 'minBulletsPerExperience') {
+      const minBullets = clampInteger(numericValue, 1, 5);
+      patch.minBulletsPerExperience = minBullets;
+      if (settings.maxBulletsPerExperience < minBullets) {
+        patch.maxBulletsPerExperience = minBullets;
+      }
+    } else {
+      const maxBullets = clampInteger(numericValue, 1, 6);
+      patch.maxBulletsPerExperience = maxBullets;
+      if (settings.minBulletsPerExperience > maxBullets) {
+        patch.minBulletsPerExperience = maxBullets;
+      }
+    }
+
+    const next = updateSetting(settings, patch);
+    setPageState((current) => ({
+      settings: next,
+      bulletDrafts: {
+        min:
+          field === 'minBulletsPerExperience'
+            ? rawValue
+            : String(next.minBulletsPerExperience),
+        max:
+          field === 'maxBulletsPerExperience'
+            ? rawValue
+            : String(next.maxBulletsPerExperience),
+      },
+      numericDrafts: current.numericDrafts,
+    }));
+    saveResumeRenderSettings(next);
+  }
+
+  function updateNumericSetting(field: NumericSettingKey, rawValue: string) {
+    setPageState((current) => ({
+      ...current,
+      numericDrafts: {
+        ...current.numericDrafts,
+        [field]: rawValue,
+      },
+    }));
+
+    if (!rawValue.trim()) {
+      return;
+    }
+
+    const numericValue = Number(rawValue);
+    if (!Number.isFinite(numericValue)) {
+      return;
+    }
+
+    const next = updateSetting(settings, {
+      [field]: numericValue,
+    } as Partial<ResumeRenderSettings>);
+    setPageState((current) => ({
+      settings: next,
+      bulletDrafts: current.bulletDrafts,
+      numericDrafts: {
+        ...current.numericDrafts,
+        [field]: rawValue,
+      },
+    }));
+    saveResumeRenderSettings(next);
+  }
+
+  function syncBulletDrafts() {
+    setPageState((current) => ({
+      ...current,
+      bulletDrafts: bulletDraftsFromSettings(current.settings),
+    }));
+  }
+
+  function syncNumericDraft(field: NumericSettingKey) {
+    setPageState((current) => ({
+      ...current,
+      numericDrafts: {
+        ...current.numericDrafts,
+        [field]: String(current.settings[field]),
+      },
+    }));
+  }
+
+  function renderNumberField({
+    label,
+    field,
+    min,
+    max,
+    step,
+  }: {
+    label: string;
+    field: NumericSettingKey;
+    min: number;
+    max: number;
+    step: number;
+  }) {
+    return (
+      <label className="field">
+        <span>{label}</span>
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={numericDrafts[field]}
+          onChange={(event) => updateNumericSetting(field, event.target.value)}
+          onBlur={() => syncNumericDraft(field)}
+        />
+      </label>
+    );
   }
 
   return (
@@ -69,7 +354,7 @@ export function SettingsPage() {
         <button
           type="button"
           className="btn btn--secondary"
-          onClick={() => setSettings(DEFAULT_RESUME_RENDER_SETTINGS)}
+          onClick={() => setSettings(DEFAULT_RESUME_RENDER_SETTINGS, true, true)}
         >
           <RotateCcw size={14} />
           Reset
@@ -134,14 +419,11 @@ export function SettingsPage() {
               min={1}
               max={5}
               step={1}
-              value={settings.minBulletsPerExperience}
+              value={bulletDrafts.min}
               onChange={(event) =>
-                setSettings(
-                  updateSetting(settings, {
-                    minBulletsPerExperience: Number(event.target.value),
-                  }),
-                )
+                updateBulletSetting('minBulletsPerExperience', event.target.value)
               }
+              onBlur={syncBulletDrafts}
             />
           </label>
           <label className="field">
@@ -151,14 +433,11 @@ export function SettingsPage() {
               min={1}
               max={6}
               step={1}
-              value={settings.maxBulletsPerExperience}
+              value={bulletDrafts.max}
               onChange={(event) =>
-                setSettings(
-                  updateSetting(settings, {
-                    maxBulletsPerExperience: Number(event.target.value),
-                  }),
-                )
+                updateBulletSetting('maxBulletsPerExperience', event.target.value)
               }
+              onBlur={syncBulletDrafts}
             />
           </label>
         </div>
@@ -270,6 +549,30 @@ export function SettingsPage() {
 
       <section className="card settings-card">
         <h2>Type Settings</h2>
+        <div className="settings-preview">
+          <div className="settings-preview-toolbar">
+            <span>Live preview</span>
+            <div className="settings-preview-metrics" aria-label="Current page measurements">
+              <span>T {settings.pagePaddingTop}in</span>
+              <span>R {settings.pagePaddingRight}in</span>
+              <span>B {settings.pagePaddingBottom}in</span>
+              <span>L {settings.pagePaddingLeft}in</span>
+              <span>{settings.bodyFontSize}pt</span>
+              <span>{settings.lineHeight}x</span>
+            </div>
+          </div>
+          <div className="settings-preview-frame">
+            <div className="settings-preview-scale">
+              <ResumeDocument
+                data={SETTINGS_PREVIEW_RESUME}
+                onChange={() => {}}
+                editing={false}
+                id="settings-preview-resume"
+                settings={settings}
+              />
+            </div>
+          </div>
+        </div>
         <div className="settings-grid">
           <label className="field">
             <span>Body font</span>
@@ -328,91 +631,90 @@ export function SettingsPage() {
               ))}
             </select>
           </label>
-          <label className="field">
-            <span>Name size</span>
-            <input
-              type="number"
-              min={16}
-              max={32}
-              step={0.5}
-              value={settings.nameFontSize}
-              onChange={(event) =>
-                setSettings(
-                  updateSetting(settings, {
-                    nameFontSize: Number(event.target.value),
-                  }),
-                )
-              }
-            />
-          </label>
-          <label className="field">
-            <span>Heading size</span>
-            <input
-              type="number"
-              min={8}
-              max={16}
-              step={0.5}
-              value={settings.headingFontSize}
-              onChange={(event) =>
-                setSettings(
-                  updateSetting(settings, {
-                    headingFontSize: Number(event.target.value),
-                  }),
-                )
-              }
-            />
-          </label>
-          <label className="field">
-            <span>Body size</span>
-            <input
-              type="number"
-              min={8}
-              max={14}
-              step={0.25}
-              value={settings.bodyFontSize}
-              onChange={(event) =>
-                setSettings(
-                  updateSetting(settings, {
-                    bodyFontSize: Number(event.target.value),
-                  }),
-                )
-              }
-            />
-          </label>
-          <label className="field">
-            <span>Bullet size</span>
-            <input
-              type="number"
-              min={8}
-              max={14}
-              step={0.25}
-              value={settings.bulletFontSize}
-              onChange={(event) =>
-                setSettings(
-                  updateSetting(settings, {
-                    bulletFontSize: Number(event.target.value),
-                  }),
-                )
-              }
-            />
-          </label>
-          <label className="field">
-            <span>Line height</span>
-            <input
-              type="number"
-              min={1}
-              max={1.6}
-              step={0.01}
-              value={settings.lineHeight}
-              onChange={(event) =>
-                setSettings(
-                  updateSetting(settings, {
-                    lineHeight: Number(event.target.value),
-                  }),
-                )
-              }
-            />
-          </label>
+          {renderNumberField({
+            label: 'Name size (pt)',
+            field: 'nameFontSize',
+            min: 16,
+            max: 32,
+            step: 0.5,
+          })}
+          {renderNumberField({
+            label: 'Heading size (pt)',
+            field: 'headingFontSize',
+            min: 8,
+            max: 16,
+            step: 0.5,
+          })}
+          {renderNumberField({
+            label: 'Body size (pt)',
+            field: 'bodyFontSize',
+            min: 8,
+            max: 14,
+            step: 0.25,
+          })}
+          {renderNumberField({
+            label: 'Bullet size (pt)',
+            field: 'bulletFontSize',
+            min: 8,
+            max: 14,
+            step: 0.25,
+          })}
+          {renderNumberField({
+            label: 'Line height (x)',
+            field: 'lineHeight',
+            min: 1,
+            max: 1.6,
+            step: 0.01,
+          })}
+          {renderNumberField({
+            label: 'Left margin (in)',
+            field: 'pagePaddingLeft',
+            min: 0.4,
+            max: 0.8,
+            step: 0.01,
+          })}
+          {renderNumberField({
+            label: 'Right margin (in)',
+            field: 'pagePaddingRight',
+            min: 0.4,
+            max: 0.8,
+            step: 0.01,
+          })}
+          {renderNumberField({
+            label: 'Top margin (in)',
+            field: 'pagePaddingTop',
+            min: 0.35,
+            max: 0.8,
+            step: 0.01,
+          })}
+          {renderNumberField({
+            label: 'Bottom margin (in)',
+            field: 'pagePaddingBottom',
+            min: 0.35,
+            max: 0.8,
+            step: 0.01,
+          })}
+          {renderNumberField({
+            label: 'Before section gap (pt)',
+            field: 'sectionSpacing',
+            min: 3,
+            max: 10,
+            step: 0.5,
+          })}
+          {renderNumberField({
+            label: 'Title-to-content gap (pt)',
+            field: 'sectionHeaderSpacing',
+            min: 1,
+            max: 6,
+            step: 0.5,
+          })}
+          {renderNumberField({
+            label: 'Entry spacing (pt)',
+            field: 'entrySpacing',
+            min: 1,
+            max: 8,
+            step: 0.5,
+          })}
         </div>
       </section>
     </div>
