@@ -250,6 +250,10 @@ function appendImportBlock(existing: string, incoming: string, sourceLabel: stri
   return `${existing.trim()}${header}${block}`;
 }
 
+function isExplicitMergeTarget(entry: RepoImportEntry, match: { id: string }): boolean {
+  return Boolean(entry.merge_target_id?.trim() && entry.merge_target_id.trim() === match.id);
+}
+
 function splitDiffLines(value: string): string[] {
   return value.replace(/\r\n/g, '\n').split('\n');
 }
@@ -452,22 +456,47 @@ export function planRepoImportMerge(
     const match = findImportMatch(candidates, entry);
 
     if (match) {
-      if (contentAlreadyIncluded(match.content, freewrite)) {
+      const explicitMergeTarget = isExplicitMergeTarget(entry, match);
+
+      if (!explicitMergeTarget && contentAlreadyIncluded(match.content, freewrite)) {
         skipped += 1;
         continue;
       }
 
-      const nextContent = appendImportBlock(match.content, freewrite, sourceLabel);
+      const nextContent = explicitMergeTarget
+        ? freewrite
+        : appendImportBlock(match.content, freewrite, sourceLabel);
+      const body: Partial<RepoItem> = {
+        content: nextContent,
+        mode: 'freewrite',
+      };
+
+      if (explicitMergeTarget) {
+        body.type = entry.type;
+        body.title = entry.title.trim();
+        if (entry.company !== undefined) body.company = entry.company?.trim() || null;
+        if (entry.position !== undefined) body.position = entry.position?.trim() || null;
+        if (entry.start_date !== undefined) body.start_date = entry.start_date?.trim() || null;
+        if (entry.end_date !== undefined) body.end_date = entry.end_date?.trim() || null;
+      } else {
+        body.company = pickDate(match.company, entry.company ?? null);
+        body.position = pickDate(match.position, entry.position ?? null);
+        body.start_date = pickDate(match.start_date, entry.start_date ?? null);
+        body.end_date = pickDate(match.end_date, entry.end_date ?? null);
+      }
+
+      const unchanged = Object.entries(body).every(
+        ([key, value]) => match[key as keyof RepoItem] === value,
+      );
+
+      if (unchanged) {
+        skipped += 1;
+        continue;
+      }
+
       patch.push({
         id: match.id,
-        body: {
-          content: nextContent,
-          mode: 'freewrite',
-          company: pickDate(match.company, entry.company ?? null),
-          position: pickDate(match.position, entry.position ?? null),
-          start_date: pickDate(match.start_date, entry.start_date ?? null),
-          end_date: pickDate(match.end_date, entry.end_date ?? null),
-        },
+        body,
         diff: {
           id: match.id,
           title: match.title,
@@ -478,6 +507,7 @@ export function planRepoImportMerge(
           lines: createRepoImportLineDiff(match.content, nextContent),
         },
       });
+      Object.assign(match, body);
       continue;
     }
 

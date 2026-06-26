@@ -178,6 +178,18 @@ function hasRealText(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 1 && !isPlaceholderText(value);
 }
 
+function cleanGeneratedText(value: string): string {
+  return value
+    .replace(/\s*\((?:please\s+)?edit(?:\s+[^)]*)?\)/gi, '')
+    .replace(/\s*\[(?:please\s+)?edit(?:\s+[^\]]*)?\]/gi, '')
+    .replace(/\s*\(add your [^)]+\)/gi, '')
+    .replace(/\s*\[add your [^\]]+\]/gi, '')
+    .replace(/\bGPA:\s*X\.XX\s*\/\s*4\.00\b/gi, '')
+    .replace(/\bExpected May 20XX\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 export function resumeHasSubstantiveContent(resume: ResumeData): boolean {
   if (!Array.isArray(resume.sections) || resume.sections.length === 0) {
     return false;
@@ -218,16 +230,16 @@ function looksLikeResumePayload(parsed: unknown): boolean {
 
 function normalizeBullet(raw: unknown, index: number): ResumeBullet {
   if (typeof raw === 'string') {
-    return makeBullet(raw);
+    return makeBullet(cleanGeneratedText(raw));
   }
 
   if (raw && typeof raw === 'object') {
     const bullet = raw as { text?: unknown; jdComment?: unknown };
     const text =
       typeof bullet.text === 'string'
-        ? bullet.text
+        ? cleanGeneratedText(bullet.text)
         : typeof (raw as { value?: unknown }).value === 'string'
-          ? ((raw as { value: string }).value as string)
+          ? cleanGeneratedText((raw as { value: string }).value)
           : `Bullet ${index + 1}`;
     const jdComment =
       typeof bullet.jdComment === 'string' && bullet.jdComment.trim()
@@ -253,10 +265,10 @@ function normalizeEntry(raw: Partial<ResumeEntry>, index: number): ResumeEntry {
 
   return {
     id: typeof raw.id === 'string' ? raw.id : generateId(`entry-${index}`),
-    title: typeof raw.title === 'string' ? raw.title : 'Title',
-    location: typeof raw.location === 'string' ? raw.location : '',
-    date: typeof raw.date === 'string' ? raw.date : '',
-    subtitle: typeof raw.subtitle === 'string' ? raw.subtitle : '',
+    title: typeof raw.title === 'string' ? cleanGeneratedText(raw.title) : 'Title',
+    location: typeof raw.location === 'string' ? cleanGeneratedText(raw.location) : '',
+    date: typeof raw.date === 'string' ? cleanGeneratedText(raw.date) : '',
+    subtitle: typeof raw.subtitle === 'string' ? cleanGeneratedText(raw.subtitle) : '',
     bullets,
     jdComment,
   };
@@ -270,8 +282,8 @@ function normalizeSkill(raw: Partial<SkillCategory>, index: number): SkillCatego
 
   return {
     id: typeof raw.id === 'string' ? raw.id : generateId(`skill-${index}`),
-    label: typeof raw.label === 'string' ? raw.label : 'Category',
-    items: typeof raw.items === 'string' ? raw.items : '',
+    label: typeof raw.label === 'string' ? cleanGeneratedText(raw.label) : 'Category',
+    items: typeof raw.items === 'string' ? cleanGeneratedText(raw.items) : '',
     jdComment,
   };
 }
@@ -312,7 +324,7 @@ function normalizeSection(
     type,
     title:
       typeof raw.title === 'string'
-        ? raw.title
+        ? cleanGeneratedText(raw.title)
         : fallback?.title ?? 'Section',
     entries: type === 'skills' ? [] : entries,
     skills: type === 'skills' ? skills ?? fallback?.skills ?? [] : skills,
@@ -330,7 +342,7 @@ export function normalizeAiResume(
   const contact = {
     name:
       typeof source.contact?.name === 'string' && source.contact.name.trim()
-        ? source.contact.name
+        ? cleanGeneratedText(source.contact.name)
         : fallback.contact.name,
     links:
       Array.isArray(source.contact?.links) && source.contact.links.length > 0
@@ -339,7 +351,7 @@ export function normalizeAiResume(
               typeof link.id === 'string'
                 ? link.id
                 : fallback.contact.links[index]?.id ?? generateId(`link-${index}`),
-            value: typeof link.value === 'string' ? link.value : '',
+            value: typeof link.value === 'string' ? cleanGeneratedText(link.value) : '',
           }))
         : fallback.contact.links,
   };

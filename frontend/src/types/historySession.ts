@@ -1,5 +1,6 @@
 import type { AiChatSession } from './aiSession';
 import type { ResumeData } from './resume';
+import type { ResumeRenderSettings } from '../utils/resumeSettings';
 
 /** Full editor state captured when saving a history session. */
 export interface HistorySessionSnapshot {
@@ -9,6 +10,7 @@ export interface HistorySessionSnapshot {
   showJdNotes: boolean;
   zoom: number;
   aiUserPrompt: string;
+  renderSettings?: ResumeRenderSettings;
 }
 
 export interface HistorySessionListItem {

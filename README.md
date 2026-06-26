@@ -88,6 +88,8 @@ ResumeBuilder/
 │   │   ├── OngoingPage.css
 │   │   ├── HistoryPage.tsx         # Saved editor sessions (open / delete)
 │   │   ├── HistoryPage.css
+│   │   ├── SettingsPage.tsx        # Resume render defaults: templates, fonts, style toggles
+│   │   ├── SettingsPage.css
 │   │   ├── KnowledgePage.tsx       # Stub — coming soon
 │   │   └── PrivacyPage.tsx         # Static — explains local-only data storage
 │   ├── hooks/
@@ -107,7 +109,9 @@ ResumeBuilder/
 │       ├── parseResumeResponse.ts  # Extract, repair, normalize LLM JSON
 │       ├── resumeDiff.ts           # Id-scoped diff (section/entry ids, not indices)
 │       ├── repositorySources.ts    # Load/filter freewrite sources for wizard path B
-│       ├── repoImport.ts           # Parse import JSON + merge into repo (append, no overwrite)
+│       ├── resumeBuildStyle.ts     # Content-selection profiles sent to LLM
+│       ├── resumeSettings.ts       # Render templates + persisted style settings
+│       ├── repoImport.ts           # Parse import JSON + merge into repo
 │       ├── historySessions.ts      # History session API helpers + UTC formatting
 │       ├── tokenEstimate.ts        # ~input token estimate (~4 chars/token)
 │       ├── aiProviders.ts          # Claude / ChatGPT / Gemini URLs + config
@@ -139,6 +143,7 @@ ResumeBuilder/
 | `/education` | Done | Degrees, GPA, coursework, skills — separate from repository |
 | `/ongoing` | Done | Active tracking with dated reflections |
 | `/history` | Done | Saved editor sessions — open, delete, last updated (UTC) |
+| `/settings` | Done | Resume render defaults: template, fonts, sizes, heading/title/date style |
 | `/knowledge` | Stub | Notes and reference docs (not yet built) |
 | `/privacy` | Done | Static explainer — all data is local |
 
@@ -152,6 +157,7 @@ ResumeBuilder/
 |-----|---------|
 | `resume-editor-data` | `ResumeData` JSON |
 | `resume-editor-show-jd-notes` | `"true"` / `"false"` — JD sidebar visibility in editor |
+| `resume-render-settings` | Resume template/style defaults used by preview, editor, export, and generation hints |
 | `resume-builder-ai-provider` | Last selected provider |
 | `resume-builder-ai-sessions` | Array of `AiChatSession` (max 30) |
 
@@ -254,14 +260,16 @@ Opening `/resume` starts with a **wizard** (skip to editor anytime via **New bui
 1. **Job description** — paste from company site (both paths)
 2. Choose path:
    - **Optimize existing resume** — upload PDF + JD → one LLM call returns `{ baseline, optimized }`
-   - **Build from repository** — select freewrite sources from Repository + Ongoing (manual checkboxes or age filters)
+   - **Build from repository** — choose build settings/custom conventions, then select freewrite sources from Repository + Ongoing (manual checkboxes or age filters)
 3. **Generate tailored resume** via Web AI (extension required)
-4. **AiResultModal** — id-scoped diff + preview with JD sidebar + refine/apply
-5. **Editor** — inline edits; **AiPanel** for further Send PDF / improvements in linked chat
+4. **AiResultModal** — id-scoped diff + preview with JD sidebar + post-generation renderer toggles + refine/apply
+5. **Editor** — inline edits; persistent Style panel; **AiPanel** for further Send PDF / improvements in linked chat
 
-Path A sends a single PDF-attached prompt that extracts the faithful baseline and optimized resume in one response, preserving the before/after diff without a second chat send. Path B sends **freewrite only** (repo `mode=freewrite`; ongoing reflections or compiled freewrite). Token estimates shown before generate.
+Path A sends a single PDF-attached prompt that extracts the faithful baseline and optimized resume in one response, preserving the before/after diff without a second chat send. Path B sends **freewrite source material** (repo `mode=freewrite`; ongoing reflections or compiled freewrite), saved **Education Info** records/meta, a content-selection profile from `resumeBuildStyle.ts`, and user render/style preferences from `resumeSettings.ts`. Token estimates shown before generate.
 
-Repository resume generation uses strict import-style JSON detection (`---JSON-START---` / `---JSON-END---`, balanced-object fallbacks, and substantive-content validation). Prompt schemas or placeholder JSON must never open an empty preview.
+Repository resume generation uses strict import-style JSON detection (`---JSON-START---` / `---JSON-END---`, balanced-object fallbacks, and substantive-content validation). Prompt schemas or placeholder JSON must never open an empty preview. The repository prompt has a hard one-page budget, must select high-signal entries instead of stuffing every source, must use saved education context rather than inventing education placeholders, and must not promote project/product URLs to personal contact links. Parser cleanup strips generated placeholder/editor artifacts such as `(edit)`, `Expected May 20XX`, and `GPA: X.XX` before content reaches the editor.
+
+Generation does **not** lock the user into one visual template. The LLM returns `ResumeData` once; `AiResultModal`, the editor Style panel, and PDF export render that same JSON through the selected renderer.
 
 The optimize path upload panel is **centered**. The generate button has no decorative icon — spinner only while running.
 
@@ -280,10 +288,19 @@ Each change card shows:
 
 ## Resume editing (`ResumeDocument.tsx`)
 
-- **Template**: LaTeX-style single column, Times New Roman, US Letter (8.5×11in)
+- **Renderers**: `classic`, `stack`, and `keyword` live in `resumeSettings.ts`; they all render the same `ResumeData`
+- **Template baseline**: LaTeX-style single column, US Letter (8.5×11in)
 - **WYSIWYG**: `EditableText` (`contentEditable`) on all fields; supports inline HTML (bold, italic, font, size)
+- **Post-apply style switching**: the editor toolbar's **Style** button opens a persistent style panel after generation/apply. Changing template, fonts, sizes, or italic/uppercase toggles updates the live preview and `#resume-export`.
+- **High-level style settings**: `ResumeRenderSettings` controls body/heading fonts, name/heading/body/bullet sizes, line height, section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, and generation notes.
+- **Stack renderer**: splits supported tech stacks from `entry.subtitle` (usually `Role | Python, React, ...`) and displays the stack beside the entry name without changing the underlying JSON.
+- **Keyword renderer**: bolds configured keywords in print/preview while preserving editable source text.
 - **Editor chrome**: `+ link`, `+ bullet`, `+ entry` buttons are `position: absolute` in the gray margin — they do **not** appear in PDF export
 - **`+ bullet` positioning**: sits at `bottom: 22px` on `.resume-entry` so it doesn't overlap the `+ entry` button which sits at `bottom: 0` on `.resume-section`
+
+### Settings page (`SettingsPage.tsx`)
+
+`/settings` edits global defaults persisted under `resume-render-settings`. These defaults seed the wizard, result preview, editor Style panel, History snapshots, and PDF export. Wizard build settings can override them for a single generation; applying the generated resume carries those selected render settings into the editor.
 
 ### Format toolbar (`FormatToolbar.tsx`)
 
@@ -394,6 +411,8 @@ Message types (background):
 5. **ChatGPT** — prefers `<pre><code>` content from latest assistant turn
 6. **Gemini** — two-step upload: open `+` menu → "Upload files" → assign PDF to file input
 
+Submit verification must not trust the pre-submit composer node after click/keyboard/form submit. Claude can accept the prompt, clear or replace the live composer, and continue generating while a stale DOM reference still contains the old prompt. `verifyMessageSubmitted()` re-queries the live composer, polls for streaming/rendered-prompt/composer-cleared evidence, and checks for late parseable responses before surfacing a send-button-disabled error.
+
 **Fragile area:** LLM DOM changes frequently. Selectors in `PROVIDER_SELECTORS` and upload-button logic will need updates when providers ship new UI.
 
 ---
@@ -422,13 +441,14 @@ Import rules (see `repoImport.ts`, `educationImport.ts`):
 
 - Repository imports save experiences/projects as **`freewrite`** — never resume-optimized bullets
 - Education (school, GPA, major, coursework) goes to **Education Info**; skills/other facts to education meta
-- **Merge, never overwrite**: matches existing repo entries by normalized identity, with fuzzy support for title/company/date differences between LinkedIn and resume extracts
+- **Merge by identity**: matches existing repo entries by normalized identity, with fuzzy support for title/company/date differences between LinkedIn and resume extracts
   - If LinkedIn and resume disagree on `experience` vs `project`, merge only when title plus company/date/content evidence strongly indicates the same item; preserve the existing type so the user can toggle it in the card editor
-  - Match → **append** new freewrite with an `Imported (source)` divider; skip duplicate text
+  - Explicit `merge_target_id` match → replace the saved freewrite with the LLM's coherent merged version of existing + incoming facts
+  - Fuzzy/local match without `merge_target_id` → append new freewrite with an `Imported (source)` divider; skip duplicate text
   - No match → create new repo entry
   - Empty metadata fields (dates, company) may be filled; populated fields are not replaced
 - **Cross-links Ongoing items** — entries with no end date (or marked Present/Current) also create or update a matching active Ongoing item using the same normalized identity matcher. Imported freewrite is added as a dated reflection; empty metadata fields are filled without overwriting populated ones.
-- **Contradictions require review** — mutually exclusive facts are paused in a review table. Choosing **Existing** removes the conflicting incoming value before merge; choosing **Incoming** patches the existing education/repository record when possible, then preserves additive merge behavior.
+- **Contradictions require review** — mutually exclusive facts are paused in a review table. Choosing **Existing** or **Incoming** applies the selected field; repository conflicts can use LLM-provided clean freewrite variants for each choice, so conflict notes are not saved into the warehouse text.
 - **Diagnostics are programmatic** — import failures surface extension debug events in the panel with a single copy action. Do not ask the user to paste console snippets for normal debugging.
 
 Requires Chrome extension (v1.5.1+) for PDF send, LinkedIn scrape (`SCRAPE_URL` bridge message), background capture polling, and import diagnostics.
@@ -468,6 +488,7 @@ Full inline editing: item metadata (pencil on card), each reflection (pencil on 
 Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapshots).
 
 - **Save** in the Resume Builder toolbar stores: resume JSON (incl. JD match comments), job description, linked AI session, JD sidebar toggle, zoom, AI edit prompt
+- Saved snapshots also include `renderSettings`, so History reopen restores the selected template/style controls used by preview/export.
 - First save prompts for a **session title**; later saves update the same session (UTC `created_at` / `updated_at` on server)
 - **History** lists sessions with last updated; **Open** loads `/resume?session=<id>`
 
@@ -491,7 +512,11 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | 2-page PDF | Editor controls in document flow | Controls are `position:absolute`; no `min-height:11in` on page |
 | Gemini file upload failed | Two-step menu flow | Update `attachFileToGemini()` selectors |
 | "LLM returned invalid JSON" | Response captured before fence closed | Wait for full reply; retry or send improvement |
+| "Send button stayed disabled" after provider generated anyway | Submit verifier read a stale pre-submit composer node | Re-query live composer, poll for streaming/rendered prompt, and accept late parseable response evidence in `content-llm.js` |
 | Stuck "Waiting for response" | DOM selectors don't match provider UI | Update `content-llm.js` selectors |
+| Generated resume has `(edit)` / fake GPA / fake contact | Prompt allowed editable placeholders or education/contact context was missing | Repository generation includes `/api/education`, prompt forbids visible editor notes, parser strips known placeholder artifacts |
+| Generated resume omits education | Wizard only sent repository/ongoing freewrite | Repository generation now sends saved Education Info records and meta notes with the prompt |
+| Applied resume cannot change template/style | Style controls existed only before generation | Editor toolbar **Style** panel changes renderer/fonts/sizes/toggles after apply and drives PDF export |
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
 | Step tracker jumps ahead | Extension fires duplicate `sent` events | Milestone logic in `aiPipeline.ts` — only advance on completion signals |
 | HistoryPage.css HMR error | Old CSS file was deleted, Vite cached the import | Hard refresh (`Cmd+Shift+R`) |
@@ -544,7 +569,7 @@ npm run lint      # ESLint
 - Default resume content in `defaultResume.ts`
 - Token estimate heuristic in `tokenEstimate.ts`
 - Page stubs: `KnowledgePage.tsx` — placeholder
-- `RepoImportPanel.tsx` / `repoImport.ts` — merge logic must stay append-only; do not overwrite repo content on import
+- `RepoImportPanel.tsx` / `repoImport.ts` — explicit `merge_target_id` imports replace repo freewrite with the LLM's coherent merged version; fuzzy local matches still append
 - `historySessions.ts` / `history_sessions` table — snapshot shape must stay aligned with `ResumeEditor` save/load
 
 ### Change with care

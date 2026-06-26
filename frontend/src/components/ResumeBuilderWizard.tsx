@@ -6,8 +6,10 @@ import {
   Link2,
   Loader2,
   Plug,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
+import type { EducationData } from '../types/education';
 import type { OngoingItem, RepoItem, RepositorySource } from '../types/repository';
 import type { ResumeData } from '../types/resume';
 import {
@@ -22,6 +24,17 @@ import {
   buildImprovementPrompt,
   estimateWizardPromptTokens,
 } from '../utils/aiPrompt';
+import {
+  getResumeBuildTemplate,
+} from '../utils/resumeBuildStyle';
+import {
+  RESUME_RENDER_TEMPLATES,
+  buildSettingsInstructions,
+  mergeResumeRenderSettings,
+  parseCommaList,
+  settingsToBuildTemplateId,
+  type ResumeRenderSettings,
+} from '../utils/resumeSettings';
 import {
   parseOptimizedPdfResponse,
   parseResumeFromLlmResponse,
@@ -86,10 +99,15 @@ interface ResumeBuilderWizardProps {
   startPipeline: (variant: PipelineVariant) => void;
   pipelineEvents: PipelineEvent[];
   pipelineVariant: PipelineVariant | null;
-  onComplete: (data: ResumeData, session: AiChatSession | null) => void;
+  onComplete: (
+    data: ResumeData,
+    session: AiChatSession | null,
+    renderSettings?: ResumeRenderSettings,
+  ) => void;
   onSkipToEditor: () => void;
   jobDescription: string;
   onJobDescriptionChange: (value: string) => void;
+  renderSettings: ResumeRenderSettings;
 }
 
 function sourceKey(source: RepositorySource) {
@@ -159,6 +177,7 @@ export function ResumeBuilderWizard({
   onSkipToEditor,
   jobDescription,
   onJobDescriptionChange,
+  renderSettings,
 }: ResumeBuilderWizardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [provider, setProvider] = useState<AiProvider>(getSavedProvider);
@@ -175,6 +194,7 @@ export function ResumeBuilderWizard({
   const [ongoingSources, setOngoingSources] = useState<RepositorySource[]>([]);
   const [repoRaw, setRepoRaw] = useState<RepoItem[]>([]);
   const [ongoingRaw, setOngoingRaw] = useState<OngoingItem[]>([]);
+  const [educationData, setEducationData] = useState<EducationData | null>(null);
   const [loadingSources, setLoadingSources] = useState(false);
 
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('manual');
@@ -182,6 +202,9 @@ export function ResumeBuilderWizard({
   const [repoMaxYears, setRepoMaxYears] = useState(5);
   const [includeOngoing, setIncludeOngoing] = useState(true);
   const [ongoingMinMonths, setOngoingMinMonths] = useState(3);
+  const [draftSettings, setDraftSettings] = useState(() =>
+    mergeResumeRenderSettings(renderSettings),
+  );
 
   const [previewData, setPreviewData] = useState<ResumeData | null>(null);
   const [baselineData, setBaselineData] = useState<ResumeData | null>(null);
@@ -192,27 +215,67 @@ export function ResumeBuilderWizard({
   );
 
   useEffect(() => {
+    setDraftSettings(mergeResumeRenderSettings(renderSettings));
+  }, [renderSettings]);
+
+  const updateDraftSettings = useCallback(
+    (patch: Partial<ResumeRenderSettings>) => {
+      setDraftSettings((prev) => mergeResumeRenderSettings({ ...prev, ...patch }));
+    },
+    [],
+  );
+
+  useEffect(() => {
     if (mode !== 'repository') {
       return;
     }
 
-    setLoadingSources(true);
-    fetchRepositorySources()
-      .then(({ repo, ongoing, repoRaw, ongoingRaw }) => {
-        setRepoSources(repo);
-        setOngoingSources(ongoing);
-        setRepoRaw(repoRaw);
-        setOngoingRaw(ongoingRaw);
-        const defaults = new Set<string>();
-        [...repo, ...ongoing]
-          .filter((source) => source.sendable)
-          .forEach((source) => defaults.add(sourceKey(source)));
-        setSelectedKeys(defaults);
-      })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load sources.');
-      })
-      .finally(() => setLoadingSources(false));
+    let cancelled = false;
+    window.queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
+      setLoadingSources(true);
+      Promise.all([
+        fetchRepositorySources(),
+        fetch('/api/education').then(async (res) => {
+          if (!res.ok) {
+            throw new Error('Failed to load education records.');
+          }
+          return (await res.json()) as EducationData;
+        }),
+      ])
+        .then(([{ repo, ongoing, repoRaw, ongoingRaw }, education]) => {
+          if (cancelled) {
+            return;
+          }
+          setRepoSources(repo);
+          setOngoingSources(ongoing);
+          setRepoRaw(repoRaw);
+          setOngoingRaw(ongoingRaw);
+          setEducationData(education);
+          const defaults = new Set<string>();
+          [...repo, ...ongoing]
+            .filter((source) => source.sendable)
+            .forEach((source) => defaults.add(sourceKey(source)));
+          setSelectedKeys(defaults);
+        })
+        .catch((err) => {
+          if (cancelled) {
+            return;
+          }
+          setError(err instanceof Error ? err.message : 'Failed to load sources.');
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoadingSources(false);
+          }
+        });
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [mode]);
 
   const allSources = useMemo(
@@ -257,6 +320,16 @@ export function ResumeBuilderWizard({
     ongoingMinMonths,
   ]);
 
+  const selectedTemplate = useMemo(
+    () => getResumeBuildTemplate(settingsToBuildTemplateId(draftSettings.defaultTemplate)),
+    [draftSettings.defaultTemplate],
+  );
+
+  const generationInstructions = useMemo(
+    () => buildSettingsInstructions(draftSettings),
+    [draftSettings],
+  );
+
   const promptEstimate = useMemo(() => {
     if (mode === 'optimize') {
       const prompt = buildOptimizePdfPrompt(jobDescription);
@@ -276,6 +349,9 @@ export function ResumeBuilderWizard({
       const prompt = buildResumeFromRepositoryPrompt(
         jobDescription,
         filteredSources,
+        selectedTemplate,
+        generationInstructions,
+        educationData ?? undefined,
       );
       const { promptTokens } = estimateWizardPromptTokens(prompt, false);
       const sourceTokens = estimateSourceMaterialTokens(filteredSources);
@@ -294,7 +370,14 @@ export function ResumeBuilderWizard({
       sourceTokens: 0,
       note: 'Choose a build mode to estimate the full send.',
     };
-  }, [mode, jobDescription, filteredSources]);
+  }, [
+    mode,
+    jobDescription,
+    filteredSources,
+    educationData,
+    selectedTemplate,
+    generationInstructions,
+  ]);
 
   const toggleSource = (source: RepositorySource) => {
     const key = sourceKey(source);
@@ -371,7 +454,13 @@ export function ResumeBuilderWizard({
     }
 
     const activeProvider = connectedProvider ?? provider;
-    const prompt = buildResumeFromRepositoryPrompt(jobDescription, filteredSources);
+    const prompt = buildResumeFromRepositoryPrompt(
+      jobDescription,
+      filteredSources,
+      selectedTemplate,
+      generationInstructions,
+      educationData ?? undefined,
+    );
 
     pushPipeline('importing_pdf', 'Sending repository sources to Web AI…');
     const response = await sendPromptAndWait({
@@ -397,10 +486,13 @@ export function ResumeBuilderWizard({
   }, [
     connectedProvider,
     filteredSources,
+    educationData,
     jobDescription,
     provider,
     pushPipeline,
     sendPromptAndWait,
+    selectedTemplate,
+    generationInstructions,
   ]);
 
   const handleGenerate = async () => {
@@ -476,7 +568,7 @@ export function ResumeBuilderWizard({
     if (!previewData) {
       return;
     }
-    onComplete(previewData, activeSession);
+    onComplete(previewData, activeSession, draftSettings);
     setPreviewData(null);
     setBaselineData(null);
     setRawResponse('');
@@ -574,121 +666,237 @@ export function ResumeBuilderWizard({
       )}
 
       {mode === 'repository' && (
-        <section className="rb-wizard-section rb-wizard-panel">
-          <h3>Source material</h3>
-          <p className="rb-wizard-note">
-            Only <strong>freewrite</strong> repository entries are sent. Ongoing items use
-            reflections (active) or compiled freewrite (done).
-          </p>
-
-          <div className="rb-wizard-tabs">
-            <button
-              type="button"
-              className={`rb-wizard-tab ${selectionMode === 'manual' ? 'rb-wizard-tab--active' : ''}`}
-              onClick={() => setSelectionMode('manual')}
-            >
-              Manual selection
-            </button>
-            <button
-              type="button"
-              className={`rb-wizard-tab ${selectionMode === 'filter' ? 'rb-wizard-tab--active' : ''}`}
-              onClick={() => setSelectionMode('filter')}
-            >
-              Filter by age
-            </button>
-          </div>
-
-          {loadingSources ? (
-            <p className="rb-wizard-loading">
-              <Loader2 size={14} className="spin" /> Loading repository…
+        <>
+          <section className="rb-wizard-section rb-wizard-panel">
+            <h3>
+              <SlidersHorizontal size={15} />
+              Build settings
+            </h3>
+            <p className="rb-wizard-note">
+              The LLM writes clean resume JSON once. These settings steer what content it
+              chooses, then the app fits that JSON into whichever final format you pick.
             </p>
-          ) : selectionMode === 'manual' ? (
-            <div className="rb-wizard-source-list">
-              {allSources.length === 0 ? (
-                <p className="rb-wizard-empty">No repository or ongoing items yet.</p>
-              ) : (
-                allSources.map((source) => {
-                  const key = sourceKey(source);
-                  const disabled = !source.sendable;
-                  return (
-                    <label
-                      key={key}
-                      className={`rb-wizard-source-item ${disabled ? 'rb-wizard-source-item--disabled' : ''}`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="rb-wizard-checkbox"
-                        checked={selectedKeys.has(key)}
-                        disabled={disabled}
-                        onChange={() => toggleSource(source)}
-                      />
-                      <span>
-                        {sourceLabel(source)}
-                        {!source.sendable && (
-                          <em className="rb-wizard-source-note">
-                            {' '}
-                            — not freewrite / empty
-                          </em>
-                        )}
-                      </span>
-                    </label>
-                  );
-                })
-              )}
+            <div className="rb-wizard-template-strip" aria-label="Default resume renderer">
+              {RESUME_RENDER_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className={`rb-wizard-render-card${draftSettings.defaultTemplate === template.id ? ' rb-wizard-render-card--active' : ''}`}
+                  onClick={() => updateDraftSettings({ defaultTemplate: template.id })}
+                >
+                  <strong>{template.name}</strong>
+                  <span>{template.summary}</span>
+                </button>
+              ))}
             </div>
-          ) : (
-            <div className="rb-wizard-filters">
-              <label className="rb-wizard-filter-row">
-                <span>Repository: include experiences at most</span>
+
+            <div className="rb-wizard-settings-grid">
+              <label className="rb-wizard-label">
+                <span>Section headings</span>
                 <input
-                  type="number"
-                  min={1}
-                  max={30}
-                  value={repoMaxYears}
-                  onChange={(e) => setRepoMaxYears(Number(e.target.value) || 1)}
+                  className="rb-wizard-input"
+                  value={draftSettings.sectionHeadings.join(', ')}
+                  onChange={(event) =>
+                    updateDraftSettings({
+                      sectionHeadings: parseCommaList(event.target.value),
+                    })
+                  }
                 />
-                <span>years old</span>
               </label>
-              <label className="rb-wizard-filter-row">
+              <label className="rb-wizard-label">
+                <span>Keyword emphasis terms</span>
+                <input
+                  className="rb-wizard-input"
+                  value={draftSettings.keywordTerms.join(', ')}
+                  onChange={(event) =>
+                    updateDraftSettings({
+                      keywordTerms: parseCommaList(event.target.value),
+                    })
+                  }
+                />
+              </label>
+            </div>
+
+            <div className="rb-wizard-style-toggles">
+              <label>
                 <input
                   type="checkbox"
                   className="rb-wizard-checkbox"
-                  checked={includeOngoing}
-                  onChange={(e) => setIncludeOngoing(e.target.checked)}
+                  checked={draftSettings.sectionHeadingItalic}
+                  onChange={(event) =>
+                    updateDraftSettings({ sectionHeadingItalic: event.target.checked })
+                  }
                 />
-                <span>Include ongoing items</span>
+                <span>Italic section headings</span>
               </label>
-              {includeOngoing && (
+              <label>
+                <input
+                  type="checkbox"
+                  className="rb-wizard-checkbox"
+                  checked={draftSettings.entryTitleItalic}
+                  onChange={(event) =>
+                    updateDraftSettings({ entryTitleItalic: event.target.checked })
+                  }
+                />
+                <span>Italic entry titles</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  className="rb-wizard-checkbox"
+                  checked={draftSettings.subtitleItalic}
+                  onChange={(event) =>
+                    updateDraftSettings({ subtitleItalic: event.target.checked })
+                  }
+                />
+                <span>Italic subtitles</span>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  className="rb-wizard-checkbox"
+                  checked={draftSettings.dateItalic}
+                  onChange={(event) =>
+                    updateDraftSettings({ dateItalic: event.target.checked })
+                  }
+                />
+                <span>Italic dates</span>
+              </label>
+            </div>
+
+            <label className="rb-wizard-label rb-wizard-style-field">
+              <span>Special notes for this build</span>
+              <span className="rb-wizard-hint">
+                Add anything to include, avoid, compress, or handle differently for this
+                job. You can set permanent defaults on the Settings page.
+              </span>
+              <textarea
+                className="rb-wizard-textarea rb-wizard-textarea--style"
+                value={draftSettings.specialInstructions}
+                onChange={(e) =>
+                  updateDraftSettings({ specialInstructions: e.target.value })
+                }
+                rows={6}
+              />
+            </label>
+          </section>
+
+          <section className="rb-wizard-section rb-wizard-panel">
+            <h3>Source material</h3>
+            <p className="rb-wizard-note">
+              Only <strong>freewrite</strong> repository entries are sent. Ongoing items use
+              reflections (active) or compiled freewrite (done).
+            </p>
+
+            <div className="rb-wizard-tabs">
+              <button
+                type="button"
+                className={`rb-wizard-tab ${selectionMode === 'manual' ? 'rb-wizard-tab--active' : ''}`}
+                onClick={() => setSelectionMode('manual')}
+              >
+                Manual selection
+              </button>
+              <button
+                type="button"
+                className={`rb-wizard-tab ${selectionMode === 'filter' ? 'rb-wizard-tab--active' : ''}`}
+                onClick={() => setSelectionMode('filter')}
+              >
+                Filter by age
+              </button>
+            </div>
+
+            {loadingSources ? (
+              <p className="rb-wizard-loading">
+                <Loader2 size={14} className="spin" /> Loading repository…
+              </p>
+            ) : selectionMode === 'manual' ? (
+              <div className="rb-wizard-source-list">
+                {allSources.length === 0 ? (
+                  <p className="rb-wizard-empty">No repository or ongoing items yet.</p>
+                ) : (
+                  allSources.map((source) => {
+                    const key = sourceKey(source);
+                    const disabled = !source.sendable;
+                    return (
+                      <label
+                        key={key}
+                        className={`rb-wizard-source-item ${disabled ? 'rb-wizard-source-item--disabled' : ''}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="rb-wizard-checkbox"
+                          checked={selectedKeys.has(key)}
+                          disabled={disabled}
+                          onChange={() => toggleSource(source)}
+                        />
+                        <span>
+                          {sourceLabel(source)}
+                          {!source.sendable && (
+                            <em className="rb-wizard-source-note">
+                              {' '}
+                              — not freewrite / empty
+                            </em>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            ) : (
+              <div className="rb-wizard-filters">
                 <label className="rb-wizard-filter-row">
-                  <span>Ongoing: include if active for more than</span>
+                  <span>Repository: include experiences at most</span>
                   <input
                     type="number"
-                    min={0}
-                    max={120}
-                    value={ongoingMinMonths}
-                    onChange={(e) =>
-                      setOngoingMinMonths(Number(e.target.value) || 0)
-                    }
+                    min={1}
+                    max={30}
+                    value={repoMaxYears}
+                    onChange={(e) => setRepoMaxYears(Number(e.target.value) || 1)}
                   />
-                  <span>months</span>
+                  <span>years old</span>
                 </label>
-              )}
-              <p className="rb-wizard-filter-summary">
-                {filteredSources.length} source
-                {filteredSources.length === 1 ? '' : 's'} selected after filters
-              </p>
-            </div>
-          )}
+                <label className="rb-wizard-filter-row">
+                  <input
+                    type="checkbox"
+                    className="rb-wizard-checkbox"
+                    checked={includeOngoing}
+                    onChange={(e) => setIncludeOngoing(e.target.checked)}
+                  />
+                  <span>Include ongoing items</span>
+                </label>
+                {includeOngoing && (
+                  <label className="rb-wizard-filter-row">
+                    <span>Ongoing: include if active for more than</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={ongoingMinMonths}
+                      onChange={(e) =>
+                        setOngoingMinMonths(Number(e.target.value) || 0)
+                      }
+                    />
+                    <span>months</span>
+                  </label>
+                )}
+                <p className="rb-wizard-filter-summary">
+                  {filteredSources.length} source
+                  {filteredSources.length === 1 ? '' : 's'} selected after filters
+                </p>
+              </div>
+            )}
 
-          <div className="rb-wizard-source-footer">
-            {selectionMode === 'manual' ? (
-              <p className="rb-wizard-source-summary">
-                {filteredSources.length} source
-                {filteredSources.length === 1 ? '' : 's'} selected
-              </p>
-            ) : null}
-          </div>
-        </section>
+            <div className="rb-wizard-source-footer">
+              {selectionMode === 'manual' ? (
+                <p className="rb-wizard-source-summary">
+                  {filteredSources.length} source
+                  {filteredSources.length === 1 ? '' : 's'} selected
+                </p>
+              ) : null}
+            </div>
+          </section>
+        </>
       )}
 
       <section className="rb-wizard-section rb-wizard-actions">
@@ -762,6 +970,8 @@ export function ResumeBuilderWizard({
         session={activeSession}
         refining={refining}
         refinementChanges={null}
+        renderSettings={draftSettings}
+        onRenderSettingsChange={setDraftSettings}
         onApply={handleApply}
         onDiscard={handleDiscard}
         onRefine={handleRefine}

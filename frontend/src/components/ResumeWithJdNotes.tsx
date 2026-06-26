@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ResumeData } from '../types/resume';
 import { collectJdNotes } from '../utils/jdNotes';
+import type { ResumeRenderSettings } from '../utils/resumeSettings';
 import { JdNotesPanel } from './JdNotesPanel';
 import { ResumeDocument } from './ResumeDocument';
 import './JdNotesPanel.css';
@@ -11,6 +12,7 @@ interface ResumeWithJdNotesProps {
   editing?: boolean;
   id?: string;
   showJdNotes?: boolean;
+  settings?: ResumeRenderSettings;
 }
 
 export function ResumeWithJdNotes({
@@ -19,6 +21,7 @@ export function ResumeWithJdNotes({
   editing = true,
   id = 'resume-document',
   showJdNotes = false,
+  settings,
 }: ResumeWithJdNotesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const notes = useMemo(() => collectJdNotes(data), [data]);
@@ -71,6 +74,7 @@ export function ResumeWithJdNotes({
         onChange={onChange}
         editing={editing}
         id={id}
+        settings={settings}
       />
       {showPanel ? (
         <JdNotesPanel

@@ -27,6 +27,16 @@ export interface RepoImportEntry {
   freewrite: string;
 }
 
+export interface RepoImportResolutionEntry {
+  type?: ItemType;
+  title?: string;
+  company?: string | null;
+  position?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  freewrite?: string;
+}
+
 export interface RepoImportPayload {
   source_label?: string;
   profile?: RepoImportProfile;
@@ -38,10 +48,14 @@ export interface RepoImportContradiction {
   category: 'education' | 'repository' | 'profile' | 'other';
   field?: string;
   existing_id?: string | null;
-  incoming_index?: number | null;
+  incoming_index?: number | string | null;
   existing_value: unknown;
   incoming_value: unknown;
   reason: string;
+  resolution_options?: {
+    existing?: RepoImportResolutionEntry;
+    incoming?: RepoImportResolutionEntry;
+  };
 }
 
 export interface RepoImportLineDiff {

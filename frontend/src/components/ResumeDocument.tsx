@@ -1,6 +1,10 @@
-import { useCallback, useState } from 'react';
+import { type CSSProperties, useCallback, useMemo, useState } from 'react';
 import type { ResumeData, ResumeEntry, ResumeSection } from '../types/resume';
 import { bulletText, makeBullet } from '../types/resume';
+import {
+  mergeResumeRenderSettings,
+  type ResumeRenderSettings,
+} from '../utils/resumeSettings';
 import { EditableText } from './EditableText';
 import './ResumeDocument.css';
 
@@ -9,10 +13,80 @@ interface ResumeDocumentProps {
   onChange: (data: ResumeData, immediateHistory?: boolean) => void;
   editing?: boolean;
   id?: string;
+  settings?: ResumeRenderSettings;
 }
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function cssFontFamily(name: string) {
+  const normalized = name.trim();
+  if (!normalized) {
+    return "'Times New Roman', Times, 'Liberation Serif', serif";
+  }
+  if (normalized.toLowerCase().includes('serif')) {
+    return normalized;
+  }
+  return `'${normalized.replace(/'/g, '')}', Times, 'Liberation Serif', serif`;
+}
+
+function splitSubtitleForStack(entry: ResumeEntry, section: ResumeSection) {
+  const subtitle = entry.subtitle.trim();
+  if (!subtitle) {
+    return { main: '', stack: '' };
+  }
+
+  const [main, ...rest] = subtitle.split('|');
+  if (rest.length > 0) {
+    return {
+      main: main.trim(),
+      stack: rest.join('|').trim(),
+    };
+  }
+
+  if (section.type === 'projects' && /,|\/|·|\b(api|react|python|java|sql|aws|docker)\b/i.test(subtitle)) {
+    return { main: '', stack: subtitle };
+  }
+
+  return { main: subtitle, stack: '' };
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function emphasizeKeywords(html: string, keywords: string[]) {
+  if (!html || html.includes('<strong')) {
+    return html;
+  }
+
+  const terms = keywords
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 2)
+    .sort((a, b) => b.length - a.length);
+
+  if (terms.length === 0) {
+    return html;
+  }
+
+  const matcher = new RegExp(`\\b(${terms.map(escapeRegExp).join('|')})\\b`, 'gi');
+  return html
+    .split(/(<[^>]+>)/g)
+    .map((part) => (part.startsWith('<') ? part : part.replace(matcher, '<strong>$1</strong>')))
+    .join('');
+}
+
+function editableValue(
+  value: string,
+  editing: boolean,
+  settings: ResumeRenderSettings,
+  enableKeywords = false,
+) {
+  if (editing || settings.defaultTemplate !== 'keyword' || !enableKeywords) {
+    return value;
+  }
+  return emphasizeKeywords(value, settings.keywordTerms);
 }
 
 export function ResumeDocument({
@@ -20,8 +94,36 @@ export function ResumeDocument({
   onChange,
   editing = true,
   id = 'resume-document',
+  settings,
 }: ResumeDocumentProps) {
   const [hoveredEntry, setHoveredEntry] = useState<string | null>(null);
+  const effectiveSettings = useMemo(
+    () => mergeResumeRenderSettings(settings),
+    [settings],
+  );
+
+  const pageStyle = useMemo(
+    () =>
+      ({
+        '--resume-body-font': cssFontFamily(effectiveSettings.bodyFontFamily),
+        '--resume-heading-font': cssFontFamily(effectiveSettings.headingFontFamily),
+        '--resume-name-size': `${effectiveSettings.nameFontSize}pt`,
+        '--resume-heading-size': `${effectiveSettings.headingFontSize}pt`,
+        '--resume-body-size': `${effectiveSettings.bodyFontSize}pt`,
+        '--resume-bullet-size': `${effectiveSettings.bulletFontSize}pt`,
+        '--resume-line-height': effectiveSettings.lineHeight,
+        '--resume-section-title-weight': effectiveSettings.sectionHeadingBold ? 700 : 400,
+        '--resume-section-title-style': effectiveSettings.sectionHeadingItalic ? 'italic' : 'normal',
+        '--resume-section-title-transform': effectiveSettings.sectionHeadingUppercase ? 'uppercase' : 'none',
+        '--resume-entry-title-weight': effectiveSettings.entryTitleBold ? 700 : 400,
+        '--resume-entry-title-style': effectiveSettings.entryTitleItalic ? 'italic' : 'normal',
+        '--resume-subtitle-style': effectiveSettings.subtitleItalic ? 'italic' : 'normal',
+        '--resume-date-weight': effectiveSettings.dateBold ? 700 : 400,
+        '--resume-date-style': effectiveSettings.dateItalic ? 'italic' : 'normal',
+        '--resume-skill-label-weight': effectiveSettings.skillLabelBold ? 700 : 400,
+      }) as CSSProperties,
+    [effectiveSettings],
+  );
 
   const emitChange = useCallback(
     (newData: ResumeData, immediateHistory = false) => {
@@ -212,7 +314,11 @@ export function ResumeDocument({
 
   return (
     <div className="resume-page-wrapper">
-      <div className={`resume-page${editing ? '' : ' resume-page--print'}`} id={id}>
+      <div
+        className={`resume-page resume-page--${effectiveSettings.defaultTemplate}${editing ? '' : ' resume-page--print'}`}
+        id={id}
+        style={pageStyle}
+      >
       <header className="resume-header">
         <EditableText
           tag="h1"
@@ -326,7 +432,12 @@ export function ResumeDocument({
                   <EditableText
                     tag="span"
                     className="resume-skill-items"
-                    value={skill.items}
+                    value={editableValue(
+                      skill.items,
+                      editing,
+                      effectiveSettings,
+                      true,
+                    )}
                     onChange={(v) =>
                       updateSection(section.id, (s) => ({
                         ...s,
@@ -353,16 +464,24 @@ export function ResumeDocument({
             </div>
           ) : (
             <div className="resume-entries">
-              {section.entries.map((entry) => (
-                <div
-                  key={entry.id}
-                  className="resume-entry"
-                  {...(entry.jdComment
-                    ? { 'data-jd-anchor': `entry-${entry.id}` }
-                    : {})}
-                  onMouseEnter={() => setHoveredEntry(entry.id)}
-                  onMouseLeave={() => setHoveredEntry(null)}
-                >
+              {section.entries.map((entry) => {
+                const stackParts = splitSubtitleForStack(entry, section);
+                const showInlineStack =
+                  effectiveSettings.defaultTemplate === 'stack' && stackParts.stack;
+                const displayedSubtitle = showInlineStack
+                  ? stackParts.main
+                  : entry.subtitle;
+
+                return (
+                  <div
+                    key={entry.id}
+                    className="resume-entry"
+                    {...(entry.jdComment
+                      ? { 'data-jd-anchor': `entry-${entry.id}` }
+                      : {})}
+                    onMouseEnter={() => setHoveredEntry(entry.id)}
+                    onMouseLeave={() => setHoveredEntry(null)}
+                  >
                   {editing && hoveredEntry === entry.id && (
                     <button
                       type="button"
@@ -375,19 +494,27 @@ export function ResumeDocument({
                   )}
 
                   <div className="resume-entry-header">
-                    <EditableText
-                      tag="span"
-                      className="resume-entry-title"
-                      value={entry.title}
-                      onChange={(v) =>
-                        updateEntry(section.id, entry.id, (e) => ({
-                          ...e,
-                          title: v,
-                        }))
-                      }
-                      placeholder="Title"
-                      editing={editing}
-                    />
+                    <span className="resume-entry-title-line">
+                      <EditableText
+                        tag="span"
+                        className="resume-entry-title"
+                        value={entry.title}
+                        onChange={(v) =>
+                          updateEntry(section.id, entry.id, (e) => ({
+                            ...e,
+                            title: v,
+                          }))
+                        }
+                        placeholder="Title"
+                        editing={editing}
+                      />
+                      {showInlineStack ? (
+                        <span className="resume-entry-title-stack">
+                          {' | '}
+                          {stackParts.stack}
+                        </span>
+                      ) : null}
+                    </span>
                     {entry.location ? (
                       <EditableText
                         tag="span"
@@ -423,11 +550,16 @@ export function ResumeDocument({
                     <EditableText
                       tag="span"
                       className="resume-entry-subtitle-text"
-                      value={entry.subtitle}
+                      value={displayedSubtitle}
                       onChange={(v) =>
                         updateEntry(section.id, entry.id, (e) => ({
                           ...e,
-                          subtitle: v,
+                          subtitle:
+                            showInlineStack && stackParts.stack
+                              ? v.trim()
+                                ? `${v.trim()} | ${stackParts.stack}`
+                                : stackParts.stack
+                              : v,
                         }))
                       }
                       placeholder="Role | Technologies"
@@ -490,7 +622,12 @@ export function ResumeDocument({
                         <EditableText
                           tag="span"
                           className="resume-bullet-text"
-                          value={bulletText(bullet)}
+                          value={editableValue(
+                            bulletText(bullet),
+                            editing,
+                            effectiveSettings,
+                            true,
+                          )}
                           onChange={(v) =>
                             updateEntry(section.id, entry.id, (e) => ({
                               ...e,
@@ -517,8 +654,9 @@ export function ResumeDocument({
                       + bullet
                     </button>
                   )}
-                </div>
-              ))}
+                  </div>
+                );
+              })}
 
               {editing && (
                 <button

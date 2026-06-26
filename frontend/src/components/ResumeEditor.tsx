@@ -9,6 +9,7 @@ import {
   FileText,
   Loader2,
   Save,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { HistorySessionSnapshot } from '../types/historySession';
@@ -19,6 +20,13 @@ import { useAiBridge } from '../hooks/useAiBridge';
 import { exportResumeToPdf } from '../utils/pdf';
 import { resumeHasJdNotes } from '../utils/jdNotes';
 import { getDefaultAiUserPrompt } from '../utils/aiPrompt';
+import {
+  RESUME_RENDER_TEMPLATES,
+  loadResumeRenderSettings,
+  mergeResumeRenderSettings,
+  saveResumeRenderSettings,
+  type ResumeRenderSettings,
+} from '../utils/resumeSettings';
 import {
   createHistorySession,
   fetchHistorySession,
@@ -33,6 +41,14 @@ import { SaveSessionModal } from './SaveSessionModal';
 import './ResumeEditor.css';
 
 const SHOW_JD_NOTES_KEY = 'resume-editor-show-jd-notes';
+const FONT_OPTIONS = [
+  'Times New Roman',
+  'Georgia',
+  'Cambria',
+  'Garamond',
+  'Arial',
+  'Inter',
+];
 
 function loadShowJdNotes(): boolean {
   try {
@@ -63,6 +79,21 @@ export function ResumeEditor() {
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
   const [loadingSession, setLoadingSession] = useState(false);
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
+  const [renderSettings, setRenderSettingsState] = useState(loadResumeRenderSettings);
+  const [stylePanelOpen, setStylePanelOpen] = useState(false);
+
+  const setRenderSettings = useCallback((next: ResumeRenderSettings) => {
+    const merged = mergeResumeRenderSettings(next);
+    setRenderSettingsState(merged);
+    saveResumeRenderSettings(merged);
+  }, []);
+
+  const updateRenderSettings = useCallback(
+    (patch: Partial<ResumeRenderSettings>) => {
+      setRenderSettings(mergeResumeRenderSettings({ ...renderSettings, ...patch }));
+    },
+    [renderSettings, setRenderSettings],
+  );
 
   useEffect(() => {
     if (didSeedRef.current) return;
@@ -90,6 +121,9 @@ export function ResumeEditor() {
       setShowJdNotes(snapshot.showJdNotes);
       setZoom(snapshot.zoom);
       setAiUserPrompt(snapshot.aiUserPrompt || getDefaultAiUserPrompt());
+      setRenderSettings(
+        mergeResumeRenderSettings(snapshot.renderSettings),
+      );
       setHistorySessionId(sessionId);
       setHistorySessionTitle(title);
       setView('editor');
@@ -99,7 +133,7 @@ export function ResumeEditor() {
         // ignore
       }
     },
-    [setData],
+    [setData, setRenderSettings],
   );
 
   useEffect(() => {
@@ -165,8 +199,17 @@ export function ResumeEditor() {
       showJdNotes,
       zoom,
       aiUserPrompt,
+      renderSettings,
     };
-  }, [data, jobDescription, linkedSession, showJdNotes, zoom, aiUserPrompt]);
+  }, [
+    data,
+    jobDescription,
+    linkedSession,
+    showJdNotes,
+    zoom,
+    aiUserPrompt,
+    renderSettings,
+  ]);
 
   const persistSession = useCallback(
     async (title?: string) => {
@@ -238,7 +281,14 @@ export function ResumeEditor() {
   }, [resumeFilename]);
 
   const handleWizardComplete = useCallback(
-    (next: ResumeData, session: AiChatSession | null) => {
+    (
+      next: ResumeData,
+      session: AiChatSession | null,
+      nextRenderSettings?: ResumeRenderSettings,
+    ) => {
+      if (nextRenderSettings) {
+        setRenderSettings(nextRenderSettings);
+      }
       setData(next, true);
       setLinkedSession(session);
       setHistorySessionId(null);
@@ -262,7 +312,7 @@ export function ResumeEditor() {
         // non-blocking
       }
     },
-    [setData, setSearchParams],
+    [setData, setRenderSettings, setSearchParams],
   );
 
   const handleSkipToEditor = useCallback(() => {
@@ -312,6 +362,7 @@ export function ResumeEditor() {
           onSkipToEditor={handleSkipToEditor}
           jobDescription={jobDescription}
           onJobDescriptionChange={setJobDescription}
+          renderSettings={renderSettings}
         />
       </div>
     );
@@ -338,6 +389,24 @@ export function ResumeEditor() {
         </div>
 
         <div className="editor-toolbar-center">
+          <label className="toolbar-template">
+            <span>Format</span>
+            <select
+              value={renderSettings.defaultTemplate}
+              onChange={(event) =>
+                setRenderSettings({
+                  ...renderSettings,
+                  defaultTemplate: event.target.value as ResumeRenderSettings['defaultTemplate'],
+                })
+              }
+            >
+              {RESUME_RENDER_TEMPLATES.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
             className="toolbar-btn"
@@ -354,6 +423,15 @@ export function ResumeEditor() {
             title="Zoom in"
           >
             <ZoomIn size={16} />
+          </button>
+          <button
+            type="button"
+            className={`toolbar-btn toolbar-btn--style${stylePanelOpen ? ' toolbar-btn--toggle-on' : ''}`}
+            onClick={() => setStylePanelOpen((open) => !open)}
+            title="Resume style settings"
+          >
+            <SlidersHorizontal size={16} />
+            Style
           </button>
         </div>
 
@@ -420,6 +498,153 @@ export function ResumeEditor() {
         </div>
       </header>
 
+      {stylePanelOpen ? (
+        <section className="editor-style-panel" aria-label="Resume style settings">
+          <div className="editor-style-group editor-style-group--templates">
+            <span className="editor-style-label">Template</span>
+            <div className="editor-style-template-row">
+              {RESUME_RENDER_TEMPLATES.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  className={`editor-style-template${renderSettings.defaultTemplate === template.id ? ' editor-style-template--active' : ''}`}
+                  onClick={() => updateRenderSettings({ defaultTemplate: template.id })}
+                  title={template.summary}
+                >
+                  {template.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="editor-style-group editor-style-group--fonts">
+            <label className="editor-style-field">
+              <span>Body font</span>
+              <select
+                value={renderSettings.bodyFontFamily}
+                onChange={(event) =>
+                  updateRenderSettings({ bodyFontFamily: event.target.value })
+                }
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <option key={font} value={font}>
+                    {font}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="editor-style-field">
+              <span>Heading font</span>
+              <select
+                value={renderSettings.headingFontFamily}
+                onChange={(event) =>
+                  updateRenderSettings({ headingFontFamily: event.target.value })
+                }
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <option key={font} value={font}>
+                    {font}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="editor-style-field editor-style-field--number">
+              <span>Name</span>
+              <input
+                type="number"
+                min={16}
+                max={32}
+                step={0.5}
+                value={renderSettings.nameFontSize}
+                onChange={(event) =>
+                  updateRenderSettings({ nameFontSize: Number(event.target.value) })
+                }
+              />
+            </label>
+            <label className="editor-style-field editor-style-field--number">
+              <span>Headings</span>
+              <input
+                type="number"
+                min={8}
+                max={16}
+                step={0.5}
+                value={renderSettings.headingFontSize}
+                onChange={(event) =>
+                  updateRenderSettings({ headingFontSize: Number(event.target.value) })
+                }
+              />
+            </label>
+            <label className="editor-style-field editor-style-field--number">
+              <span>Body</span>
+              <input
+                type="number"
+                min={8}
+                max={14}
+                step={0.25}
+                value={renderSettings.bodyFontSize}
+                onChange={(event) =>
+                  updateRenderSettings({ bodyFontSize: Number(event.target.value) })
+                }
+              />
+            </label>
+          </div>
+
+          <div className="editor-style-group editor-style-group--toggles">
+            <span className="editor-style-label">Text style</span>
+            <label>
+              <input
+                type="checkbox"
+                checked={renderSettings.sectionHeadingItalic}
+                onChange={(event) =>
+                  updateRenderSettings({ sectionHeadingItalic: event.target.checked })
+                }
+              />
+              Heading italic
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={renderSettings.sectionHeadingUppercase}
+                onChange={(event) =>
+                  updateRenderSettings({ sectionHeadingUppercase: event.target.checked })
+                }
+              />
+              Heading uppercase
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={renderSettings.entryTitleItalic}
+                onChange={(event) =>
+                  updateRenderSettings({ entryTitleItalic: event.target.checked })
+                }
+              />
+              Titles italic
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={renderSettings.subtitleItalic}
+                onChange={(event) =>
+                  updateRenderSettings({ subtitleItalic: event.target.checked })
+                }
+              />
+              Subtitles italic
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={renderSettings.dateItalic}
+                onChange={(event) =>
+                  updateRenderSettings({ dateItalic: event.target.checked })
+                }
+              />
+              Dates italic
+            </label>
+          </div>
+        </section>
+      ) : null}
+
       {sessionLoadError ? (
         <p className="editor-session-error">{sessionLoadError}</p>
       ) : null}
@@ -454,6 +679,7 @@ export function ResumeEditor() {
             onChange={() => {}}
             editing={false}
             id="resume-export"
+            settings={renderSettings}
           />
         </div>
         <div
@@ -483,6 +709,7 @@ export function ResumeEditor() {
               editing
               id="resume-document"
               showJdNotes={showJdNotes}
+              settings={renderSettings}
             />
           </div>
         </div>

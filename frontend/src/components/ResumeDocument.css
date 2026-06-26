@@ -14,9 +14,9 @@
   padding: 0.5in 0.55in 0.45in;
   background: #fff;
   color: #000;
-  font-family: 'Times New Roman', Times, 'Liberation Serif', serif;
-  font-size: 10.5pt;
-  line-height: 1.15;
+  font-family: var(--resume-body-font, 'Times New Roman', Times, 'Liberation Serif', serif);
+  font-size: var(--resume-body-size, 10.5pt);
+  line-height: var(--resume-line-height, 1.15);
   box-sizing: border-box;
   box-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
 }
@@ -29,7 +29,8 @@
 }
 
 .resume-name {
-  font-size: 22pt;
+  font-family: var(--resume-heading-font, 'Times New Roman', Times, 'Liberation Serif', serif);
+  font-size: var(--resume-name-size, 22pt);
   font-weight: 700;
   margin: 0 0 2pt;
   letter-spacing: 0.3pt;
@@ -71,9 +72,11 @@
 }
 
 .resume-section-title {
-  font-size: 11pt;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-family: var(--resume-heading-font, 'Times New Roman', Times, 'Liberation Serif', serif);
+  font-size: var(--resume-heading-size, 11pt);
+  font-weight: var(--resume-section-title-weight, 700);
+  font-style: var(--resume-section-title-style, normal);
+  text-transform: var(--resume-section-title-transform, uppercase);
   letter-spacing: 0.5pt;
   margin: 0;
   line-height: 1.2;
@@ -93,10 +96,19 @@
 }
 
 .resume-entry-title {
-  font-weight: 700;
-  font-style: italic;
+  font-weight: var(--resume-entry-title-weight, 700);
+  font-style: var(--resume-entry-title-style, italic);
+}
+
+.resume-entry-title-line {
   flex: 1;
   min-width: 0;
+}
+
+.resume-entry-title-stack {
+  color: #252525;
+  font-style: italic;
+  font-weight: 400;
 }
 
 .resume-entry-header--second {
@@ -111,14 +123,14 @@
 }
 
 .resume-entry-date {
-  font-weight: 700;
-  font-style: italic;
+  font-weight: var(--resume-date-weight, 700);
+  font-style: var(--resume-date-style, italic);
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .resume-entry-subtitle-text {
-  font-style: italic;
+  font-style: var(--resume-subtitle-style, italic);
 }
 
 /* Bullets */
@@ -133,6 +145,7 @@
   padding-left: 12pt;
   margin-bottom: 0.5pt;
   text-align: justify;
+  font-size: var(--resume-bullet-size, 10.5pt);
 }
 
 .resume-bullet-item::before {
@@ -154,11 +167,29 @@
 }
 
 .resume-skill-label {
-  font-weight: 700;
+  font-weight: var(--resume-skill-label-weight, 700);
 }
 
 .resume-skill-colon {
-  font-weight: 700;
+  font-weight: var(--resume-skill-label-weight, 700);
+}
+
+.resume-skill-items {
+  font-size: var(--resume-body-size, 10.5pt);
+}
+
+.resume-page--stack .resume-entry-title-stack {
+  font-size: 9.5pt;
+}
+
+.resume-page--keyword strong {
+  font-weight: 800;
+}
+
+.resume-page--keyword .resume-bullet-text strong,
+.resume-page--keyword .resume-skill-items strong {
+  background: rgba(255, 238, 176, 0.32);
+  padding: 0 0.5pt;
 }
 
 /* Editable fields */

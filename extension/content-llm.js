@@ -149,39 +149,79 @@ function dispatchPasteEvent(element, value) {
   }
 }
 
-function setContentEditableText(element, value) {
+function getPromptProbe(value) {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.slice(0, Math.min(160, Math.max(40, Math.floor(normalized.length * 0.15))));
+}
+
+function elementContainsPromptProbe(element, value) {
+  const text = (element.innerText || element.textContent || '').replace(/\s+/g, ' ').trim();
+  const probe = getPromptProbe(value);
+  return Boolean(text && probe && text.includes(probe));
+}
+
+function clearEditableElement(element) {
+  element.focus({ preventScroll: true });
+  try {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    document.execCommand('delete', false);
+    return;
+  } catch {
+    // Fall through to direct DOM clearing.
+  }
+
+  element.textContent = '';
+}
+
+async function insertEditableTextInChunks(element, value) {
+  const chunkSize = 4000;
+  clearEditableElement(element);
+
+  for (let index = 0; index < value.length; index += chunkSize) {
+    const chunk = value.slice(index, index + chunkSize);
+    element.focus({ preventScroll: true });
+
+    let inserted = false;
+    try {
+      inserted = document.execCommand('insertText', false, chunk);
+    } catch {
+      inserted = false;
+    }
+
+    if (!inserted) {
+      return false;
+    }
+
+    dispatchTextInputEvents(element, chunk, 'insertText');
+    if (index > 0 && index % (chunkSize * 3) === 0) {
+      await sleep(25);
+    }
+  }
+
+  return elementContainsPromptProbe(element, value);
+}
+
+async function setContentEditableText(element, value) {
   element.focus({ preventScroll: true });
 
   if (element.isContentEditable) {
     let inserted = false;
-    try {
-      const selection = window.getSelection();
-      const range = document.createRange();
-      range.selectNodeContents(element);
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      document.execCommand('delete', false);
-    } catch {
-      element.textContent = value;
-    }
+    clearEditableElement(element);
 
-    if (dispatchPasteEvent(element, value)) {
+    if (value.length <= 12_000 && dispatchPasteEvent(element, value)) {
+      await sleep(50);
       inserted = true;
     }
 
-    const insertedText = element.textContent?.trim() ?? '';
-    if (!insertedText || !insertedText.includes(value.trim().slice(0, 40))) {
-      try {
-        document.execCommand('insertText', false, value);
-        inserted = true;
-      } catch {
-        element.innerHTML = plainTextToEditableHtml(value);
-        inserted = true;
-      }
+    if (!inserted || !elementContainsPromptProbe(element, value)) {
+      inserted = await insertEditableTextInChunks(element, value);
     }
 
-    const fallbackText = element.textContent?.trim() ?? '';
-    if (!fallbackText || !fallbackText.includes(value.trim().slice(0, 40))) {
+    if (!inserted || !elementContainsPromptProbe(element, value)) {
       element.innerHTML = plainTextToEditableHtml(value);
       inserted = true;
     }
@@ -1209,7 +1249,7 @@ async function setPrompt(prompt, provider) {
   // Prefer the visible composer (Claude/ChatGPT use contenteditable, not textarea).
   const editable = findComposerElement(editableSelectors);
   if (editable instanceof HTMLElement) {
-    setContentEditableText(editable, prompt);
+    await setContentEditableText(editable, prompt);
     return editable;
   }
 
@@ -1288,12 +1328,15 @@ function getElementText(element) {
 }
 
 function getComposerText(provider, composer = null) {
-  const target = composer ?? getComposerElement(provider);
+  const target =
+    composer instanceof HTMLElement && composer.isConnected
+      ? composer
+      : getComposerElement(provider);
   const text = getElementText(target);
   if (text) {
     return text;
   }
-  if (composer) {
+  if (composer instanceof HTMLElement && composer.isConnected) {
     return getElementText(getComposerElement(provider));
   }
   return '';
@@ -1434,34 +1477,42 @@ async function verifyMessageSubmitted(
   baselineText = '',
   debugContext = {},
 ) {
-  await sleep(document.hidden ? 1200 : 700);
+  const attempts = document.hidden ? 10 : 8;
+  const delayMs = document.hidden ? 700 : 500;
 
-  if (isStopButtonActive() || isMessageStreaming(provider)) {
-    reportDebug('content_submit_verified_streaming', {}, debugContext);
-    return true;
-  }
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await sleep(attempt === 0 ? (document.hidden ? 1200 : 700) : delayMs);
 
-  if (prompt && pageHasSubmittedPrompt(provider, prompt, baselineText)) {
-    reportDebug(
-      'content_submit_verified_rendered_prompt',
-      {
-        composerTextLength: getComposerText(provider, composer).length,
-        snapshot: getCaptureSnapshot(provider),
-      },
-      debugContext,
-    );
-    return true;
-  }
+    if (isStopButtonActive() || isMessageStreaming(provider)) {
+      reportDebug('content_submit_verified_streaming', { attempt }, debugContext);
+      return true;
+    }
 
-  const composerText = getComposerText(provider, composer);
-  const threshold = Math.min(80, Math.max(20, Math.floor(promptLength * 0.15)));
-  if (composerText.length <= threshold) {
-    reportDebug(
-      'content_submit_verified_composer_cleared',
-      { composerTextLength: composerText.length, threshold },
-      debugContext,
-    );
-    return true;
+    const liveComposer = getComposerElement(provider) ?? composer;
+
+    if (prompt && pageHasSubmittedPrompt(provider, prompt, baselineText)) {
+      reportDebug(
+        'content_submit_verified_rendered_prompt',
+        {
+          attempt,
+          composerTextLength: getComposerText(provider, liveComposer).length,
+          snapshot: getCaptureSnapshot(provider),
+        },
+        debugContext,
+      );
+      return true;
+    }
+
+    const composerText = getComposerText(provider, liveComposer);
+    const threshold = Math.min(80, Math.max(20, Math.floor(promptLength * 0.15)));
+    if (composerText.length <= threshold) {
+      reportDebug(
+        'content_submit_verified_composer_cleared',
+        { attempt, composerTextLength: composerText.length, threshold },
+        debugContext,
+      );
+      return true;
+    }
   }
 
   return false;
@@ -1537,6 +1588,21 @@ async function submitMessage(provider, promptLength = 0, composer = null, debugC
   try {
     button = await waitForEnabledSendButton(provider);
   } catch (error) {
+    const parseableResponse = getParseableResponseText(provider, baselineText);
+    if (isStopButtonActive() || isMessageStreaming(provider) || parseableResponse) {
+      reportDebug(
+        'content_submit_late_evidence_after_disabled_wait',
+        {
+          error: error instanceof Error ? error.message : String(error),
+          hasParseableResponse: Boolean(parseableResponse),
+          composerTextLength: getComposerText(provider, targetComposer).length,
+          snapshot: getCaptureSnapshot(provider),
+        },
+        debugContext,
+      );
+      return;
+    }
+
     reportDebug(
       'content_submit_wait_enabled_failed',
       {

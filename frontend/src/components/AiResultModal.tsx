@@ -6,6 +6,10 @@ import { buildImprovementPrompt } from '../utils/aiPrompt';
 import { resumeHasJdNotes } from '../utils/jdNotes';
 import { computeResumeDiff } from '../utils/resumeDiff';
 import {
+  RESUME_RENDER_TEMPLATES,
+  type ResumeRenderSettings,
+} from '../utils/resumeSettings';
+import {
   estimateInputTokens,
   formatTokenEstimate,
 } from '../utils/tokenEstimate';
@@ -25,6 +29,8 @@ interface AiResultModalProps {
   rawResponse: string;
   session: AiChatSession | null;
   refining: boolean;
+  renderSettings?: ResumeRenderSettings;
+  onRenderSettingsChange?: (settings: ResumeRenderSettings) => void;
   onApply: () => void;
   onDiscard: () => void;
   onRefine: (instruction: string) => void;
@@ -41,6 +47,8 @@ export function AiResultModal({
   rawResponse,
   session,
   refining,
+  renderSettings,
+  onRenderSettingsChange,
   onApply,
   onDiscard,
   onRefine,
@@ -161,7 +169,29 @@ export function AiResultModal({
           </section>
 
           <section className="ai-result-preview">
-            <h3>Preview</h3>
+            <div className="ai-result-preview-heading">
+              <h3>Preview</h3>
+              {renderSettings && onRenderSettingsChange ? (
+                <div className="ai-result-template-switch" aria-label="Resume template">
+                  {RESUME_RENDER_TEMPLATES.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      className={`ai-result-template-btn${renderSettings.defaultTemplate === template.id ? ' ai-result-template-btn--active' : ''}`}
+                      onClick={() =>
+                        onRenderSettingsChange({
+                          ...renderSettings,
+                          defaultTemplate: template.id,
+                        })
+                      }
+                      title={template.summary}
+                    >
+                      {template.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <div className="ai-result-preview-canvas">
               <div
                 className={`ai-result-preview-stack${showJdNotes && hasJdNotes ? ' ai-result-preview-stack--with-jd' : ''}`}
@@ -188,6 +218,7 @@ export function AiResultModal({
                   editing={false}
                   id="resume-ai-preview"
                   showJdNotes={showJdNotes}
+                  settings={renderSettings}
                 />
               </div>
             </div>

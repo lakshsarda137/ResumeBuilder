@@ -1,6 +1,10 @@
 import type { ResumeData } from '../types/resume';
 import type { EducationData } from '../types/education';
 import type { RepoItem, RepositorySource } from '../types/repository';
+import {
+  buildResumeStyleInstructions,
+  type ResumeBuildStyleProfile,
+} from './resumeBuildStyle';
 
 export const RESUME_JSON_SCHEMA = `{
   "contact": {
@@ -108,7 +112,7 @@ const REPO_IMPORT_SCHEMA = `{
       "position": "optional team or subtitle",
       "start_date": "optional YYYY-MM",
       "end_date": "optional YYYY-MM or null if ongoing",
-      "freewrite": "raw narrative freewrite — NOT resume bullets. Include all bullet text as plain sentences/paragraphs with facts, metrics, tools, and context. Do NOT polish into action-verb bullets."
+      "freewrite": "raw narrative freewrite — NOT resume bullets. For new entries, describe this source item. For merge_target_id entries, rewrite the complete coherent warehouse description that should replace the existing entry by combining existing context with source facts."
     }
   ],
   "contradictions": [
@@ -119,7 +123,27 @@ const REPO_IMPORT_SCHEMA = `{
       "incoming_index": "zero-based index in profile.education for education contradictions, or entries[] for repository contradictions, when available",
       "existing_value": "the existing saved fact or object",
       "incoming_value": "the conflicting incoming fact or object",
-      "reason": "short explanation of why both facts cannot be true at the same time"
+      "reason": "short explanation of why both facts cannot be true at the same time",
+      "resolution_options": {
+        "existing": {
+          "type": "optional experience | project",
+          "title": "optional role or project name",
+          "company": "optional employer or org",
+          "position": "optional team or subtitle",
+          "start_date": "optional YYYY-MM",
+          "end_date": "optional YYYY-MM or null",
+          "freewrite": "optional clean final description if the existing value is chosen"
+        },
+        "incoming": {
+          "type": "optional experience | project",
+          "title": "optional role or project name",
+          "company": "optional employer or org",
+          "position": "optional team or subtitle",
+          "start_date": "optional YYYY-MM",
+          "end_date": "optional YYYY-MM or null",
+          "freewrite": "optional clean final description if the incoming value is chosen"
+        }
+      }
     }
   ]
 }`;
@@ -132,18 +156,22 @@ ${REPO_IMPORT_SCHEMA}
 4. Extract EVERY distinct experience and project as separate entries — dedupe only exact duplicates within this source.
 5. Put graduation date, major, degree, school, GPA in profile.education — also capture skills and fixed facts in profile when present.
 6. freewrite must be raw warehouse notes (paragraphs or dash lines), never polished resume bullets.
-7. Use type "experience" for jobs/internships/research roles; "project" for projects, hackathons, and coursework builds.
-8. Dates as YYYY-MM when possible.
-9. Put ALL education (school, degree, major, GPA, graduation date, honors, relevant coursework) in profile.education — never in entries.
-10. Put skills, certifications, and other fixed facts in profile.skills_note / profile.other_fixed_facts.
-11. Compare the source against EXISTING REPOSITORY CONTEXT and EXISTING EDUCATION INFO CONTEXT when provided. If an incoming fact contradicts an existing saved fact, add a record to "contradictions" instead of silently merging it.
-12. Contradictions are mutually exclusive identity facts that need human review, e.g. same degree/major but different school, same role/date but different employer, different graduation dates for the same school/degree, or incompatible titles for the same dated role.
-13. Additive facts are NOT contradictions. Example: existing skills say Python/SQL/Java and incoming skills say Docker/AWS/GCP; merge those into profile.skills_note without a contradiction.
-14. For education contradictions, include existing_id from the existing education item and incoming_index pointing to the profile.education item that conflicts.
-15. For repository contradictions, include existing_id from the existing repository item and incoming_index pointing to the entries[] item that conflicts.
-16. For profile/meta contradictions, set field to "skills_note" or "other_fixed_facts" when applicable.
-17. If there are no contradictions, output "contradictions": [].
-18. No text outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
+7. For entries with merge_target_id, freewrite must be the full coherent replacement description for the saved repository item, combining useful existing context with useful source facts. Do NOT write "new facts", "to append", "differs from existing", "see contradictions", or any audit/commentary language.
+8. For entries without merge_target_id, freewrite describes the new source item only.
+9. Keep maximum resume-useful source detail in freewrite: responsibilities, accomplishments, technical work, products/features, scale, metrics, tools, collaborators, research/project context, and constraints.
+10. Filter out egregiously irrelevant LinkedIn/page noise: "follows this company", company follower counts, generic company profile stats, connection counts, reactions, comments, reposts, navigation labels, ads, recommendations unrelated to the candidate's own work, and job-alert/page chrome. Include company or audience numbers only when they describe the candidate's actual impact or project scope.
+11. Use type "experience" for jobs/internships/research roles; "project" for projects, hackathons, and coursework builds.
+12. Dates as YYYY-MM when possible.
+13. Put ALL education (school, degree, major, GPA, graduation date, honors, relevant coursework) in profile.education — never in entries.
+14. Put skills, certifications, and other fixed facts in profile.skills_note / profile.other_fixed_facts.
+15. Compare the source against EXISTING REPOSITORY CONTEXT and EXISTING EDUCATION INFO CONTEXT when provided. If an incoming fact contradicts an existing saved fact, add a record to "contradictions" instead of silently merging it.
+16. Contradictions are mutually exclusive identity facts that need human review, e.g. same degree/major but different school, same role/date but different employer, different graduation dates for the same school/degree, or incompatible titles for the same dated role.
+17. Additive facts are NOT contradictions. Example: existing skills say Python/SQL/Java and incoming skills say Docker/AWS/GCP; merge those into profile.skills_note without a contradiction.
+18. For education contradictions, include existing_id from the existing education item and incoming_index pointing to the profile.education item that conflicts.
+19. For repository contradictions, include existing_id from the existing repository item and incoming_index pointing to the entries[] item that conflicts. Also include resolution_options.existing and resolution_options.incoming. Each option should contain the clean repository fields/freewrite that should be saved if that choice is accepted. The two freewrite options must be coherent final descriptions, not notes about the conflict.
+20. For profile/meta contradictions, set field to "skills_note" or "other_fixed_facts" when applicable.
+21. If there are no contradictions, output "contradictions": [].
+22. No text outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
 
 function trimForPrompt(value: string | null | undefined, max = 1800): string {
   const text = (value ?? '').trim();
@@ -171,7 +199,7 @@ function buildExistingRepositoryContext(existingItems?: RepoItem[]): string {
     content: trimForPrompt(item.content),
   }));
 
-  return `\n\nEXISTING REPOSITORY CONTEXT:\n${JSON.stringify(compact, null, 2)}\n\nMERGE RULES AGAINST EXISTING REPOSITORY:\n- If the attached/source material describes the same experience or project as an existing repository item, do NOT create a duplicate.\n- For that entry, set "merge_target_id" to the existing item's id.\n- When using "merge_target_id", write "freewrite" as ONLY the missing or more specific facts from the new source that should be appended to that existing item. Do not repeat facts already present in existing content.\n- If the source item is genuinely new, omit "merge_target_id" or set it to null.\n- Preserve the existing item's identity; the app will append your new freewrite to it.`;
+  return `\n\nEXISTING REPOSITORY CONTEXT:\n${JSON.stringify(compact, null, 2)}\n\nMERGE RULES AGAINST EXISTING REPOSITORY:\n- If the attached/source material describes the same experience or project as an existing repository item, do NOT create a duplicate.\n- For that entry, set "merge_target_id" to the existing item's id.\n- When using "merge_target_id", write "freewrite" as a complete, coherent replacement for the existing repository content. It must combine the useful existing content with useful source facts into one clean description.\n- Do not write append-only notes, change logs, contradiction notes, or phrases like "new/more-specific facts".\n- If the source item is genuinely new, omit "merge_target_id" or set it to null.`;
 }
 
 function buildExistingEducationContext(existingEducation?: EducationData): string {
@@ -201,6 +229,32 @@ function buildExistingEducationContext(existingEducation?: EducationData): strin
   return `\n\nEXISTING EDUCATION INFO CONTEXT:\n${JSON.stringify(compact, null, 2)}\n\nMERGE RULES AGAINST EXISTING EDUCATION INFO:\n- If the source repeats an existing school/degree with no new details, omit it from profile.education.\n- If the source adds missing GPA, graduation date, coursework, honors, or location for an existing school, include only those useful details in profile.education so the app can merge them.\n- If the source appears to describe the same education credential but conflicts on a mutually exclusive field (for example BS in CS from Harvard vs BS in CS from Stanford, or same school/degree with different graduation dates), include the incoming education record in profile.education and add a contradictions[] item with category "education", existing_id, incoming_index, existing_value, incoming_value, and reason.\n- For skills_note and other_fixed_facts, include only facts that are missing or more specific than the existing notes. Do not repeat skills or facts already present.`;
 }
 
+function buildResumeEducationContext(existingEducation?: EducationData): string {
+  const items = existingEducation?.items ?? [];
+  const meta = existingEducation?.meta;
+  const hasMeta = Boolean(meta?.skills_note?.trim() || meta?.other_notes?.trim());
+
+  if (items.length === 0 && !hasMeta) {
+    return `\n\nEDUCATION / PROFILE CONTEXT:\nNo saved education, skills-note, or other-note context was provided. Do not invent schools, degrees, GPA, dates, coursework, phone numbers, email addresses, or placeholder values. If a requested section has no source support, omit that section or leave the field empty.`;
+  }
+
+  const compact = {
+    education: items.slice(0, 12).map((item) => ({
+      school: item.school,
+      degree: item.degree,
+      major: item.major,
+      grad_date: item.grad_date,
+      gpa: item.gpa,
+      location: item.location,
+      coursework: trimForPrompt(item.coursework, 900),
+    })),
+    skills_note: trimForPrompt(meta?.skills_note, 1600),
+    other_notes: trimForPrompt(meta?.other_notes, 1600),
+  };
+
+  return `\n\nEDUCATION / PROFILE CONTEXT (source truth for education, skills, contact notes, awards, coursework):\n\`\`\`json\n${JSON.stringify(compact, null, 2)}\n\`\`\`\n\nEducation rules:\n- Use this context for the Education section when it contains saved education records.\n- Keep education concise: school, location, degree/major, graduation date, GPA/honors/coursework only when present above.\n- Skills or fixed facts in skills_note / other_notes may inform Technical Skills or contact only when explicitly supported.\n- Do not invent missing education/contact facts. Never write placeholder text like "(edit)", "(edit degree)", "your.email@example.com", "(000) 000-0000", "Expected May 20XX", "GPA: X.XX", or "[add your coursework here]".`;
+}
+
 export function buildRepoImportFromPdfPrompt(
   filename?: string,
   existingItems?: RepoItem[],
@@ -209,8 +263,8 @@ export function buildRepoImportFromPdfPrompt(
   return `Extract repository warehouse material from the attached resume PDF. This is NOT for a formatted resume editor — it feeds a freewrite warehouse for later AI resume building.
 
 ${REPO_IMPORT_RULES}
-11. Set source_label to ${JSON.stringify(filename ?? 'resume PDF')}.
-12. Include all employers and projects in entries; put education and skills in profile.${buildExistingRepositoryContext(existingItems)}${buildExistingEducationContext(existingEducation)}`;
+Set source_label to ${JSON.stringify(filename ?? 'resume PDF')}.
+Include all employers and projects in entries; put education and skills in profile.${buildExistingRepositoryContext(existingItems)}${buildExistingEducationContext(existingEducation)}`;
 }
 
 export function buildRepoImportFromProfileTextPrompt(
@@ -229,8 +283,8 @@ ${profileText.slice(0, 48_000)}
 """
 
 ${REPO_IMPORT_RULES}
-11. Set source_label to ${JSON.stringify(sourceLabel)}.
-12. Extract all experiences and projects into entries; put education and skills in profile.${buildExistingRepositoryContext(existingItems)}${buildExistingEducationContext(existingEducation)}`;
+Set source_label to ${JSON.stringify(sourceLabel)}.
+Extract all experiences and projects into entries; put education and skills in profile.${buildExistingRepositoryContext(existingItems)}${buildExistingEducationContext(existingEducation)}`;
 }
 
 export function buildOptimizeResumePrompt(jobDescription: string): string {
@@ -319,6 +373,9 @@ ${JD_HONESTY_RULES}`;
 export function buildResumeFromRepositoryPrompt(
   jobDescription: string,
   sources: RepositorySource[],
+  styleProfile: ResumeBuildStyleProfile,
+  customStyleInstructions: string,
+  educationData?: EducationData,
 ): string {
   const jd = jobDescription.trim() || '(No job description provided — build a strong general resume.)';
 
@@ -340,17 +397,27 @@ JOB DESCRIPTION:
 ${jd}
 """
 
+${buildResumeStyleInstructions(styleProfile, customStyleInstructions)}
+
 CANDIDATE SOURCE MATERIAL (freewrite notes — treat as raw truth, not resume bullets):
 \`\`\`json
 ${JSON.stringify(payload, null, 2)}
 \`\`\`
+${buildResumeEducationContext(educationData)}
 
 WRITING RULES:
-- Convert freewrite material into polished resume bullets with action verbs, numbers, and impact.
-- Select and prioritize experiences/projects that best fit the job description.
-- Use a clean single-column resume structure: contact, education (if inferable), experience, projects, skills as appropriate.
+- ABSOLUTE PAGE LIMIT: produce content suitable for a one-page resume. A two-page result is a failed result. Cut lower-signal content instead of relying on visual shrinking.
+- Select and prioritize experiences/projects that best fit the job description and have enough source detail for credible bullets.
+- Do NOT include every repository source. Omit weak/thin entries, especially entries with little more than title/company/date.
+- Convert selected freewrite material into polished resume bullets with action verbs, numbers, and impact.
+- Use the resume settings/profile as a content contract for section order, section inclusion, tech-stack placement, emphasis, and density. The app will render the returned JSON into the final visual format.
+- Inline HTML is allowed inside string fields only for formatting conventions: use <strong>...</strong>, <em>...</em>, or restricted <span style="font-weight:...;font-style:..."> for heading/label style. Do not output Markdown formatting.
+- Use a clean single-column resume structure with only sections requested by the format profile and custom conventions.
 - Do not invent employers, titles, dates, tools, or metrics not supported by the source material.
-- If contact info is missing from sources, use placeholder links the user can edit later.
+- Do not put project/product/company URLs in the contact header as the candidate's personal URL. For example, a startup site like checkmateedu.com is not a personal website unless the source explicitly says it is.
+- If contact info is missing from sources, leave it empty or use only neutral labels like "email" / "phone" without fake values. Never include the literal word "edit" or parenthetical edit instructions anywhere in the resume.
+- Before finalizing, mentally estimate page length. If likely over one page, remove lower-signal entries or bullets rather than shrinking truthfulness.
+- Never include meta-instructions, placeholders, todo text, or editor notes in visible resume fields.
 
 ${JD_HONESTY_RULES}
 

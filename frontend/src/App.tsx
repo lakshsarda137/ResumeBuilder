@@ -6,6 +6,7 @@ import { EducationPage } from './pages/EducationPage';
 import { OngoingPage } from './pages/OngoingPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { KnowledgePage } from './pages/KnowledgePage';
+import { SettingsPage } from './pages/SettingsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import './index.css';
 
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/ongoing"    element={<OngoingPage />} />
           <Route path="/history"    element={<HistoryPage />} />
           <Route path="/knowledge"  element={<KnowledgePage />} />
+          <Route path="/settings"   element={<SettingsPage />} />
           <Route path="/privacy"    element={<PrivacyPage />} />
         </Route>
       </Routes>

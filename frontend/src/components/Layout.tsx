@@ -6,6 +6,7 @@ import {
   GraduationCap,
   Clock,
   History,
+  Settings,
   Shield,
 } from 'lucide-react';
 import './Layout.css';
@@ -17,6 +18,7 @@ const NAV = [
   { to: '/ongoing',    label: 'Ongoing',         icon: Clock },
   { to: '/history',    label: 'History',         icon: History },
   { to: '/knowledge',  label: 'Knowledge',       icon: BookOpen },
+  { to: '/settings',   label: 'Settings',        icon: Settings },
   { to: '/privacy',    label: 'Privacy',         icon: Shield },
 ];
 

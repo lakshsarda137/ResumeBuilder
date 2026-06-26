@@ -20,7 +20,7 @@ import {
 } from '../utils/aiPrompt';
 import { readPdfFileAsBase64 } from '../utils/pdf';
 import type { RepoItem } from '../types/repository';
-import type { EducationData } from '../types/education';
+import type { EducationData, EducationItem } from '../types/education';
 import {
   applyRepoImportMerge,
   flattenImportPayload,
@@ -33,6 +33,7 @@ import type {
   RepoImportEntry,
   RepoImportMergeDiff,
   RepoImportPayload,
+  RepoImportResolutionEntry,
 } from '../types/repoImport';
 import './ResumeDiffView.css';
 import './RepoImportPanel.css';
@@ -120,13 +121,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function normalizedText(value: unknown): string {
-  return typeof value === 'string'
-    ? value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? String(value).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
     : '';
 }
 
 function objectText(value: unknown, key: string): string {
-  return isRecord(value) && typeof value[key] === 'string' ? value[key] : '';
+  return isRecord(value) && (typeof value[key] === 'string' || typeof value[key] === 'number')
+    ? String(value[key])
+    : '';
+}
+
+function incomingIndex(value: unknown, length: number): number | null {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < length) {
+    return value;
+  }
+
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    if (parsed >= 0 && parsed < length) {
+      return parsed;
+    }
+  }
+
+  return null;
 }
 
 function entryMatchScore(entry: RepoImportEntry, incomingValue: unknown, existingId?: string | null): number {
@@ -160,11 +178,9 @@ function findRepositoryContradictionEntryIndex(
   payload: RepoImportPayload,
   contradiction: RepoImportContradiction,
 ): number | null {
-  if (
-    typeof contradiction.incoming_index === 'number' &&
-    payload.entries[contradiction.incoming_index]
-  ) {
-    return contradiction.incoming_index;
+  const directIndex = incomingIndex(contradiction.incoming_index, payload.entries.length);
+  if (directIndex != null) {
+    return directIndex;
   }
 
   let bestIndex: number | null = null;
@@ -210,22 +226,175 @@ function educationMatchScore(education: RepoImportEducation, incomingValue: unkn
   return score;
 }
 
+type EducationPatchKey = 'school' | 'degree' | 'major' | 'grad_date' | 'gpa' | 'location' | 'coursework';
+
+function educationPatchKeyForField(field: string | undefined): EducationPatchKey | null {
+  const normalized = normalizedText(field);
+  if (!normalized) return null;
+  if (normalized.includes('school') || normalized.includes('institution')) return 'school';
+  if (normalized.includes('degree')) return 'degree';
+  if (normalized.includes('major')) return 'major';
+  if (normalized.includes('gpa')) return 'gpa';
+  if (normalized.includes('location')) return 'location';
+  if (normalized.includes('coursework') || normalized.includes('honor') || normalized.includes('note')) {
+    return 'coursework';
+  }
+  if (normalized.includes('grad') || normalized.includes('date')) return 'grad_date';
+  return null;
+}
+
+function educationValueForPatchKey(
+  education: RepoImportEducation | EducationItem,
+  key: EducationPatchKey,
+): string {
+  if (key === 'coursework') {
+    return 'coursework' in education ? education.coursework ?? '' : education.notes ?? '';
+  }
+  return education[key] ?? '';
+}
+
+function contradictionValueForPatchKey(
+  value: unknown,
+  key: EducationPatchKey,
+): string | undefined {
+  if (isRecord(value)) {
+    const direct = objectText(value, key);
+    if (direct) return direct;
+    if (key === 'coursework') {
+      return objectText(value, 'notes') || objectText(value, 'honors') || undefined;
+    }
+    return undefined;
+  }
+
+  const scalar = normalizedText(value) ? String(value) : '';
+  return scalar || undefined;
+}
+
+function buildEducationPatchBody(
+  contradiction: RepoImportContradiction,
+  incoming: RepoImportEducation,
+): Record<EducationPatchKey, string | null> | null {
+  const patchKey = educationPatchKeyForField(contradiction.field);
+  if (patchKey) {
+    const selectedValue =
+      contradictionValueForPatchKey(contradiction.incoming_value, patchKey) ??
+      educationValueForPatchKey(incoming, patchKey);
+
+    return {
+      [patchKey]: selectedValue.trim() || null,
+    } as Record<EducationPatchKey, string | null>;
+  }
+
+  const body: Partial<Record<EducationPatchKey, string | null>> = {};
+  if (incoming.school?.trim()) body.school = incoming.school.trim();
+  if (incoming.degree !== undefined) body.degree = incoming.degree?.trim() || null;
+  if (incoming.major !== undefined) body.major = incoming.major?.trim() || null;
+  if (incoming.grad_date !== undefined) body.grad_date = incoming.grad_date?.trim() || null;
+  if (incoming.gpa !== undefined) body.gpa = incoming.gpa?.trim() || null;
+  if (incoming.location !== undefined) body.location = incoming.location?.trim() || null;
+  if (incoming.notes !== undefined) body.coursework = incoming.notes?.trim() || '';
+
+  return Object.keys(body).length > 0 ? body as Record<EducationPatchKey, string | null> : null;
+}
+
+function existingEducationScore(
+  item: EducationItem,
+  incoming: RepoImportEducation | null,
+  contradiction: RepoImportContradiction,
+): number {
+  let score = 0;
+
+  if (incoming) {
+    if (normalizedText(item.school) && normalizedText(item.school) === normalizedText(incoming.school)) score += 4;
+    if (normalizedText(item.degree) && normalizedText(item.degree) === normalizedText(incoming.degree)) score += 2;
+    if (normalizedText(item.major) && normalizedText(item.major) === normalizedText(incoming.major)) score += 2;
+    if (normalizedText(item.grad_date) && normalizedText(item.grad_date) === normalizedText(incoming.grad_date)) score += 1;
+    if (normalizedText(item.gpa) && normalizedText(item.gpa) === normalizedText(incoming.gpa)) score += 1;
+    if (normalizedText(item.location) && normalizedText(item.location) === normalizedText(incoming.location)) score += 1;
+  }
+
+  const patchKey = educationPatchKeyForField(contradiction.field);
+  if (patchKey) {
+    const existingValue = contradictionValueForPatchKey(contradiction.existing_value, patchKey);
+    if (
+      existingValue &&
+      normalizedText(educationValueForPatchKey(item, patchKey)) === normalizedText(existingValue)
+    ) {
+      score += 4;
+    }
+  }
+
+  if (isRecord(contradiction.existing_value)) {
+    const fields: EducationPatchKey[] = ['school', 'degree', 'major', 'grad_date', 'gpa', 'location', 'coursework'];
+    for (const field of fields) {
+      const existingValue = contradictionValueForPatchKey(contradiction.existing_value, field);
+      if (
+        existingValue &&
+        normalizedText(educationValueForPatchKey(item, field)) === normalizedText(existingValue)
+      ) {
+        score += field === 'school' ? 4 : 1;
+      }
+    }
+  }
+
+  return score;
+}
+
+function findExistingEducationForContradiction(
+  existingItems: EducationItem[],
+  incoming: RepoImportEducation | null,
+  contradiction: RepoImportContradiction,
+): EducationItem | null {
+  const existingId = contradiction.existing_id?.trim();
+  if (existingId) {
+    const exact = existingItems.find((item) => item.id === existingId);
+    if (exact) return exact;
+  }
+
+  let bestItem: EducationItem | null = null;
+  let bestScore = 0;
+  let tied = false;
+
+  for (const item of existingItems) {
+    const score = existingEducationScore(item, incoming, contradiction);
+    if (score > bestScore) {
+      bestScore = score;
+      bestItem = item;
+      tied = false;
+    } else if (score === bestScore && score > 0) {
+      tied = true;
+    }
+  }
+
+  return bestScore >= 4 && !tied ? bestItem : null;
+}
+
 function findEducationContradictionIndex(
   payload: RepoImportPayload,
   contradiction: RepoImportContradiction,
 ): number | null {
   const education = payload.profile?.education ?? [];
-  if (
-    typeof contradiction.incoming_index === 'number' &&
-    education[contradiction.incoming_index]
-  ) {
-    return contradiction.incoming_index;
+  const directIndex = incomingIndex(contradiction.incoming_index, education.length);
+  if (directIndex != null) {
+    return directIndex;
   }
 
   let bestIndex: number | null = null;
   let bestScore = 0;
+  const patchKey = educationPatchKeyForField(contradiction.field);
+  const incomingFieldValue = patchKey
+    ? contradictionValueForPatchKey(contradiction.incoming_value, patchKey)
+    : undefined;
+
   education.forEach((item, index) => {
-    const score = educationMatchScore(item, contradiction.incoming_value);
+    let score = educationMatchScore(item, contradiction.incoming_value);
+    if (
+      patchKey &&
+      incomingFieldValue &&
+      normalizedText(educationValueForPatchKey(item, patchKey)) === normalizedText(incomingFieldValue)
+    ) {
+      score += 3;
+    }
     if (score > bestScore) {
       bestScore = score;
       bestIndex = index;
@@ -233,6 +402,69 @@ function findEducationContradictionIndex(
   });
 
   return bestScore > 0 ? bestIndex : null;
+}
+
+function clearIncomingEducationContradictionField(
+  education: RepoImportEducation,
+  contradiction: RepoImportContradiction,
+): boolean {
+  const patchKey = educationPatchKeyForField(contradiction.field);
+  if (!patchKey) {
+    return false;
+  }
+
+  if (patchKey === 'school' || patchKey === 'degree') {
+    return false;
+  }
+
+  if (patchKey === 'coursework') {
+    education.notes = undefined;
+    return true;
+  }
+
+  education[patchKey] = undefined;
+  return true;
+}
+
+function applyRepositoryResolutionOption(
+  entry: RepoImportEntry,
+  option: RepoImportResolutionEntry | undefined,
+): boolean {
+  if (!option) {
+    return false;
+  }
+
+  let changed = false;
+  if (option.type) {
+    entry.type = option.type;
+    changed = true;
+  }
+  if (option.title?.trim()) {
+    entry.title = option.title.trim();
+    changed = true;
+  }
+  if (option.company !== undefined) {
+    entry.company = option.company?.trim() || null;
+    changed = true;
+  }
+  if (option.position !== undefined) {
+    entry.position = option.position?.trim() || null;
+    changed = true;
+  }
+  if (option.start_date !== undefined) {
+    entry.start_date = option.start_date?.trim() || null;
+    changed = true;
+  }
+  if (option.end_date !== undefined) {
+    entry.end_date = option.end_date?.trim() || null;
+    changed = true;
+  }
+  if (option.freewrite?.trim()) {
+    entry.freewrite = option.freewrite.trim();
+    changed = true;
+  }
+
+  return changed;
 }
 
 function profileArrayWithoutValue(values: string[] | undefined, incoming: unknown): string[] {
@@ -602,28 +834,30 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
   const applyEducationResolution = useCallback(
     async (contradiction: RepoImportContradiction, payload: RepoImportPayload, choice: ContradictionChoice) => {
       if (contradiction.category !== 'education') {
-        return { merged: 0, skipped: 0 };
+        return { merged: 0, skipped: 0, applied: false };
       }
 
       const index = findEducationContradictionIndex(payload, contradiction);
       const incoming = index == null ? null : payload.profile?.education?.[index];
-      const existingId = contradiction.existing_id?.trim();
 
       if (!incoming) {
-        return { merged: 0, skipped: 1 };
+        return { merged: 0, skipped: 1, applied: false };
       }
 
-      if (choice === 'incoming' && existingId) {
-        const body: Record<string, string | null> = {};
-        if (incoming.school?.trim()) body.school = incoming.school.trim();
-        if (incoming.degree !== undefined) body.degree = incoming.degree?.trim() || null;
-        if (incoming.major !== undefined) body.major = incoming.major?.trim() || null;
-        if (incoming.grad_date !== undefined) body.grad_date = incoming.grad_date?.trim() || null;
-        if (incoming.gpa !== undefined) body.gpa = incoming.gpa?.trim() || null;
-        if (incoming.location !== undefined) body.location = incoming.location?.trim() || null;
-        if (incoming.notes !== undefined) body.coursework = incoming.notes?.trim() || '';
+      if (choice === 'incoming') {
+        const existingEducation = await reloadExistingEducation();
+        const match = findExistingEducationForContradiction(
+          existingEducation.items,
+          incoming,
+          contradiction,
+        );
+        const body = buildEducationPatchBody(contradiction, incoming);
 
-        const res = await fetch(`/api/education/${existingId}`, {
+        if (!match || !body) {
+          return { merged: 0, skipped: 1, applied: false };
+        }
+
+        const res = await fetch(`/api/education/${match.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -631,12 +865,12 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
         if (!res.ok) {
           throw new Error('Failed to apply education contradiction choice.');
         }
-        return { merged: 1, skipped: 0 };
+        return { merged: 1, skipped: 0, applied: true };
       }
 
-      return { merged: 0, skipped: 1 };
+      return { merged: 0, skipped: 1, applied: false };
     },
-    [],
+    [reloadExistingEducation],
   );
 
   const applyRepositoryResolution = useCallback(
@@ -651,30 +885,27 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
         return { removeEntryIndex: null as number | null, skipped: 1 };
       }
 
-      if (choice === 'existing') {
-        return { removeEntryIndex: entryIndex, skipped: 1 };
-      }
-
       const existingId = contradiction.existing_id?.trim();
       if (existingId) {
-        const body: Partial<RepoItem> = {
-          mode: 'freewrite',
-        };
-        if (entry.type) body.type = entry.type;
-        if (entry.title?.trim()) body.title = entry.title.trim();
-        if (entry.company !== undefined) body.company = entry.company?.trim() || null;
-        if (entry.position !== undefined) body.position = entry.position?.trim() || null;
-        if (entry.start_date !== undefined) body.start_date = entry.start_date?.trim() || null;
-        if (entry.end_date !== undefined) body.end_date = entry.end_date?.trim() || null;
+        entry.merge_target_id = existingId;
+      }
 
-        const res = await fetch(`/api/repo/${existingId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          throw new Error('Failed to apply repository contradiction choice.');
-        }
+      if (choice === 'existing') {
+        const applied = applyRepositoryResolutionOption(
+          entry,
+          contradiction.resolution_options?.existing,
+        );
+        return applied
+          ? { removeEntryIndex: null as number | null, skipped: 0 }
+          : { removeEntryIndex: entryIndex, skipped: 1 };
+      }
+
+      applyRepositoryResolutionOption(
+        entry,
+        contradiction.resolution_options?.incoming,
+      );
+
+      if (existingId) {
         entry.merge_target_id = existingId;
       }
 
@@ -712,16 +943,22 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
         const choice = choices[key] ?? 'existing';
 
         if (contradiction.category === 'education') {
-          const result = await applyEducationResolution(contradiction, batch.payload, choice);
+          const result = await applyEducationResolution(contradiction, payload, choice);
           educationMerged += result.merged;
           educationSkipped += result.skipped;
-          const educationIndex = findEducationContradictionIndex(batch.payload, contradiction);
+          const educationIndex = findEducationContradictionIndex(payload, contradiction);
 
           if (
             educationIndex != null &&
-            (choice === 'existing' || Boolean(contradiction.existing_id?.trim()))
+            (choice === 'existing' || result.applied)
           ) {
-            removeEducationIndexes.add(educationIndex);
+            const education = payload.profile?.education?.[educationIndex];
+            const keepEducationForAdditiveMerge = education
+              ? clearIncomingEducationContradictionField(education, contradiction)
+              : false;
+            if (!keepEducationForAdditiveMerge) {
+              removeEducationIndexes.add(educationIndex);
+            }
           }
           continue;
         }
@@ -848,8 +1085,8 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
     startPipeline('import');
 
     try {
-      let workingItems = await reloadExisting();
-      let workingEducation = await reloadExistingEducation();
+      const workingItems = await reloadExisting();
+      const workingEducation = await reloadExistingEducation();
       const batches: PendingImportBatch[] = [];
 
       if (tab === 'resume') {
@@ -994,9 +1231,9 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
           <p className="repo-import-sub">
             Extracts experiences and projects as <strong>freewrite</strong> repository
             entries. Education (school, GPA, major, coursework) goes to the{' '}
-            <strong>Education Info</strong> tab. Matches existing items and{' '}
-            <em>appends</em> new content — never overwrites. Current roles/projects
-            are also linked on Ongoing.
+            <strong>Education Info</strong> tab. Explicit AI matches replace saved
+            freewrite with a coherent merged version; fuzzy local matches append.
+            Current roles/projects are also linked on Ongoing.
           </p>
         </div>
         <button type="button" className="btn btn--ghost btn--sm" onClick={() => setOpen(false)}>
