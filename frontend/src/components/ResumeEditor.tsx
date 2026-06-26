@@ -373,7 +373,7 @@ export function ResumeEditor() {
       <header className="editor-toolbar">
         <div className="editor-toolbar-left">
           <FileText size={20} className="editor-logo" />
-          <div>
+          <div className="editor-title-block">
             <h1 className="editor-title">Resume Builder</h1>
             <p className="editor-subtitle">
               {historySessionTitle ? (

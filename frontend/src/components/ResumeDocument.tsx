@@ -31,27 +31,6 @@ function cssFontFamily(name: string) {
   return `'${normalized.replace(/'/g, '')}', Times, 'Liberation Serif', serif`;
 }
 
-function splitSubtitleForStack(entry: ResumeEntry, section: ResumeSection) {
-  const subtitle = entry.subtitle.trim();
-  if (!subtitle) {
-    return { main: '', stack: '' };
-  }
-
-  const [main, ...rest] = subtitle.split('|');
-  if (rest.length > 0) {
-    return {
-      main: main.trim(),
-      stack: rest.join('|').trim(),
-    };
-  }
-
-  if (section.type === 'projects' && /,|\/|·|\b(api|react|python|java|sql|aws|docker)\b/i.test(subtitle)) {
-    return { main: '', stack: subtitle };
-  }
-
-  return { main: subtitle, stack: '' };
-}
-
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -73,17 +52,18 @@ function emphasizeKeywords(html: string, keywords: string[]) {
   const matcher = new RegExp(`\\b(${terms.map(escapeRegExp).join('|')})\\b`, 'gi');
   return html
     .split(/(<[^>]+>)/g)
-    .map((part) => (part.startsWith('<') ? part : part.replace(matcher, '<strong>$1</strong>')))
+    .map((part) =>
+      part.startsWith('<') ? part : part.replace(matcher, '<strong>$1</strong>'),
+    )
     .join('');
 }
 
 function editableValue(
   value: string,
-  editing: boolean,
   settings: ResumeRenderSettings,
   enableKeywords = false,
 ) {
-  if (editing || settings.defaultTemplate !== 'keyword' || !enableKeywords) {
+  if (settings.defaultTemplate !== 'keyword' || !enableKeywords) {
     return value;
   }
   return emphasizeKeywords(value, settings.keywordTerms);
@@ -432,9 +412,9 @@ export function ResumeDocument({
                   <EditableText
                     tag="span"
                     className="resume-skill-items"
-                    value={editableValue(
+                    value={skill.items}
+                    displayValue={editableValue(
                       skill.items,
-                      editing,
                       effectiveSettings,
                       true,
                     )}
@@ -464,15 +444,7 @@ export function ResumeDocument({
             </div>
           ) : (
             <div className="resume-entries">
-              {section.entries.map((entry) => {
-                const stackParts = splitSubtitleForStack(entry, section);
-                const showInlineStack =
-                  effectiveSettings.defaultTemplate === 'stack' && stackParts.stack;
-                const displayedSubtitle = showInlineStack
-                  ? stackParts.main
-                  : entry.subtitle;
-
-                return (
+              {section.entries.map((entry) => (
                   <div
                     key={entry.id}
                     className="resume-entry"
@@ -508,12 +480,6 @@ export function ResumeDocument({
                         placeholder="Title"
                         editing={editing}
                       />
-                      {showInlineStack ? (
-                        <span className="resume-entry-title-stack">
-                          {' | '}
-                          {stackParts.stack}
-                        </span>
-                      ) : null}
                     </span>
                     {entry.location ? (
                       <EditableText
@@ -550,16 +516,11 @@ export function ResumeDocument({
                     <EditableText
                       tag="span"
                       className="resume-entry-subtitle-text"
-                      value={displayedSubtitle}
+                      value={entry.subtitle}
                       onChange={(v) =>
                         updateEntry(section.id, entry.id, (e) => ({
                           ...e,
-                          subtitle:
-                            showInlineStack && stackParts.stack
-                              ? v.trim()
-                                ? `${v.trim()} | ${stackParts.stack}`
-                                : stackParts.stack
-                              : v,
+                          subtitle: v,
                         }))
                       }
                       placeholder="Role | Technologies"
@@ -622,9 +583,9 @@ export function ResumeDocument({
                         <EditableText
                           tag="span"
                           className="resume-bullet-text"
-                          value={editableValue(
+                          value={bulletText(bullet)}
+                          displayValue={editableValue(
                             bulletText(bullet),
-                            editing,
                             effectiveSettings,
                             true,
                           )}
@@ -655,8 +616,7 @@ export function ResumeDocument({
                     </button>
                   )}
                   </div>
-                );
-              })}
+                ))}
 
               {editing && (
                 <button

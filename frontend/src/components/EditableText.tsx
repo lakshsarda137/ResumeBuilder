@@ -8,6 +8,7 @@ interface EditableTextProps {
   placeholder?: string;
   multiline?: boolean;
   editing?: boolean;
+  displayValue?: string;
 }
 
 function isEmptyHtml(html: string): boolean {
@@ -31,20 +32,25 @@ export function EditableText({
   placeholder = 'Click to edit',
   multiline = false,
   editing = true,
+  displayValue,
 }: EditableTextProps) {
   const ref = useRef<HTMLElement>(null);
+  const dirtyRef = useRef(false);
+  const renderedValue = displayValue ?? value;
 
   const handleBlur = useCallback(() => {
     if (ref.current) {
       const html = normalizeHtml(ref.current.innerHTML);
-      if (html !== value) {
+      if (dirtyRef.current && html !== value) {
         onChange(html);
       }
+      dirtyRef.current = false;
     }
   }, [onChange, value]);
 
   const handleInput = useCallback(() => {
     if (ref.current) {
+      dirtyRef.current = true;
       const html = normalizeHtml(ref.current.innerHTML);
       if (html !== value) {
         onChange(html);
@@ -63,23 +69,23 @@ export function EditableText({
   );
 
   useEffect(() => {
-    if (!ref.current || ref.current.innerHTML === value) {
+    if (!ref.current || ref.current.innerHTML === renderedValue) {
       return;
     }
     if (document.activeElement === ref.current) {
       return;
     }
-    ref.current.innerHTML = value || '';
-  }, [value]);
+    ref.current.innerHTML = renderedValue || '';
+  }, [renderedValue]);
 
   if (!editing) {
-    if (!value) {
+    if (!renderedValue) {
       return <Tag className={className} />;
     }
     return (
       <Tag
         className={className}
-        dangerouslySetInnerHTML={{ __html: value }}
+        dangerouslySetInnerHTML={{ __html: renderedValue }}
       />
     );
   }
@@ -87,7 +93,7 @@ export function EditableText({
   return (
     <Tag
       ref={ref as React.RefObject<HTMLSpanElement & HTMLDivElement & HTMLHeadingElement & HTMLParagraphElement & HTMLLIElement>}
-      className={`editable ${className} ${!value ? 'editable--empty' : ''}`}
+      className={`editable ${className} ${!renderedValue ? 'editable--empty' : ''}`}
       contentEditable
       suppressContentEditableWarning
       onBlur={handleBlur}

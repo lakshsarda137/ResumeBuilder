@@ -153,3 +153,59 @@ Correct fix:
 - add an editor toolbar Style panel after apply,
 - expose template, font, size, heading/title/subtitle/date style toggles,
 - ensure these settings drive live preview and PDF export, not just prompt text.
+
+---
+
+## Session: ResumeBuilder PDF / Keyword / Stale Source Repairs (2026-06-26)
+
+### Image-only PDFs were real
+The user's PDF report was correct and applied to every generated PDF from the old export path. `html2pdf.js`/canvas export flattened the DOM into a full-page image, so the resume looked readable to humans but had no machine-readable text layer for copy/paste, ATS, parsers, or LLM PDF ingestion.
+
+Correct fix:
+- remove the canvas/html2pdf dependency,
+- generate PDFs with real text operators from the rendered DOM,
+- keep download and AI-send blobs on the same text-PDF path,
+- verify output by extracting text and checking that the page has zero image objects.
+
+### Keyword emphasis means bold, not color
+The keyword emphasis setting leaked as yellow/background styling in exported PDFs. That violated resume convention and confused "keyword" with "highlight." If a term such as Python is emphasized, it should be bolded only.
+
+Correct fix:
+- keyword terms produce `<strong>` emphasis only,
+- no color, background, or highlight styling in preview or PDF export,
+- live editor rendering must show the bolding before download,
+- clearing the keyword terms box must persist an empty array instead of restoring defaults,
+- the LLM prompt should allow the model to decide extra bold spans in its JSON rather than requiring the user to enumerate every keyword.
+
+### GPA and honors need resume-conventional layout
+Inline GPA/honors next to a degree produced an awkward education line. GPA and awards such as President's Honor Roll belong in their own education bullet when present.
+
+Correct fix:
+- prompt the model to put GPA/honors into an education bullet,
+- parser cleanup should move inline GPA/honors into that bullet when possible,
+- leave degree, school, location, and dates in normal resume positions.
+
+### Stack beside names is banned
+The "stack beside names" template looked bad and made the resume harder to scan. It should not exist as a renderer or prompt option.
+
+Correct fix:
+- remove the renderer/template option,
+- migrate saved settings away from it,
+- keep supported technologies inside bullets, skills, or normal subtitles only when appropriate.
+
+### Stale repository edits broke generation
+The UI showed edited repository descriptions after save, but the resume prompt could still use stale arrays captured when the wizard loaded. This meant the LLM did not receive the user's latest saved descriptions.
+
+Correct fix:
+- refetch `/api/repo`, `/api/ongoing`, and `/api/education` immediately before constructing a repository-build prompt,
+- update wizard state from that fresh response,
+- compute selected sources from the fresh arrays instead of mounted state,
+- do not disable generation based only on an old filtered-source snapshot.
+
+### Waiting text was stale, not response detection
+The app could sit on "Preparing prompt — Waiting for response..." while the provider had not visibly started generation in a background tab. When the user opened the provider tab, generation started and the completed response imported correctly.
+
+Correct fix:
+- distinguish "provider tab is in the background / waiting for generation to start" from "model is generating",
+- keep response capture logic intact when completed responses import successfully,
+- avoid diagnosing this as JSON detection failure unless generation completes and capture fails.

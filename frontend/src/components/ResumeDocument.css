@@ -105,12 +105,6 @@
   min-width: 0;
 }
 
-.resume-entry-title-stack {
-  color: #252525;
-  font-style: italic;
-  font-weight: 400;
-}
-
 .resume-entry-header--second {
   margin-top: 0;
 }
@@ -178,18 +172,8 @@
   font-size: var(--resume-body-size, 10.5pt);
 }
 
-.resume-page--stack .resume-entry-title-stack {
-  font-size: 9.5pt;
-}
-
 .resume-page--keyword strong {
   font-weight: 800;
-}
-
-.resume-page--keyword .resume-bullet-text strong,
-.resume-page--keyword .resume-skill-items strong {
-  background: rgba(255, 238, 176, 0.32);
-  padding: 0 0.5pt;
 }
 
 /* Editable fields */

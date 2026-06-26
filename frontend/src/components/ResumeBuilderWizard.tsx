@@ -114,6 +114,54 @@ function sourceKey(source: RepositorySource) {
   return `${source.kind}:${source.id}`;
 }
 
+function selectFilteredSources({
+  selectionMode,
+  repoSources,
+  ongoingSources,
+  repoRaw,
+  ongoingRaw,
+  selectedKeys,
+  repoMaxYears,
+  includeOngoing,
+  ongoingMinMonths,
+}: {
+  selectionMode: SelectionMode;
+  repoSources: RepositorySource[];
+  ongoingSources: RepositorySource[];
+  repoRaw: RepoItem[];
+  ongoingRaw: OngoingItem[];
+  selectedKeys: Set<string>;
+  repoMaxYears: number;
+  includeOngoing: boolean;
+  ongoingMinMonths: number;
+}) {
+  const allSources = dedupeRepositorySources([...repoSources, ...ongoingSources]);
+
+  if (selectionMode === 'manual') {
+    return filterSendableSources(
+      allSources.filter((source) => selectedKeys.has(sourceKey(source))),
+    );
+  }
+
+  const repoFiltered = repoRaw
+    .filter((item) => item.mode === 'freewrite')
+    .filter((item) => isRepoWithinYears(item, repoMaxYears))
+    .map((item) => repoSources.find((source) => source.id === item.id))
+    .filter((source): source is RepositorySource => Boolean(source?.sendable));
+
+  let ongoingFiltered: RepositorySource[] = [];
+  if (includeOngoing) {
+    ongoingFiltered = ongoingRaw
+      .filter((item) => isOngoingOlderThanMonths(item, ongoingMinMonths))
+      .map((item) => ongoingSources.find((source) => source.id === item.id))
+      .filter((source): source is RepositorySource => Boolean(source?.sendable));
+  }
+
+  return filterSendableSources(
+    dedupeRepositorySources([...repoFiltered, ...ongoingFiltered]),
+  );
+}
+
 interface PromptEstimate {
   total: number;
   instructionTokens: number;
@@ -283,33 +331,18 @@ export function ResumeBuilderWizard({
     [repoSources, ongoingSources],
   );
 
-  const filteredSources = useMemo(() => {
-    if (selectionMode === 'manual') {
-      return filterSendableSources(
-        allSources.filter((source) => selectedKeys.has(sourceKey(source))),
-      );
-    }
-
-    const repoFiltered = repoRaw
-      .filter((item) => item.mode === 'freewrite')
-      .filter((item) => isRepoWithinYears(item, repoMaxYears))
-      .map((item) => repoSources.find((s) => s.id === item.id))
-      .filter((source): source is RepositorySource => Boolean(source?.sendable));
-
-    let ongoingFiltered: RepositorySource[] = [];
-    if (includeOngoing) {
-      ongoingFiltered = ongoingRaw
-        .filter((item) => isOngoingOlderThanMonths(item, ongoingMinMonths))
-        .map((item) => ongoingSources.find((s) => s.id === item.id))
-        .filter((source): source is RepositorySource => Boolean(source?.sendable));
-    }
-
-    return filterSendableSources(
-      dedupeRepositorySources([...repoFiltered, ...ongoingFiltered]),
-    );
-  }, [
+  const filteredSources = useMemo(() => selectFilteredSources({
     selectionMode,
-    allSources,
+    repoSources,
+    ongoingSources,
+    repoRaw,
+    ongoingRaw,
+    selectedKeys,
+    repoMaxYears,
+    includeOngoing,
+    ongoingMinMonths,
+  }), [
+    selectionMode,
     repoSources,
     ongoingSources,
     repoRaw,
@@ -447,7 +480,39 @@ export function ResumeBuilderWizard({
   ]);
 
   const runRepositoryFlow = useCallback(async () => {
-    if (filteredSources.length === 0) {
+    pushPipeline('reading_sources', 'Refreshing saved repository sources…');
+    const [
+      { repo, ongoing, repoRaw: freshRepoRaw, ongoingRaw: freshOngoingRaw },
+      freshEducationData,
+    ] = await Promise.all([
+      fetchRepositorySources(),
+      fetch('/api/education').then(async (res) => {
+        if (!res.ok) {
+          throw new Error('Failed to refresh education records.');
+        }
+        return (await res.json()) as EducationData;
+      }),
+    ]);
+
+    setRepoSources(repo);
+    setOngoingSources(ongoing);
+    setRepoRaw(freshRepoRaw);
+    setOngoingRaw(freshOngoingRaw);
+    setEducationData(freshEducationData);
+
+    const latestFilteredSources = selectFilteredSources({
+      selectionMode,
+      repoSources: repo,
+      ongoingSources: ongoing,
+      repoRaw: freshRepoRaw,
+      ongoingRaw: freshOngoingRaw,
+      selectedKeys,
+      repoMaxYears,
+      includeOngoing,
+      ongoingMinMonths,
+    });
+
+    if (latestFilteredSources.length === 0) {
       throw new Error(
         'No sendable freewrite sources selected. Add freewrite entries in Repository/Ongoing or adjust filters.',
       );
@@ -456,10 +521,10 @@ export function ResumeBuilderWizard({
     const activeProvider = connectedProvider ?? provider;
     const prompt = buildResumeFromRepositoryPrompt(
       jobDescription,
-      filteredSources,
+      latestFilteredSources,
       selectedTemplate,
       generationInstructions,
-      educationData ?? undefined,
+      freshEducationData,
     );
 
     pushPipeline('importing_pdf', 'Sending repository sources to Web AI…');
@@ -485,8 +550,11 @@ export function ResumeBuilderWizard({
     pushPipeline('preview_ready', 'Repository resume preview ready');
   }, [
     connectedProvider,
-    filteredSources,
-    educationData,
+    selectionMode,
+    selectedKeys,
+    repoMaxYears,
+    includeOngoing,
+    ongoingMinMonths,
     jobDescription,
     provider,
     pushPipeline,
@@ -942,8 +1010,7 @@ export function ResumeBuilderWizard({
             working ||
             refining ||
             connecting ||
-            (mode === 'optimize' && !pdfFile) ||
-            (mode === 'repository' && filteredSources.length === 0)
+            (mode === 'optimize' && !pdfFile)
           }
         >
           {working ? <Loader2 size={16} className="spin" /> : null}

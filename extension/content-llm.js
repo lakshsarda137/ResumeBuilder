@@ -839,7 +839,9 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 3600
     if (Date.now() - lastProgressAt >= 1000) {
       reportProgress('waiting', streaming
         ? `Model is generating… (${elapsedSeconds}s)`
-        : `Waiting for response… (${elapsedSeconds}s)`);
+        : document.hidden
+          ? `Provider tab is in the background — waiting for generation to start… (${elapsedSeconds}s)`
+          : `Waiting for model to start generating… (${elapsedSeconds}s)`);
       lastProgressAt = Date.now();
     }
 
@@ -1712,7 +1714,9 @@ async function sendAndCaptureResponse({
   reportProgress('sending', `Sending to ${provider}…`);
   await submitMessage(provider, prompt.length, composer, debugContext, prompt, baselineText);
   reportProgress('sent', 'Prompt sent — generating response…');
-  reportProgress('waiting', 'Waiting for model response…');
+  reportProgress('waiting', document.hidden
+    ? 'Provider tab is in the background — waiting for generation to start…'
+    : 'Waiting for model to start generating…');
   reportDebug('content_prompt_submitted', getCaptureSnapshot(provider), debugContext);
 
   const rawResponse = await waitForAssistantResponse(provider, baselineText, 360000, debugContext);

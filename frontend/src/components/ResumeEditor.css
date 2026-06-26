@@ -34,10 +34,10 @@
 }
 
 .editor-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   padding: 12px 24px;
   background: #1a1a2e;
   color: #fff;
@@ -51,11 +51,13 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
-  flex: 1;
+  overflow: hidden;
 }
 
-.editor-toolbar-left > div {
+.editor-title-block {
+  flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .editor-logo {
@@ -82,7 +84,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .toolbar-template {
@@ -121,7 +123,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
   position: relative;
 }
 
@@ -145,6 +147,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-height: 36px;
   padding: 8px 14px;
   border: none;
   border-radius: 8px;
@@ -207,7 +210,7 @@
 
 .editor-style-panel {
   display: grid;
-  grid-template-columns: minmax(260px, 0.9fr) minmax(360px, 1.4fr) minmax(360px, 1.2fr);
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
   padding: 12px 24px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
@@ -238,7 +241,7 @@
 
 .editor-style-template-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 6px;
 }
 
@@ -261,7 +264,10 @@
 
 .editor-style-group--fonts {
   display: grid;
-  grid-template-columns: minmax(120px, 1fr) minmax(120px, 1fr) repeat(3, 74px);
+  grid-template-columns:
+    minmax(170px, 1.25fr)
+    minmax(170px, 1.25fr)
+    repeat(3, minmax(90px, 0.65fr));
   gap: 8px;
   align-items: end;
 }
@@ -278,9 +284,14 @@
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.08);
   color: #e2e8f0;
-  padding: 0 9px;
+  padding: 0 11px;
   font-size: 12px;
+  text-align: left;
   outline: none;
+}
+
+.editor-style-field select {
+  text-align-last: left;
 }
 
 .editor-style-field option {
@@ -289,7 +300,7 @@
 }
 
 .editor-style-field--number input {
-  text-align: right;
+  text-align: left;
 }
 
 .editor-style-group--toggles {
@@ -316,6 +327,7 @@
   color: #cbd5e1;
   font-size: 12px;
   white-space: nowrap;
+  max-width: 100%;
 }
 
 .editor-style-group--toggles input {
@@ -401,15 +413,47 @@
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1360px) {
   .editor-toolbar {
-    flex-wrap: wrap;
-    padding: 12px 16px;
+    grid-template-columns: minmax(180px, 1fr) auto;
   }
 
   .editor-toolbar-center {
-    order: 3;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .editor-toolbar-right {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 1180px) {
+  .editor-style-group--fonts {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .editor-toolbar {
+    grid-template-columns: 1fr;
+    padding: 12px 16px;
+  }
+
+  .editor-toolbar-left,
+  .editor-toolbar-center,
+  .editor-toolbar-right {
     width: 100%;
+  }
+
+  .editor-toolbar-center {
+    justify-content: center;
+  }
+
+  .editor-toolbar-right {
     justify-content: center;
   }
 

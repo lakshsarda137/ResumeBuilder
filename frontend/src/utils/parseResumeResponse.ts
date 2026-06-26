@@ -179,7 +179,7 @@ function hasRealText(value: unknown): boolean {
 }
 
 function cleanGeneratedText(value: string): string {
-  return value
+  return sanitizeInlineFormatting(value)
     .replace(/\s*\((?:please\s+)?edit(?:\s+[^)]*)?\)/gi, '')
     .replace(/\s*\[(?:please\s+)?edit(?:\s+[^\]]*)?\]/gi, '')
     .replace(/\s*\(add your [^)]+\)/gi, '')
@@ -188,6 +188,95 @@ function cleanGeneratedText(value: string): string {
     .replace(/\bExpected May 20XX\b/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
+}
+
+function sanitizeInlineFormatting(value: string): string {
+  return value
+    .replace(/<\s*mark(?:\s+[^>]*)?>/gi, '<strong>')
+    .replace(/<\s*\/\s*mark\s*>/gi, '</strong>')
+    .replace(/\sstyle=(["'])(.*?)\1/gi, (_match, quote: string, style: string) => {
+      const allowed = style
+        .split(';')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .filter((part) => /^(font-weight|font-style)\s*:/i.test(part));
+
+      return allowed.length > 0 ? ` style=${quote}${allowed.join('; ')}${quote}` : '';
+    });
+}
+
+function normalizeEducationSubtitle(value: string): string {
+  return value.replace(/\s+\|\s+/g, '; ').replace(/;\s*;/g, ';').trim();
+}
+
+function standaloneGpaText(value: string): string | null {
+  const match = value
+    .trim()
+    .match(/^(?:GPA|Grade Point Average)\s*:?\s*([0-9](?:\.\d{1,3})?)\s*\/\s*([0-9]{1,2}(?:\.\d{1,2})?)\.?$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  return `GPA: ${match[1]}/${match[2]}`;
+}
+
+function splitEducationSubtitleDetails(value: string): {
+  subtitle: string;
+  detailBullet: string | null;
+} {
+  const parts = normalizeEducationSubtitle(value)
+    .split(/\s*;\s*/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const subtitleParts: string[] = [];
+  const detailParts: string[] = [];
+
+  for (const part of parts) {
+    if (/^(?:GPA|Grade Point Average)\s*:?/i.test(part)) {
+      const normalized = standaloneGpaText(part) ?? part;
+      detailParts.push(normalized);
+      continue;
+    }
+
+    if (/\b(honor|honour|award|dean'?s list|president'?s|valedictorian|summa|magna|cum laude)\b/i.test(part)) {
+      detailParts.push(part);
+      continue;
+    }
+
+    subtitleParts.push(part);
+  }
+
+  return {
+    subtitle: subtitleParts.join('; '),
+    detailBullet: detailParts.length > 0 ? detailParts.join('; ') : null,
+  };
+}
+
+function normalizeEducationEntry(entry: ResumeEntry): ResumeEntry {
+  const splitSubtitle = splitEducationSubtitleDetails(entry.subtitle);
+  const detailParts = splitSubtitle.detailBullet ? [splitSubtitle.detailBullet] : [];
+  const bullets = entry.bullets.filter((bullet) => {
+    const gpa = standaloneGpaText(bullet.text);
+    if (!gpa) {
+      return true;
+    }
+    detailParts.push(gpa);
+    return false;
+  });
+
+  const uniqueDetailParts = Array.from(
+    new Map(detailParts.map((part) => [part.toLowerCase(), part])).values(),
+  );
+  const detailBullet =
+    uniqueDetailParts.length > 0 ? makeBullet(uniqueDetailParts.join('; ')) : null;
+
+  return {
+    ...entry,
+    subtitle: splitSubtitle.subtitle,
+    bullets: detailBullet ? [detailBullet, ...bullets] : bullets,
+  };
 }
 
 export function resumeHasSubstantiveContent(resume: ResumeData): boolean {
@@ -308,6 +397,9 @@ function normalizeSection(
       )
     : fallback?.entries ?? [];
 
+  const normalizedEntries =
+    type === 'education' ? entries.map(normalizeEducationEntry) : entries;
+
   const skills = Array.isArray(raw.skills)
     ? raw.skills.map((skill, skillIndex) =>
         normalizeSkill(skill as Partial<SkillCategory>, skillIndex),
@@ -326,7 +418,7 @@ function normalizeSection(
       typeof raw.title === 'string'
         ? cleanGeneratedText(raw.title)
         : fallback?.title ?? 'Section',
-    entries: type === 'skills' ? [] : entries,
+    entries: type === 'skills' ? [] : normalizedEntries,
     skills: type === 'skills' ? skills ?? fallback?.skills ?? [] : skills,
     jdComment,
   };

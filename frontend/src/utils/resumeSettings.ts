@@ -1,6 +1,6 @@
 import type { ResumeBuildTemplateId } from './resumeBuildStyle';
 
-export type ResumeRenderTemplateId = 'classic' | 'stack' | 'keyword';
+export type ResumeRenderTemplateId = 'classic' | 'keyword';
 
 export interface ResumeRenderTemplate {
   id: ResumeRenderTemplateId;
@@ -40,11 +40,6 @@ export const RESUME_RENDER_TEMPLATES: ResumeRenderTemplate[] = [
     summary: 'Screenshot-style one-page serif resume with clean rules and dense bullets.',
   },
   {
-    id: 'stack',
-    name: 'Stack beside names',
-    summary: 'Same structure, but tech stacks are surfaced beside project and role names.',
-  },
-  {
     id: 'keyword',
     name: 'Keyword emphasis',
     summary: 'Same structure, with selected terms bolded in bullets and skills.',
@@ -78,7 +73,7 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   ].join('\n'),
 };
 
-function asStringArray(value: unknown, fallback: string[]) {
+function asStringArray(value: unknown, fallback: string[], allowEmpty = false) {
   if (!Array.isArray(value)) {
     return fallback;
   }
@@ -86,7 +81,7 @@ function asStringArray(value: unknown, fallback: string[]) {
     .filter((item): item is string => typeof item === 'string')
     .map((item) => item.trim())
     .filter(Boolean);
-  return cleaned.length > 0 ? cleaned : fallback;
+  return cleaned.length > 0 || allowEmpty ? cleaned : fallback;
 }
 
 function asNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -133,7 +128,7 @@ export function mergeResumeRenderSettings(
     dateBold: asBoolean(value?.dateBold, defaults.dateBold),
     dateItalic: asBoolean(value?.dateItalic, defaults.dateItalic),
     skillLabelBold: asBoolean(value?.skillLabelBold, defaults.skillLabelBold),
-    keywordTerms: asStringArray(value?.keywordTerms, defaults.keywordTerms),
+    keywordTerms: asStringArray(value?.keywordTerms, defaults.keywordTerms, true),
     specialInstructions:
       typeof value?.specialInstructions === 'string'
         ? value.specialInstructions
@@ -171,22 +166,26 @@ export function parseCommaList(value: string): string[] {
 export function settingsToBuildTemplateId(
   templateId: ResumeRenderTemplateId,
 ): ResumeBuildTemplateId {
-  if (templateId === 'stack' || templateId === 'keyword') {
+  if (templateId === 'keyword') {
     return 'technical';
   }
   return 'jake';
 }
 
 export function buildSettingsInstructions(settings: ResumeRenderSettings): string {
+  const keywordInstruction =
+    settings.keywordTerms.length > 0
+      ? `Use restrained <strong> tags for genuinely important keywords you choose from the job/source context, with special attention to: ${settings.keywordTerms.join(', ')}. The JSON text itself must contain the <strong> tags; the renderer will not color, highlight, or guess keyword emphasis after generation.`
+      : 'Use restrained <strong> tags only for genuinely important keywords you choose from the job/source context. The JSON text itself must contain the <strong> tags; the renderer will not color, highlight, or guess keyword emphasis after generation.';
+
   return [
     'Hard one page only.',
     `Use these section headings, in this order when supported by source material: ${settings.sectionHeadings.join(', ')}.`,
-    settings.defaultTemplate === 'stack'
-      ? 'When a project or experience has a real tech stack, put a concise stack after a pipe in the subtitle so the renderer can show it beside the entry name.'
-      : null,
     settings.defaultTemplate === 'keyword'
-      ? `Use restrained <strong> tags only for genuinely important keywords, especially: ${settings.keywordTerms.join(', ')}.`
+      ? keywordInstruction
       : 'Do not bold arbitrary buzzwords.',
+    'Hard layout constraint: never put a tech stack beside an entry name/title. If tools are useful, keep them in the subtitle line below the title or in bullets/skills.',
+    'Education convention: keep the degree/major line clean. Put GPA and honors/awards together in their own compact bullet, e.g. "GPA: 3.96/4.00; President\'s Honor Roll (Fall 2025)". Put coursework in a separate "Relevant Coursework:" bullet only when useful.',
     `Renderer style preferences: section headings ${settings.sectionHeadingUppercase ? 'uppercase' : 'title case'}, ${settings.sectionHeadingBold ? 'bold' : 'not bold'}, ${settings.sectionHeadingItalic ? 'italic' : 'not italic'}; entry titles ${settings.entryTitleBold ? 'bold' : 'not bold'}, ${settings.entryTitleItalic ? 'italic' : 'not italic'}; subtitles ${settings.subtitleItalic ? 'italic' : 'not italic'}; dates ${settings.dateBold ? 'bold' : 'not bold'}, ${settings.dateItalic ? 'italic' : 'not italic'}; skill labels ${settings.skillLabelBold ? 'bold' : 'not bold'}.`,
     settings.specialInstructions.trim(),
   ]

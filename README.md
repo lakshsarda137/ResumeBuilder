@@ -104,7 +104,7 @@ ResumeBuilder/
 │   ├── data/
 │   │   └── defaultResume.ts        # Seed content
 │   └── utils/
-│       ├── pdf.ts                  # html2pdf capture (blob + download)
+│       ├── pdf.ts                  # Real text-PDF writer (blob + download; no canvas raster)
 │       ├── aiPrompt.ts             # Prompt templates (JSON-only output, JD comments, repo import)
 │       ├── parseResumeResponse.ts  # Extract, repair, normalize LLM JSON
 │       ├── resumeDiff.ts           # Id-scoped diff (section/entry ids, not indices)
@@ -265,7 +265,7 @@ Opening `/resume` starts with a **wizard** (skip to editor anytime via **New bui
 4. **AiResultModal** — id-scoped diff + preview with JD sidebar + post-generation renderer toggles + refine/apply
 5. **Editor** — inline edits; persistent Style panel; **AiPanel** for further Send PDF / improvements in linked chat
 
-Path A sends a single PDF-attached prompt that extracts the faithful baseline and optimized resume in one response, preserving the before/after diff without a second chat send. Path B sends **freewrite source material** (repo `mode=freewrite`; ongoing reflections or compiled freewrite), saved **Education Info** records/meta, a content-selection profile from `resumeBuildStyle.ts`, and user render/style preferences from `resumeSettings.ts`. Token estimates shown before generate.
+Path A sends a single PDF-attached prompt that extracts the faithful baseline and optimized resume in one response, preserving the before/after diff without a second chat send. Path B sends **freewrite source material** (repo `mode=freewrite`; ongoing reflections or compiled freewrite), saved **Education Info** records/meta, a content-selection profile from `resumeBuildStyle.ts`, and user render/style preferences from `resumeSettings.ts`. Token estimates shown before generate. Repository builds refresh `/api/repo`, `/api/ongoing`, and `/api/education` immediately before prompt construction so saved UI edits are not replaced by stale wizard state.
 
 Repository resume generation uses strict import-style JSON detection (`---JSON-START---` / `---JSON-END---`, balanced-object fallbacks, and substantive-content validation). Prompt schemas or placeholder JSON must never open an empty preview. The repository prompt has a hard one-page budget, must select high-signal entries instead of stuffing every source, must use saved education context rather than inventing education placeholders, and must not promote project/product URLs to personal contact links. Parser cleanup strips generated placeholder/editor artifacts such as `(edit)`, `Expected May 20XX`, and `GPA: X.XX` before content reaches the editor.
 
@@ -288,13 +288,13 @@ Each change card shows:
 
 ## Resume editing (`ResumeDocument.tsx`)
 
-- **Renderers**: `classic`, `stack`, and `keyword` live in `resumeSettings.ts`; they all render the same `ResumeData`
+- **Renderers**: `classic` and `keyword` live in `resumeSettings.ts`; both render the same `ResumeData`
 - **Template baseline**: LaTeX-style single column, US Letter (8.5×11in)
 - **WYSIWYG**: `EditableText` (`contentEditable`) on all fields; supports inline HTML (bold, italic, font, size)
 - **Post-apply style switching**: the editor toolbar's **Style** button opens a persistent style panel after generation/apply. Changing template, fonts, sizes, or italic/uppercase toggles updates the live preview and `#resume-export`.
 - **High-level style settings**: `ResumeRenderSettings` controls body/heading fonts, name/heading/body/bullet sizes, line height, section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, and generation notes.
-- **Stack renderer**: splits supported tech stacks from `entry.subtitle` (usually `Role | Python, React, ...`) and displays the stack beside the entry name without changing the underlying JSON.
-- **Keyword renderer**: bolds configured keywords in print/preview while preserving editable source text.
+- **Removed template**: stack-beside-names is intentionally gone. Do not reintroduce a layout that places a detected tech stack beside the entry name.
+- **Keyword renderer**: bolds configured keywords in the live editor and PDF export while preserving editable source text. Keyword emphasis is bold only: no color, background, highlight, or PDF annotation styling. Empty keyword terms are valid and must stay empty when the user clears the terms box.
 - **Editor chrome**: `+ link`, `+ bullet`, `+ entry` buttons are `position: absolute` in the gray margin — they do **not** appear in PDF export
 - **`+ bullet` positioning**: sits at `bottom: 22px` on `.resume-entry` so it doesn't overlap the `+ entry` button which sits at `bottom: 0` on `.resume-section`
 
@@ -327,13 +327,16 @@ Collect notes with `collectJdNotes()` in `jdNotes.ts`. Diff viewer still shows J
 
 The workspace is centered as one unit: `[130px rail][8.5in page][optional 308px JD panel]`. The format toolbar spans **only the 8.5in page column** (plus rail offset), not the JD sidebar width.
 
-### PDF export (`src/utils/pdf.ts`)
+### PDF export (`frontend/src/utils/pdf.ts`)
+
+PDF export must create a real text PDF. Do not reintroduce `html2pdf`, `html2canvas`, canvas screenshots, full-page image export, or any other rasterized PDF path.
 
 1. Export targets `#resume-export` → `.resume-page-wrapper`
-2. Before capture, wrapper is moved `position:fixed; opacity:1` (off-screen but full size)
-3. **Never** use `width:0;height:0` on export container — html2canvas produces blank PDFs
-4. `generateResumePdfBlob()` for AI send; `exportResumeToPdf()` for download
-5. Blob size sanity check (`< 12KB` → error)
+2. Before writing, the wrapper is made visible at the 8.5in page width so DOM layout measurements are stable
+3. `pdf.ts` walks rendered text nodes and section-rule elements, then writes PDF text operators and vector lines directly
+4. Standard PDF fonts (`Times`, bold, italic, bold-italic) preserve selectable text without embedding a page image
+5. `generateResumePdfBlob()` for AI send and `exportResumeToPdf()` for download share the same text-PDF path
+6. Verification for any generated resume PDF: extractable characters should be nonzero, embedded page images should be zero, and ATS/parser tools should not see a blank resume
 
 ---
 
@@ -380,7 +383,7 @@ Duplicate extension `sent` events during a single model wait must **not** skip m
 
 ### Heartbeat
 
-`content-llm.js` reports progress every **1s** while waiting for a model response. `useAiBridge` coalesces repeated `waiting` events; the active milestone label appears in the status line under the step circles.
+`content-llm.js` reports progress every **1s** while waiting for model activity. `useAiBridge` coalesces repeated `waiting` events; the active milestone label appears in the status line under the step circles. Waiting labels distinguish "model is generating" from "provider tab is in the background and generation has not visibly started yet"; the latter is a stale-status/throttling hint, not a response-capture failure.
 
 ### Bridge protocol
 
@@ -508,12 +511,13 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 |-------|-------|-----|
 | "Extension context invalidated" | Extension reloaded, app tab not refreshed | Reload extension + refresh app |
 | API calls return HTML 404 | Express server not running | `npm run dev` (not `dev:ui`) |
-| Blank PDF | Export container had zero dimensions | Keep export wrapper at 8.5in width |
+| Image-only / ATS-blank PDF | Canvas/html2pdf raster export flattened the page into one image | Use the text-PDF writer in `pdf.ts`; verify extractable text > 0 and page image objects = 0 |
 | 2-page PDF | Editor controls in document flow | Controls are `position:absolute`; no `min-height:11in` on page |
 | Gemini file upload failed | Two-step menu flow | Update `attachFileToGemini()` selectors |
 | "LLM returned invalid JSON" | Response captured before fence closed | Wait for full reply; retry or send improvement |
 | "Send button stayed disabled" after provider generated anyway | Submit verifier read a stale pre-submit composer node | Re-query live composer, poll for streaming/rendered prompt, and accept late parseable response evidence in `content-llm.js` |
-| Stuck "Waiting for response" | DOM selectors don't match provider UI | Update `content-llm.js` selectors |
+| Stale "Waiting for response" while provider is backgrounded | Provider has not visibly started generation in the hidden tab, or the UI throttled until the provider tab was viewed | Surface the background-tab waiting label; only treat as detection failure if generation finishes and capture still fails |
+| Repository edits not sent to LLM | Wizard used cached source arrays loaded before the user saved edits | Repository generation refetches repo, ongoing, and education immediately before building the prompt |
 | Generated resume has `(edit)` / fake GPA / fake contact | Prompt allowed editable placeholders or education/contact context was missing | Repository generation includes `/api/education`, prompt forbids visible editor notes, parser strips known placeholder artifacts |
 | Generated resume omits education | Wizard only sent repository/ongoing freewrite | Repository generation now sends saved Education Info records and meta notes with the prompt |
 | Applied resume cannot change template/style | Style controls existed only before generation | Editor toolbar **Style** panel changes renderer/fonts/sizes/toggles after apply and drives PDF export |
@@ -549,7 +553,7 @@ npm run lint      # ESLint
 - **React 19** + TypeScript + Vite 8
 - **react-router-dom v7** — client-side routing
 - **Express 5** + **better-sqlite3** — local API server (`server/index.cjs`, CommonJS)
-- **html2pdf.js** (html2canvas + jsPDF) — client-side PDF
+- **Custom text-PDF writer** (`frontend/src/utils/pdf.ts`) — selectable client-side PDF export/send
 - **lucide-react** — icons
 - **concurrently** — runs API + Vite together
 - **Chrome Extension MV3** — AI bridge
@@ -574,7 +578,7 @@ npm run lint      # ESLint
 
 ### Change with care
 
-- `pdf.ts` capture positioning — easy to break PDF output
+- `pdf.ts` text positioning/extraction — easy to break selectable PDF output
 - `content-llm.js` selectors and upload flows — test on all three providers after changes
 - `content-scrape.js` + LinkedIn DOM — profile layout changes frequently
 - `parseResumeResponse.ts` — must stay aligned with extension capture logic
@@ -602,7 +606,7 @@ npm run lint      # ESLint
 ### Testing checklist
 
 1. Edit resume inline → undo → auto-save survives refresh
-2. Download PDF → content present, single page
+2. Download PDF → content present, single page, text selectable/extractable, 0 full-page image export
 3. Reload extension → refresh app → Bridge ready
 4. Wizard: optimize PDF with JD → one provider send returns baseline + optimized preview; step tracker advances correctly
 5. Wizard: build from repository → freewrite sources only → preview modal with JD sidebar highlight

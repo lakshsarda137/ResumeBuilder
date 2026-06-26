@@ -26,7 +26,7 @@ export const defaultResume: ResumeData = {
           bullets: [
             makeBullet('GPA: 4.0/4.0'),
             makeBullet(
-              'Coursework: Data Structures and Algorithms, Data Science and Machine Learning (Graduate), Linear Algebra',
+              'Relevant Coursework: Data Structures and Algorithms, Data Science and Machine Learning (Graduate), Linear Algebra',
             ),
           ],
         },

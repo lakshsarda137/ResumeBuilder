@@ -252,7 +252,7 @@ function buildResumeEducationContext(existingEducation?: EducationData): string 
     other_notes: trimForPrompt(meta?.other_notes, 1600),
   };
 
-  return `\n\nEDUCATION / PROFILE CONTEXT (source truth for education, skills, contact notes, awards, coursework):\n\`\`\`json\n${JSON.stringify(compact, null, 2)}\n\`\`\`\n\nEducation rules:\n- Use this context for the Education section when it contains saved education records.\n- Keep education concise: school, location, degree/major, graduation date, GPA/honors/coursework only when present above.\n- Skills or fixed facts in skills_note / other_notes may inform Technical Skills or contact only when explicitly supported.\n- Do not invent missing education/contact facts. Never write placeholder text like "(edit)", "(edit degree)", "your.email@example.com", "(000) 000-0000", "Expected May 20XX", "GPA: X.XX", or "[add your coursework here]".`;
+  return `\n\nEDUCATION / PROFILE CONTEXT (source truth for education, skills, contact notes, awards, coursework):\n\`\`\`json\n${JSON.stringify(compact, null, 2)}\n\`\`\`\n\nEducation rules:\n- Use this context for the Education section when it contains saved education records.\n- Keep education concise: school, location, degree/major, graduation date, GPA/honors/coursework only when present above.\n- Resume convention: keep the degree/major line clean. Put GPA and honors/awards together in their own compact bullet, e.g. "GPA: 3.96/4.00; President's Honor Roll (Fall 2025)".\n- Coursework may be one compact bullet only when useful; label it "Relevant Coursework:" rather than "GPA" or generic notes.\n- Skills or fixed facts in skills_note / other_notes may inform Technical Skills or contact only when explicitly supported.\n- Do not invent missing education/contact facts. Never write placeholder text like "(edit)", "(edit degree)", "your.email@example.com", "(000) 000-0000", "Expected May 20XX", "GPA: X.XX", or "[add your coursework here]".`;
 }
 
 export function buildRepoImportFromPdfPrompt(
@@ -410,8 +410,12 @@ WRITING RULES:
 - Select and prioritize experiences/projects that best fit the job description and have enough source detail for credible bullets.
 - Do NOT include every repository source. Omit weak/thin entries, especially entries with little more than title/company/date.
 - Convert selected freewrite material into polished resume bullets with action verbs, numbers, and impact.
-- Use the resume settings/profile as a content contract for section order, section inclusion, tech-stack placement, emphasis, and density. The app will render the returned JSON into the final visual format.
-- Inline HTML is allowed inside string fields only for formatting conventions: use <strong>...</strong>, <em>...</em>, or restricted <span style="font-weight:...;font-style:..."> for heading/label style. Do not output Markdown formatting.
+- Use 1-3 bullets per selected experience/project. Never give one entry 4 bullets while other entries have only 1-2; if there is enough material for a fourth bullet, add/keep another high-signal entry or redistribute.
+- Prefer 5-6 credible entries with balanced density over one overloaded flagship entry and sparse filler.
+- Use the resume settings/profile as a content contract for section order, section inclusion, emphasis, and density. The app will render the returned JSON into the final visual format.
+- Hard layout constraint: never put a tech stack beside an entry name/title. If tools are useful, keep them in the subtitle line below the title or in bullets/skills.
+- Inline HTML is allowed inside string fields only for formatting conventions: use <strong>...</strong> for bold keyword emphasis you choose, <em>...</em> for italic context, or restricted <span style="font-weight:...;font-style:..."> for heading/label style. Do not output Markdown formatting.
+- Never use <mark>, color, background, background-color, yellow highlight, or any colored keyword styling. Keyword emphasis must be bold-only via <strong>.
 - Use a clean single-column resume structure with only sections requested by the format profile and custom conventions.
 - Do not invent employers, titles, dates, tools, or metrics not supported by the source material.
 - Do not put project/product/company URLs in the contact header as the candidate's personal URL. For example, a startup site like checkmateedu.com is not a personal website unless the source explicitly says it is.
