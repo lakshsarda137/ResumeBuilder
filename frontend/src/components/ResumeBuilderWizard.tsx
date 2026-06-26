@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
+  Clipboard,
   Database,
+  Eye,
   FileUp,
   Link2,
   Loader2,
   Plug,
   SlidersHorizontal,
+  X,
 } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { EducationData } from '../types/education';
@@ -169,6 +172,27 @@ interface PromptEstimate {
   note: string;
 }
 
+interface RepositoryPromptDraft {
+  prompt: string;
+  selectedCount: number;
+}
+
+interface PromptPreviewState {
+  title: string;
+  text: string;
+}
+
+function bulletDraftsFromSettings(settings: ResumeRenderSettings) {
+  return {
+    min: String(settings.minBulletsPerExperience),
+    max: String(settings.maxBulletsPerExperience),
+  };
+}
+
+function clampInteger(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
 function TokenEstimatePanel({
   estimate,
   mode,
@@ -253,17 +277,25 @@ export function ResumeBuilderWizard({
   const [draftSettings, setDraftSettings] = useState(() =>
     mergeResumeRenderSettings(renderSettings),
   );
+  const [bulletDrafts, setBulletDrafts] = useState(() =>
+    bulletDraftsFromSettings(mergeResumeRenderSettings(renderSettings)),
+  );
 
   const [previewData, setPreviewData] = useState<ResumeData | null>(null);
   const [baselineData, setBaselineData] = useState<ResumeData | null>(null);
   const [rawResponse, setRawResponse] = useState('');
   const [activeSession, setActiveSession] = useState<AiChatSession | null>(null);
+  const [promptPreview, setPromptPreview] = useState<PromptPreviewState | null>(null);
+  const [previewingPrompt, setPreviewingPrompt] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
   const [resultVariant, setResultVariant] = useState<'optimize' | 'repository'>(
     'optimize',
   );
 
   useEffect(() => {
-    setDraftSettings(mergeResumeRenderSettings(renderSettings));
+    const next = mergeResumeRenderSettings(renderSettings);
+    setDraftSettings(next);
+    setBulletDrafts(bulletDraftsFromSettings(next));
   }, [renderSettings]);
 
   const updateDraftSettings = useCallback(
@@ -272,6 +304,60 @@ export function ResumeBuilderWizard({
     },
     [],
   );
+
+  const updateBulletDraftSettings = useCallback(
+    (
+      field: 'minBulletsPerExperience' | 'maxBulletsPerExperience',
+      rawValue: string,
+    ) => {
+      setBulletDrafts((current) => ({
+        ...current,
+        [field === 'minBulletsPerExperience' ? 'min' : 'max']: rawValue,
+      }));
+
+      if (!rawValue.trim()) {
+        return;
+      }
+
+      const numericValue = Number(rawValue);
+      if (!Number.isFinite(numericValue)) {
+        return;
+      }
+
+      const patch: Partial<ResumeRenderSettings> = {};
+      if (field === 'minBulletsPerExperience') {
+        const minBullets = clampInteger(numericValue, 1, 5);
+        patch.minBulletsPerExperience = minBullets;
+        if (draftSettings.maxBulletsPerExperience < minBullets) {
+          patch.maxBulletsPerExperience = minBullets;
+        }
+      } else {
+        const maxBullets = clampInteger(numericValue, 1, 6);
+        patch.maxBulletsPerExperience = maxBullets;
+        if (draftSettings.minBulletsPerExperience > maxBullets) {
+          patch.minBulletsPerExperience = maxBullets;
+        }
+      }
+
+      const next = mergeResumeRenderSettings({ ...draftSettings, ...patch });
+      setDraftSettings(next);
+      setBulletDrafts({
+        min:
+          field === 'minBulletsPerExperience'
+            ? rawValue
+            : String(next.minBulletsPerExperience),
+        max:
+          field === 'maxBulletsPerExperience'
+            ? rawValue
+            : String(next.maxBulletsPerExperience),
+      });
+    },
+    [draftSettings],
+  );
+
+  const syncBulletDrafts = useCallback(() => {
+    setBulletDrafts(bulletDraftsFromSettings(draftSettings));
+  }, [draftSettings]);
 
   useEffect(() => {
     if (mode !== 'repository') {
@@ -437,6 +523,65 @@ export function ResumeBuilderWizard({
     }
   };
 
+  const buildFreshRepositoryPrompt = useCallback(async (): Promise<RepositoryPromptDraft> => {
+    const [
+      { repo, ongoing, repoRaw: freshRepoRaw, ongoingRaw: freshOngoingRaw },
+      freshEducationData,
+    ] = await Promise.all([
+      fetchRepositorySources(),
+      fetch('/api/education').then(async (res) => {
+        if (!res.ok) {
+          throw new Error('Failed to refresh education records.');
+        }
+        return (await res.json()) as EducationData;
+      }),
+    ]);
+
+    setRepoSources(repo);
+    setOngoingSources(ongoing);
+    setRepoRaw(freshRepoRaw);
+    setOngoingRaw(freshOngoingRaw);
+    setEducationData(freshEducationData);
+
+    const latestFilteredSources = selectFilteredSources({
+      selectionMode,
+      repoSources: repo,
+      ongoingSources: ongoing,
+      repoRaw: freshRepoRaw,
+      ongoingRaw: freshOngoingRaw,
+      selectedKeys,
+      repoMaxYears,
+      includeOngoing,
+      ongoingMinMonths,
+    });
+
+    if (latestFilteredSources.length === 0) {
+      throw new Error(
+        'No sendable freewrite sources selected. Add freewrite entries in Repository/Ongoing or adjust filters.',
+      );
+    }
+
+    return {
+      selectedCount: latestFilteredSources.length,
+      prompt: buildResumeFromRepositoryPrompt(
+        jobDescription,
+        latestFilteredSources,
+        selectedTemplate,
+        generationInstructions,
+        freshEducationData,
+      ),
+    };
+  }, [
+    generationInstructions,
+    includeOngoing,
+    jobDescription,
+    ongoingMinMonths,
+    repoMaxYears,
+    selectedKeys,
+    selectedTemplate,
+    selectionMode,
+  ]);
+
   const runOptimizeFlow = useCallback(async () => {
     if (!pdfFile) {
       throw new Error('Select a PDF resume to optimize.');
@@ -481,51 +626,9 @@ export function ResumeBuilderWizard({
 
   const runRepositoryFlow = useCallback(async () => {
     pushPipeline('reading_sources', 'Refreshing saved repository sources…');
-    const [
-      { repo, ongoing, repoRaw: freshRepoRaw, ongoingRaw: freshOngoingRaw },
-      freshEducationData,
-    ] = await Promise.all([
-      fetchRepositorySources(),
-      fetch('/api/education').then(async (res) => {
-        if (!res.ok) {
-          throw new Error('Failed to refresh education records.');
-        }
-        return (await res.json()) as EducationData;
-      }),
-    ]);
-
-    setRepoSources(repo);
-    setOngoingSources(ongoing);
-    setRepoRaw(freshRepoRaw);
-    setOngoingRaw(freshOngoingRaw);
-    setEducationData(freshEducationData);
-
-    const latestFilteredSources = selectFilteredSources({
-      selectionMode,
-      repoSources: repo,
-      ongoingSources: ongoing,
-      repoRaw: freshRepoRaw,
-      ongoingRaw: freshOngoingRaw,
-      selectedKeys,
-      repoMaxYears,
-      includeOngoing,
-      ongoingMinMonths,
-    });
-
-    if (latestFilteredSources.length === 0) {
-      throw new Error(
-        'No sendable freewrite sources selected. Add freewrite entries in Repository/Ongoing or adjust filters.',
-      );
-    }
+    const { prompt } = await buildFreshRepositoryPrompt();
 
     const activeProvider = connectedProvider ?? provider;
-    const prompt = buildResumeFromRepositoryPrompt(
-      jobDescription,
-      latestFilteredSources,
-      selectedTemplate,
-      generationInstructions,
-      freshEducationData,
-    );
 
     pushPipeline('importing_pdf', 'Sending repository sources to Web AI…');
     const response = await sendPromptAndWait({
@@ -549,19 +652,74 @@ export function ResumeBuilderWizard({
 
     pushPipeline('preview_ready', 'Repository resume preview ready');
   }, [
+    buildFreshRepositoryPrompt,
     connectedProvider,
-    selectionMode,
-    selectedKeys,
-    repoMaxYears,
-    includeOngoing,
-    ongoingMinMonths,
-    jobDescription,
     provider,
     pushPipeline,
     sendPromptAndWait,
-    selectedTemplate,
-    generationInstructions,
   ]);
+
+  const handlePreviewPrompt = async () => {
+    if (!mode) {
+      setError('Choose how you want to build your resume.');
+      return;
+    }
+
+    setPreviewingPrompt(true);
+    setPromptCopied(false);
+    setError(null);
+
+    try {
+      if (mode === 'optimize') {
+        setPromptPreview({
+          title: 'Prompt Preview',
+          text: buildOptimizePdfPrompt(jobDescription),
+        });
+        return;
+      }
+
+      const { prompt, selectedCount } = await buildFreshRepositoryPrompt();
+      setPromptPreview({
+        title: `Prompt Preview · ${selectedCount} source${selectedCount === 1 ? '' : 's'}`,
+        text: prompt,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to build prompt preview.');
+    } finally {
+      setPreviewingPrompt(false);
+    }
+  };
+
+  const copyPromptPreview = async () => {
+    if (!promptPreview?.text) {
+      return;
+    }
+
+    const fallbackCopy = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = promptPreview.text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    };
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(promptPreview.text);
+      } catch {
+        fallbackCopy();
+      }
+    } else {
+      fallbackCopy();
+    }
+
+    setPromptCopied(true);
+    window.setTimeout(() => setPromptCopied(false), 1600);
+  };
 
   const handleGenerate = async () => {
     if (!bridgeReady) {
@@ -791,12 +949,14 @@ export function ResumeBuilderWizard({
                   max={5}
                   step={1}
                   className="rb-wizard-input"
-                  value={draftSettings.minBulletsPerExperience}
+                  value={bulletDrafts.min}
                   onChange={(event) =>
-                    updateDraftSettings({
-                      minBulletsPerExperience: Number(event.target.value),
-                    })
+                    updateBulletDraftSettings(
+                      'minBulletsPerExperience',
+                      event.target.value,
+                    )
                   }
+                  onBlur={syncBulletDrafts}
                 />
               </label>
               <label className="rb-wizard-label">
@@ -807,12 +967,14 @@ export function ResumeBuilderWizard({
                   max={6}
                   step={1}
                   className="rb-wizard-input"
-                  value={draftSettings.maxBulletsPerExperience}
+                  value={bulletDrafts.max}
                   onChange={(event) =>
-                    updateDraftSettings({
-                      maxBulletsPerExperience: Number(event.target.value),
-                    })
+                    updateBulletDraftSettings(
+                      'maxBulletsPerExperience',
+                      event.target.value,
+                    )
                   }
+                  onBlur={syncBulletDrafts}
                 />
               </label>
             </div>
@@ -1032,22 +1194,38 @@ export function ResumeBuilderWizard({
           <TokenEstimatePanel estimate={promptEstimate} mode={mode} />
         )}
 
-        <button
-          type="button"
-          className="rb-wizard-btn rb-wizard-btn--primary"
-          onClick={handleGenerate}
-          disabled={
-            !bridgeReady ||
-            !mode ||
-            working ||
-            refining ||
-            connecting ||
-            (mode === 'optimize' && !pdfFile)
-          }
-        >
-          {working ? <Loader2 size={16} className="spin" /> : null}
-          {working ? 'Generating…' : 'Generate tailored resume'}
-        </button>
+        <div className="rb-wizard-action-buttons">
+          <button
+            type="button"
+            className="rb-wizard-btn rb-wizard-btn--secondary"
+            onClick={handlePreviewPrompt}
+            disabled={!mode || working || refining || previewingPrompt}
+          >
+            {previewingPrompt ? (
+              <Loader2 size={15} className="spin" />
+            ) : (
+              <Eye size={15} />
+            )}
+            {previewingPrompt ? 'Preparing…' : 'Preview prompt'}
+          </button>
+          <button
+            type="button"
+            className="rb-wizard-btn rb-wizard-btn--primary"
+            onClick={handleGenerate}
+            disabled={
+              !bridgeReady ||
+              !mode ||
+              working ||
+              refining ||
+              connecting ||
+              previewingPrompt ||
+              (mode === 'optimize' && !pdfFile)
+            }
+          >
+            {working ? <Loader2 size={16} className="spin" /> : null}
+            {working ? 'Generating…' : 'Generate tailored resume'}
+          </button>
+        </div>
 
         <PipelineStatus events={pipelineEvents} variant={pipelineVariant} />
 
@@ -1075,6 +1253,57 @@ export function ResumeBuilderWizard({
         onDiscard={handleDiscard}
         onRefine={handleRefine}
       />
+
+      {promptPreview && (
+        <div
+          className="rb-prompt-preview-overlay"
+          role="presentation"
+          onClick={() => setPromptPreview(null)}
+        >
+          <div
+            className="rb-prompt-preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="rb-prompt-preview-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="rb-prompt-preview-header">
+              <h2 id="rb-prompt-preview-title">{promptPreview.title}</h2>
+              <button
+                type="button"
+                className="rb-prompt-preview-icon-btn"
+                onClick={() => setPromptPreview(null)}
+                aria-label="Close prompt preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <textarea
+              className="rb-prompt-preview-textarea"
+              value={promptPreview.text}
+              readOnly
+              spellCheck={false}
+            />
+            <div className="rb-prompt-preview-actions">
+              <button
+                type="button"
+                className="rb-wizard-btn rb-wizard-btn--secondary"
+                onClick={() => void copyPromptPreview()}
+              >
+                <Clipboard size={14} />
+                {promptCopied ? 'Copied' : 'Copy prompt'}
+              </button>
+              <button
+                type="button"
+                className="rb-wizard-btn rb-wizard-btn--primary"
+                onClick={() => setPromptPreview(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

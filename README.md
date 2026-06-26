@@ -21,7 +21,7 @@ If you only want the UI (no API features): `npm run dev:ui`
 2. **Load unpacked** → select `extension/`
 3. **Refresh** the Resume Builder tab after every extension reload (`Cmd+R`)
 
-Extension version is in `extension/manifest.json` (currently **1.5.1**).
+Extension version is in `extension/manifest.json` (currently **1.5.14**).
 
 ---
 
@@ -281,7 +281,7 @@ The optimize path upload panel is **centered**. The generate button has no decor
 
 ### Diff viewer (`resumeDiff.ts` + `ResumeDiffView.tsx`)
 
-Compares before/after resumes by **stable ids** (`section.id`, `entry.id`, `skill.id`) — **not** array position. Reordering Projects above Experience must **not** show false "replaced" bullets.
+Compares before/after resumes by **stable ids** (`section.id`, `entry.id`, `skill.id`) — **not** array position. Bullet-level changes are matched semantically within each entry so deleted/reordered bullets show as removals/additions instead of being hidden by index shifts. Reordering Projects above Experience must **not** show false "replaced" bullets.
 
 Each change card shows:
 - **Changed** — red strikethrough "was on resume" + green "now on resume"
@@ -348,7 +348,7 @@ PDF export must create a real text PDF. Do not reintroduce `html2pdf`, `html2can
 4. `pdf.ts` walks rendered text nodes and section-rule elements, then writes PDF text operators and vector lines directly
 5. Standard PDF fonts (`Times`/`Helvetica`, with bold/italic variants) preserve selectable text without embedding a page image
 6. `generateResumePdfBlob()` for AI send and `exportResumeToPdf()` for download share the same text-PDF path
-7. Verification for any generated resume PDF: extractable characters should be nonzero, embedded page images should be zero, and ATS/parser tools should not see a blank resume
+7. Verification for any generated resume PDF: extractable characters should be nonzero, embedded page images should be zero, ATS/parser tools should not see a blank resume, and visual spacing/weight must be checked on the downloaded PDF itself
 
 ---
 
@@ -428,7 +428,7 @@ Message types (background):
 
 Submit verification must not trust the pre-submit composer node after click/keyboard/form submit. Claude can accept the prompt, clear or replace the live composer, and continue generating while a stale DOM reference still contains the old prompt. `verifyMessageSubmitted()` re-queries the live composer, polls for streaming/rendered-prompt/composer-cleared evidence, and checks for late parseable responses before surfacing a send-button-disabled error.
 
-**Fragile area:** LLM DOM changes frequently. Selectors in `PROVIDER_SELECTORS` and upload-button logic will need updates when providers ship new UI.
+**Fragile area:** LLM DOM changes frequently. Selectors in `PROVIDER_SELECTORS` and upload-button logic will need updates when providers ship new UI. Gemini PDF upload currently cannot be made reliable in a hidden/background tab: diagnostics showed the native "Upload & tools" button was found, but pointer/keyboard/click activation left `aria-expanded=false`, no menu surface, no file input, and drag/drop was ignored. Do not offer background Gemini PDF upload unless the user explicitly accepts activating/focusing the Gemini tab.
 
 ---
 
@@ -466,7 +466,7 @@ Import rules (see `repoImport.ts`, `educationImport.ts`):
 - **Contradictions require review** — mutually exclusive facts are paused in a review table. Choosing **Existing** or **Incoming** applies the selected field; repository conflicts can use LLM-provided clean freewrite variants for each choice, so conflict notes are not saved into the warehouse text.
 - **Diagnostics are programmatic** — import failures surface extension debug events in the panel with a single copy action. Do not ask the user to paste console snippets for normal debugging.
 
-Requires Chrome extension (v1.5.1+) for PDF send, LinkedIn scrape (`SCRAPE_URL` bridge message), background capture polling, and import diagnostics.
+Requires Chrome extension (v1.5.14+) for PDF send, LinkedIn scrape (`SCRAPE_URL` bridge message), background capture polling, and import diagnostics.
 
 Each of Repository, Ongoing, Education, and History has a **Delete all** button (with confirmation) that clears that tab's data via collection `DELETE` routes (`/api/repo`, `/api/ongoing`, `/api/education`, `/api/history`).
 
@@ -538,15 +538,19 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | Applied resume cannot change template/style | Style controls existed only before generation | Editor toolbar **Style** panel changes renderer/fonts/sizes/toggles after apply and drives PDF export |
 | Downloaded PDF truncated at bottom | Export clipped text outside the single page without warning | Editor shows under/fit/over one-page status and `pdf.ts` blocks export when rendered content exceeds one page |
 | Resume is barely over one page | Small overflow can often be solved by layout, not content deletion | Editor can apply deterministic small-overflow fit tweaks up to 105% usage; larger overflow requires content edits/compression |
+| Fit success message covers Web AI panel | Toolbar status was positioned as an absolute toast under a wrapping toolbar | Keep status messages in toolbar flow and ellipsize long text |
+| Optimized resume diff shows additions but hides removals | Missing faithful baseline, or bullet deletions/reorders were compared by raw index/id instead of semantic match | Optimize-PDF responses must include both `baseline` and `optimized`; bullet diffs match within each entry and show unmatched baseline bullets as removed |
+| "Technical Skills" heading has a massive gap in downloaded PDF | Section heading / PDF text spacing can differ from the intended visual rhythm | Add heading word-spacing controls or renderer fix; verify the downloaded PDF, not just browser preview |
+| Downloaded PDF font is too dark/heavy | PDF text weight/color has no user-facing tuning yet | Add functionality to tweak PDF typography darkness/weight/intensity from the UI |
 | Purple/blue editor panel returned | `AiPanel.css` had its own hardcoded slate/purple colors outside the toolbar CSS | Keep `AiPanel.css`, `ResumeEditor.css`, and `FormatToolbar.css` on the neutral/warm palette; verify on an actual editor session |
 | Top toolbar controls overlap | Fixed grid columns let toolbar center/right groups collide at wide-but-crowded widths | Toolbar uses wrapping flex layout with constrained select width; verify with a saved session and JD notes visible |
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
 | Step tracker jumps ahead | Extension fires duplicate `sent` events | Milestone logic in `aiPipeline.ts` — only advance on completion signals |
 | HistoryPage.css HMR error | Old CSS file was deleted, Vite cached the import | Hard refresh (`Cmd+Shift+R`) |
-| Import does nothing | Extension not reloaded after update | Reload extension v1.5.1+ + refresh app |
+| Import does nothing | Extension not reloaded after update | Reload extension v1.5.14+ + refresh app |
 | Provider tab steals focus during import/generate | Extension used to activate the provider tab before send | v1.4.6+ keeps provider sends in background; do not activate Claude/ChatGPT/Gemini tabs during normal sends |
 | Import prompt only sends after visiting provider tab | Hidden-tab composer/button state lagged during import sends | v1.4.8+ writes to one composer instance, avoids false prompt-readback failures, and tries keyboard/form submit fallbacks before waiting on the send button |
-| Claude finishes import but dashboard never merges | Extension missed the rendered JSON or app parser accepted the wrong candidate | v1.5.1+ uses explicit JSON delimiters, backup polling, real-payload validation, and app-copyable diagnostics |
+| Claude finishes import but dashboard never merges | Extension missed the rendered JSON or app parser accepted the wrong candidate | v1.5.14+ uses explicit JSON delimiters, backup polling, real-payload validation, and app-copyable diagnostics |
 | Repo import response not captured | Extension only detected resume JSON (`sections`/`contact`), not warehouse JSON (`entries`) | v1.4.4+ accepts both schemas |
 | Delete all does nothing | Old `/all` routes hit `/:id` with id `"all"` | Restart API server; use collection routes (`DELETE /api/repo`, etc.) |
 | Education skills not saved after import | `PATCH /api/education/meta` was shadowed by `/:id` route | Fixed — meta route registered first; import saves skills/notes directly |
@@ -587,6 +591,7 @@ npm run lint      # ESLint
 
 - `ResumeDocument.css` / canvas layout in `ResumeEditor.css` — toolbar is 8.5in wide above page; test PDF export after
 - `resumeFitModerator.ts` — deterministic layout-only small-overflow fitting; keep it conservative and re-measure after applying
+- PDF typography controls — future work should let the user tune text darkness/weight and prevent huge compound-heading word gaps such as "Technical    Skills"
 - `scripts/estimate-resume-line-budget.mjs` — heuristic line-budget estimator for prompt/layout tuning; renderer measurement remains source of truth
 - `FormatToolbar.tsx` / `formatSelection.ts` — selection must be preserved for dropdowns
 - `JdNotesPanel` highlight uses `data-jd-anchor` on `ResumeDocument` — keep ids in sync with `jdNotes.ts`
@@ -604,7 +609,7 @@ npm run lint      # ESLint
 - `content-llm.js` selectors and upload flows — test on all three providers after changes
 - `content-scrape.js` + LinkedIn DOM — profile layout changes frequently
 - `parseResumeResponse.ts` — must stay aligned with extension capture logic
-- `resumeDiff.ts` — match by stable ids only; never compare by section/entry index
+- `resumeDiff.ts` — match by stable ids and semantic bullet matching; never compare by section/entry index
 - `useAiBridge` message protocol — must stay in sync with the extension
 - `ResumeData` schema — update prompt, parser, and normalizer together
 - `backend/index.cjs` schema changes — better-sqlite3 won't auto-migrate; handle manually or add migration logic

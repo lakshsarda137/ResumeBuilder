@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Bot, Link2, Send, Loader2, Plug } from 'lucide-react';
+import { Bot, Check, Clipboard, Link2, Send, Loader2, Plug } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { ResumeData } from '../types/resume';
+import type { BridgeDebugEvent } from '../hooks/useAiBridge';
 import {
   AI_PROVIDERS,
   getSavedProvider,
@@ -64,6 +65,22 @@ interface AiPanelProps {
   }>;
   pushPipeline: (step: string, detail?: string) => void;
   startPipeline: (variant: PipelineVariant) => void;
+  debugEvents?: BridgeDebugEvent[];
+}
+
+function formatDebugDetail(detail: unknown): string {
+  if (detail == null) {
+    return '';
+  }
+  if (typeof detail === 'string') {
+    return detail;
+  }
+
+  try {
+    return JSON.stringify(detail, null, 2);
+  } catch {
+    return String(detail);
+  }
 }
 
 export function AiPanel({
@@ -85,6 +102,7 @@ export function AiPanel({
   sendImprovementAndWait,
   pushPipeline,
   startPipeline,
+  debugEvents = [],
 }: AiPanelProps) {
   const [provider, setProvider] = useState<AiProvider>(getSavedProvider);
   const [connecting, setConnecting] = useState(false);
@@ -100,6 +118,7 @@ export function AiPanel({
   );
   const [rawResponse, setRawResponse] = useState('');
   const [activeSession, setActiveSession] = useState<AiChatSession | null>(null);
+  const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
 
   const isBusy = connecting || sending || refining || previewData !== null;
 
@@ -119,6 +138,43 @@ export function AiPanel({
     setStatus(null);
     setError(null);
   };
+
+  const copyDiagnostics = useCallback(async () => {
+    const payload = {
+      copied_at: new Date().toISOString(),
+      provider,
+      connectedProvider,
+      error,
+      status,
+      events: debugEvents,
+    };
+    const text = JSON.stringify(payload, null, 2);
+
+    const fallbackCopy = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    };
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        fallbackCopy();
+      }
+    } else {
+      fallbackCopy();
+    }
+
+    setDiagnosticsCopied(true);
+    window.setTimeout(() => setDiagnosticsCopied(false), 1600);
+  }, [connectedProvider, debugEvents, error, provider, status]);
 
   const sendPromptTokenEstimate = estimateInputTokens(
     buildAiPrompt(aiUserPrompt, resumeData),
@@ -396,6 +452,42 @@ export function AiPanel({
           {status && <p className="ai-panel-status">{status}</p>}
           {error && <p className="ai-panel-error">{error}</p>}
         </div>
+
+        {debugEvents.length > 0 ? (
+          <details className="ai-panel-debug" open={Boolean(error)}>
+            <summary>
+              <span>Diagnostics ({debugEvents.length})</span>
+              <button
+                type="button"
+                className="ai-panel-debug-copy"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void copyDiagnostics();
+                }}
+              >
+                {diagnosticsCopied ? <Check size={13} /> : <Clipboard size={13} />}
+                {diagnosticsCopied ? 'Copied' : 'Copy all'}
+              </button>
+            </summary>
+            <div className="ai-panel-debug-list">
+              {debugEvents.slice(-80).map((entry, index) => (
+                <article
+                  key={`${entry.at}-${entry.event}-${index}`}
+                  className="ai-panel-debug-entry"
+                >
+                  <div className="ai-panel-debug-meta">
+                    <span>{new Date(entry.at).toLocaleTimeString()}</span>
+                    <strong>{entry.event}</strong>
+                  </div>
+                  {entry.detail != null ? (
+                    <pre>{formatDebugDetail(entry.detail)}</pre>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </details>
+        ) : null}
       </section>
 
       <AiResultModal

@@ -269,6 +269,7 @@ export function ResumeEditor() {
     pipelineVariant,
     pushPipeline,
     startPipeline,
+    debugEvents,
   } = useAiBridge();
 
   const hasJdNotes = resumeHasJdNotes(data);
@@ -822,6 +823,7 @@ export function ResumeEditor() {
         sendImprovementAndWait={sendImprovementAndWait}
         pushPipeline={pushPipeline}
         startPipeline={startPipeline}
+        debugEvents={debugEvents}
       />
 
       <PipelineStatus events={pipelineEvents} variant={pipelineVariant} />

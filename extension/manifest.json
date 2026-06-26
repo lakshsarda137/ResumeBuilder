@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Resume Builder AI Bridge",
-  "version": "1.5.8",
+  "version": "1.5.14",
   "description": "Sends resume PDFs to your logged-in Claude, ChatGPT, or Gemini web session.",
   "permissions": ["tabs", "scripting", "storage"],
   "host_permissions": [

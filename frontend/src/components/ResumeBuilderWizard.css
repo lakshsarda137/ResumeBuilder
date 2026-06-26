@@ -519,6 +519,13 @@
   padding-top: 20px;
 }
 
+.rb-wizard-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .rb-wizard-provider-row {
   display: flex;
   align-items: flex-end;
@@ -583,6 +590,85 @@
   gap: 6px;
 }
 
+.rb-prompt-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.rb-prompt-preview-modal {
+  width: min(980px, 100%);
+  max-height: min(82vh, 820px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border, #333);
+  border-radius: 10px;
+  background: var(--surface-2, #1e1e1e);
+  color: var(--text-1, #f0f0f0);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.rb-prompt-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border, #333);
+}
+
+.rb-prompt-preview-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.rb-prompt-preview-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  cursor: pointer;
+}
+
+.rb-prompt-preview-textarea {
+  min-height: 420px;
+  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 1px solid var(--border, #333);
+  background: var(--surface-1, #161616);
+  color: inherit;
+  padding: 16px 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: none;
+  outline: none;
+  white-space: pre;
+}
+
+.rb-prompt-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 18px;
+  flex-wrap: wrap;
+}
+
 .rb-wizard-loading,
 .rb-wizard-empty {
   font-size: 13px;
@@ -609,5 +695,17 @@
 
   .rb-wizard-token-breakdown {
     grid-template-columns: 1fr;
+  }
+
+  .rb-prompt-preview-overlay {
+    padding: 12px;
+  }
+
+  .rb-prompt-preview-modal {
+    max-height: 88vh;
+  }
+
+  .rb-prompt-preview-textarea {
+    min-height: 320px;
   }
 }

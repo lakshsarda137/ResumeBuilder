@@ -130,7 +130,11 @@ function sourceIdentityKey(source: RepositorySource): string {
     return `${source.kind}:${source.id}`;
   }
 
+  // Repository and Ongoing are separate user-editable pages. Keep matching
+  // records from both pages visible/sendable instead of letting one mask the
+  // other during resume generation.
   const parts = [
+    source.kind,
     source.type,
     title,
     company,

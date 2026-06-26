@@ -14,6 +14,7 @@ export interface ResumeDiffChange {
   after?: string;
   /** AI commentary — explicitly NOT printed on the resume */
   aiNote?: string;
+  sortKey?: string;
 }
 
 interface FlatItem {
@@ -22,6 +23,65 @@ interface FlatItem {
   label: string;
   text: string;
   aiNote?: string;
+  itemType?: 'field' | 'bullet';
+  groupKey?: string;
+  index?: number;
+}
+
+interface KeyedFlatItem extends FlatItem {
+  key: string;
+}
+
+const BULLET_MATCH_THRESHOLD = 0.42;
+
+function normalizeDiffText(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[^a-z0-9%$]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenize(value: string): Set<string> {
+  return new Set(
+    normalizeDiffText(value)
+      .split(' ')
+      .filter((token) => token.length > 2 || /\d/.test(token)),
+  );
+}
+
+function textSimilarity(a: string, b: string): number {
+  const left = normalizeDiffText(a);
+  const right = normalizeDiffText(b);
+
+  if (!left || !right) {
+    return 0;
+  }
+
+  if (left === right) {
+    return 1;
+  }
+
+  if (left.includes(right) || right.includes(left)) {
+    return 0.72;
+  }
+
+  const leftTokens = tokenize(left);
+  const rightTokens = tokenize(right);
+
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+
+  let shared = 0;
+  leftTokens.forEach((token) => {
+    if (rightTokens.has(token)) {
+      shared += 1;
+    }
+  });
+
+  return (2 * shared) / (leftTokens.size + rightTokens.size);
 }
 
 /**
@@ -113,6 +173,9 @@ function flattenResume(data: ResumeData): Map<string, FlatItem> {
           label: `Bullet ${bulletIndex + 1}`,
           text,
           aiNote: bullet.jdComment?.trim(),
+          itemType: 'bullet',
+          groupKey: entryBase,
+          index: bulletIndex,
         });
       });
     });
@@ -146,6 +209,114 @@ function flattenResume(data: ResumeData): Map<string, FlatItem> {
   return map;
 }
 
+function collectBulletGroups(flatMap: Map<string, FlatItem>): Map<string, KeyedFlatItem[]> {
+  const groups = new Map<string, KeyedFlatItem[]>();
+
+  flatMap.forEach((item, key) => {
+    if (item.itemType !== 'bullet' || !item.groupKey) {
+      return;
+    }
+
+    const group = groups.get(item.groupKey) ?? [];
+    group.push({ ...item, key });
+    groups.set(item.groupKey, group);
+  });
+
+  groups.forEach((items) => {
+    items.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  });
+
+  return groups;
+}
+
+function buildBulletDiffChanges(
+  beforeMap: Map<string, FlatItem>,
+  afterMap: Map<string, FlatItem>,
+): ResumeDiffChange[] {
+  const beforeGroups = collectBulletGroups(beforeMap);
+  const afterGroups = collectBulletGroups(afterMap);
+  const groupKeys = new Set([...beforeGroups.keys(), ...afterGroups.keys()]);
+  const changes: ResumeDiffChange[] = [];
+
+  groupKeys.forEach((groupKey) => {
+    const before = beforeGroups.get(groupKey) ?? [];
+    const after = afterGroups.get(groupKey) ?? [];
+    const matchedAfter = new Set<number>();
+
+    before.forEach((prev) => {
+      let bestIndex = -1;
+      let bestScore = 0;
+
+      after.forEach((next, nextIndex) => {
+        if (matchedAfter.has(nextIndex)) {
+          return;
+        }
+
+        const score = textSimilarity(prev.text, next.text);
+        if (score > bestScore) {
+          bestScore = score;
+          bestIndex = nextIndex;
+        }
+      });
+
+      if (bestIndex !== -1 && bestScore >= BULLET_MATCH_THRESHOLD) {
+        const next = after[bestIndex];
+        matchedAfter.add(bestIndex);
+
+        const prevText = prev.text.trim();
+        const nextText = next.text.trim();
+        const prevNote = prev.aiNote?.trim();
+        const nextNote = next.aiNote?.trim();
+
+        if (prevText !== nextText || prevNote !== nextNote) {
+          changes.push({
+            id: `${groupKey}/bullet/${prev.index ?? 0}-${next.index ?? 0}`,
+            kind: 'modified',
+            location: next.location || prev.location,
+            label:
+              prev.index === next.index
+                ? next.label
+                : `${prev.label} → ${next.label}`,
+            before: prevText,
+            after: nextText,
+            aiNote: nextNote,
+            sortKey: next.sortKey || prev.sortKey,
+          });
+        }
+        return;
+      }
+
+      changes.push({
+        id: prev.key,
+        kind: 'removed',
+        location: prev.location,
+        label: prev.label,
+        before: prev.text.trim(),
+        aiNote: prev.aiNote?.trim(),
+        sortKey: prev.sortKey,
+      });
+    });
+
+    after.forEach((next, nextIndex) => {
+      if (matchedAfter.has(nextIndex)) {
+        return;
+      }
+
+      changes.push({
+        id: next.key,
+        kind: 'added',
+        location: next.location,
+        label: next.label,
+        after: next.text.trim(),
+        aiNote: next.aiNote?.trim(),
+        sortKey: next.sortKey,
+      });
+    });
+  });
+
+  return changes;
+}
+
 export function computeResumeDiff(
   before: ResumeData,
   after: ResumeData,
@@ -158,6 +329,10 @@ export function computeResumeDiff(
   for (const key of keys) {
     const prev = beforeMap.get(key);
     const next = afterMap.get(key);
+
+    if (prev?.itemType === 'bullet' || next?.itemType === 'bullet') {
+      continue;
+    }
 
     const location = next?.location ?? prev?.location ?? 'Resume';
     const label = next?.label ?? prev?.label ?? 'Field';
@@ -214,6 +389,7 @@ export function computeResumeDiff(
         before: prevText,
         after: nextText,
         aiNote: nextNote,
+        sortKey: next?.sortKey ?? prev?.sortKey,
       });
       continue;
     }
@@ -226,6 +402,7 @@ export function computeResumeDiff(
         label,
         after: nextText,
         aiNote: nextNote,
+        sortKey: next?.sortKey,
       });
       continue;
     }
@@ -238,13 +415,18 @@ export function computeResumeDiff(
         label,
         before: prevText,
         aiNote: prevNote,
+        sortKey: prev?.sortKey,
       });
     }
   }
 
+  changes.push(...buildBulletDiffChanges(beforeMap, afterMap));
+
   return changes.sort((a, b) => {
-    const aKey = afterMap.get(a.id)?.sortKey ?? beforeMap.get(a.id)?.sortKey ?? a.id;
-    const bKey = afterMap.get(b.id)?.sortKey ?? beforeMap.get(b.id)?.sortKey ?? b.id;
+    const aKey =
+      a.sortKey ?? afterMap.get(a.id)?.sortKey ?? beforeMap.get(a.id)?.sortKey ?? a.id;
+    const bKey =
+      b.sortKey ?? afterMap.get(b.id)?.sortKey ?? beforeMap.get(b.id)?.sortKey ?? b.id;
     return aKey.localeCompare(bKey);
   });
 }

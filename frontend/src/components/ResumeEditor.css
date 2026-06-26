@@ -170,9 +170,10 @@
 }
 
 .editor-save-toast {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  max-width: min(360px, 100%);
   padding: 5px 10px;
   border-radius: 6px;
   background: rgba(74, 222, 128, 0.15);
@@ -181,8 +182,9 @@
   font-size: 11px;
   font-weight: 500;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   pointer-events: none;
-  z-index: 20;
 }
 
 .toolbar-btn {

@@ -293,3 +293,32 @@ Documented next steps:
 - prioritize preserving source metrics and numbers,
 - target 85-92% first-pass page fullness,
 - use measured overflow for a second compression pass when needed.
+
+---
+
+## Session: Fit Notice / Optimize Diff / PDF Visual Follow-Up (2026-06-26)
+
+### Floating status message regression
+The small-overflow fit success notice was placed as an absolutely positioned toast under the toolbar. On a wrapped toolbar it sat on top of the Web AI panel and looked like a random green banner floating over unrelated controls.
+
+Correct fix:
+- keep toolbar status messages in normal toolbar flow,
+- constrain and ellipsize long notices,
+- verify wrapped-toolbar screenshots after adding any new status badge.
+
+### Optimize diff hid removals
+The result modal could show additions while missing what the optimizer removed. The diff viewer already had a removed state, but bullet matching depended too heavily on stable ids / raw bullet indexes. When optimized bullets were deleted, reordered, or regenerated, the visual diff could disguise a deletion as an addition or rewrite.
+
+Correct fix:
+- compute bullet diffs within each entry as a matched set using text similarity,
+- show unmatched baseline bullets as removed,
+- show unmatched optimized bullets as added,
+- fail loudly when the optimize-PDF response lacks a faithful `baseline`, because removals cannot be proven without one.
+
+### Downloaded PDF still has visual polish problems
+Latest screenshot of the downloaded PDF shows a very large gap between the words "Technical" and "Skills" in the section heading. The font also appears too dark/heavy, making the PDF feel uncanny rather than resume-polished.
+
+Future agent should:
+- add controls for PDF text darkness/weight or equivalent typography intensity,
+- fix or expose heading word spacing so "Technical Skills" renders as one normal heading,
+- judge the downloaded PDF artifact itself, not only the browser preview.

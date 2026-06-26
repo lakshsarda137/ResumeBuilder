@@ -501,14 +501,23 @@ export function parseOptimizedPdfResponse(rawResponse: string): {
   ) {
     const baseline = normalizeAiResume(parsed.baseline, IMPORT_BASELINE);
     const optimized = normalizeAiResume(parsed.optimized, baseline);
+    if (!resumeHasSubstantiveContent(baseline) && resumeHasSubstantiveContent(optimized)) {
+      throw new Error(
+        'The LLM returned an optimized resume but did not include a faithful baseline extraction, so the app cannot show removals. Ask it to return both "baseline" and "optimized" objects.',
+      );
+    }
     return { baseline, optimized };
   }
 
-  const optimized = normalizeAiResume(parsed, IMPORT_BASELINE);
-  return {
-    baseline: IMPORT_BASELINE,
-    optimized,
-  };
+  if (isRecord(parsed) && isRecord(parsed.optimized)) {
+    throw new Error(
+      'The LLM returned only an optimized resume. Re-run and ask it to include both "baseline" and "optimized" so removals can be shown.',
+    );
+  }
+
+  throw new Error(
+    'The LLM response did not include the required "baseline" and "optimized" wrapper, so the app cannot show an accurate before/after diff.',
+  );
 }
 
 export function parseResumeFromLlmResponse(

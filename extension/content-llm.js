@@ -66,6 +66,95 @@ function clickElement(element) {
   }
 }
 
+function getElementCenter(element) {
+  const rect =
+    element instanceof Element ? element.getBoundingClientRect() : null;
+  return {
+    x: rect && rect.width > 0 ? rect.left + rect.width / 2 : 20,
+    y: rect && rect.height > 0 ? rect.top + rect.height / 2 : 20,
+  };
+}
+
+function dispatchPointerLikeEvent(element, type, overrides = {}) {
+  const { x, y } = getElementCenter(element);
+  const init = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    view: window,
+    clientX: x,
+    clientY: y,
+    screenX: x,
+    screenY: y,
+    button: 0,
+    buttons: type === 'pointerup' || type === 'mouseup' || type === 'click' ? 0 : 1,
+    pointerId: 1,
+    pointerType: 'mouse',
+    isPrimary: true,
+    ...overrides,
+  };
+
+  const event =
+    type.startsWith('pointer') && typeof PointerEvent === 'function'
+      ? new PointerEvent(type, init)
+      : new MouseEvent(type.replace(/^pointer/, 'mouse'), init);
+
+  element.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+function activateElementWithPointer(element) {
+  if (typeof element.focus === 'function') {
+    element.focus({ preventScroll: true });
+  }
+
+  for (const type of [
+    'pointerover',
+    'pointerenter',
+    'mouseover',
+    'mouseenter',
+    'pointerdown',
+    'mousedown',
+    'pointerup',
+    'mouseup',
+    'click',
+  ]) {
+    dispatchPointerLikeEvent(element, type);
+  }
+
+  if (typeof element.click === 'function') {
+    element.click();
+  }
+}
+
+function activateElementWithKey(element, key) {
+  if (typeof element.focus === 'function') {
+    element.focus({ preventScroll: true });
+  }
+
+  const code = key === ' ' ? 'Space' : key;
+  for (const target of [element, document]) {
+    target.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        key,
+        code,
+      }),
+    );
+    target.dispatchEvent(
+      new KeyboardEvent('keyup', {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        key,
+        code,
+      }),
+    );
+  }
+}
+
 function setNativeValue(element, value) {
   const descriptor = Object.getOwnPropertyDescriptor(
     window.HTMLTextAreaElement.prototype,
@@ -992,9 +1081,52 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 3600
   );
 }
 
+function getDeepSearchRoots(root = document) {
+  const roots = [root];
+  const seen = new Set(roots);
+  const stack = [root];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current?.querySelectorAll) {
+      continue;
+    }
+
+    current.querySelectorAll('*').forEach((node) => {
+      if (node.shadowRoot && !seen.has(node.shadowRoot)) {
+        seen.add(node.shadowRoot);
+        roots.push(node.shadowRoot);
+        stack.push(node.shadowRoot);
+      }
+    });
+  }
+
+  return roots;
+}
+
+function querySelectorAllDeep(selector, root = document) {
+  const results = [];
+  const seen = new Set();
+
+  for (const searchRoot of getDeepSearchRoots(root)) {
+    searchRoot.querySelectorAll(selector).forEach((node) => {
+      if (!seen.has(node)) {
+        seen.add(node);
+        results.push(node);
+      }
+    });
+  }
+
+  return results;
+}
+
+function querySelectorDeep(selector, root = document) {
+  return querySelectorAllDeep(selector, root)[0] ?? null;
+}
+
 function findVisibleElement(selectors, root = document) {
   for (const selector of selectors) {
-    const nodes = root.querySelectorAll(selector);
+    const nodes = querySelectorAllDeep(selector, root);
     for (const node of nodes) {
       if (isVisible(node)) {
         return node;
@@ -1005,8 +1137,9 @@ function findVisibleElement(selectors, root = document) {
 }
 
 function findElementByText(textPatterns, root = document) {
-  const candidates = root.querySelectorAll(
+  const candidates = querySelectorAllDeep(
     'button, [role="menuitem"], [role="option"], [role="menuitemradio"], a',
+    root,
   );
 
   for (const node of candidates) {
@@ -1046,23 +1179,384 @@ function assignFileToInput(input, file) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
-async function attachFileToGemini(file) {
+function getGeminiUploadSnapshot() {
+  const buttonNodes = querySelectorAllDeep(
+    [
+      'button',
+      'gem-icon-button',
+      '[role="button"]',
+      '[role="menuitem"]',
+      '[role="option"]',
+      'a',
+      'mat-icon',
+    ].join(','),
+  ).filter((node) => node instanceof HTMLElement);
+
+  const buttons = [
+    ...buttonNodes,
+  ].slice(0, 120).map((node, index) => ({
+      index,
+      tag: node.tagName.toLowerCase(),
+      id: node.id || '',
+      role: node.getAttribute('role') ?? '',
+      text: node.textContent?.trim().slice(0, 80) ?? '',
+      ariaLabel:
+        node.getAttribute('aria-label') ??
+        node.getAttribute('arialabel') ??
+        '',
+      title: node.getAttribute('title') ?? '',
+      dataTestId: node.getAttribute('data-testid') ?? '',
+      className: String(node.className ?? '').slice(0, 180),
+      disabled: isDisabledForClick(node),
+      visible: isVisible(node),
+      outerHTML: node.outerHTML.slice(0, 500),
+    }));
+
+  const inputs = [...querySelectorAllDeep('input[type="file"]')].map(
+    (node, index) => ({
+      index,
+      accept: node.getAttribute('accept') ?? '',
+      multiple: node.hasAttribute('multiple'),
+      id: node.id || '',
+      name: node.getAttribute('name') ?? '',
+      ariaLabel: node.getAttribute('aria-label') ?? '',
+      className: String(node.className ?? '').slice(0, 180),
+      visible: node instanceof HTMLElement ? isVisible(node) : false,
+      outerHTML: node.outerHTML.slice(0, 500),
+    }),
+  );
+
+  const uploadRelated = buttonNodes
+    .map((node, index) => {
+      const haystack = [
+        node.textContent,
+        node.getAttribute('aria-label'),
+        node.getAttribute('arialabel'),
+        node.getAttribute('title'),
+        node.getAttribute('role'),
+        node.getAttribute('data-testid'),
+        String(node.className ?? ''),
+        node.outerHTML.slice(0, 500),
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      if (!/upload|file|attach|tool|add|plus|\+|drive|photo|image/.test(haystack)) {
+        return null;
+      }
+
+      return {
+        index,
+        tag: node.tagName.toLowerCase(),
+        text: node.textContent?.trim().slice(0, 120) ?? '',
+        ariaLabel:
+          node.getAttribute('aria-label') ??
+          node.getAttribute('arialabel') ??
+          '',
+        title: node.getAttribute('title') ?? '',
+        role: node.getAttribute('role') ?? '',
+        className: String(node.className ?? '').slice(0, 180),
+        visible: isVisible(node),
+        outerHTML: node.outerHTML.slice(0, 700),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 80);
+
+  const active = document.activeElement;
+
+  return {
+    hidden: document.hidden,
+    visibilityState: document.visibilityState,
+    location: location.href,
+    title: document.title,
+    activeElement:
+      active instanceof HTMLElement
+        ? {
+            tag: active.tagName.toLowerCase(),
+            id: active.id || '',
+            ariaLabel: active.getAttribute('aria-label') ?? '',
+            className: String(active.className ?? '').slice(0, 180),
+          }
+        : null,
+    counts: {
+      buttons: buttonNodes.length,
+      fileInputs: inputs.length,
+      openShadowRoots: Math.max(0, getDeepSearchRoots().length - 1),
+      uploadRelated: uploadRelated.length,
+    },
+    inputs,
+    uploadRelated,
+    buttons,
+  };
+}
+
+function findAnyGeminiFileInput() {
+  return querySelectorDeep(
+    [
+      'input[type="file"]',
+      'input[accept*="pdf" i]',
+      'input[accept*="file" i]',
+      'input[multiple][type="file"]',
+    ].join(','),
+  );
+}
+
+function getGeminiDropTargets() {
+  const selectors = [
+    'div.ql-editor[contenteditable="true"]',
+    'rich-textarea',
+    '[aria-label*="Enter a prompt" i]',
+    '[contenteditable="true"]',
+    'main',
+    'body',
+  ];
+  const targets = [];
+  const seen = new Set();
+
+  for (const selector of selectors) {
+    for (const node of querySelectorAllDeep(selector)) {
+      if (node instanceof HTMLElement && !seen.has(node) && isVisible(node)) {
+        seen.add(node);
+        targets.push(node);
+      }
+    }
+  }
+
+  for (const node of [document.body, document.documentElement]) {
+    if (node && !seen.has(node)) {
+      seen.add(node);
+      targets.push(node);
+    }
+  }
+
+  return targets;
+}
+
+function getDragEventInit(target, transfer) {
+  const rect =
+    target instanceof Element ? target.getBoundingClientRect() : null;
+  const clientX = rect && rect.width > 0 ? rect.left + rect.width / 2 : 20;
+  const clientY = rect && rect.height > 0 ? rect.top + rect.height / 2 : 20;
+
+  return {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    clientX,
+    clientY,
+    screenX: clientX,
+    screenY: clientY,
+    dataTransfer: transfer,
+  };
+}
+
+function dispatchDragEvent(target, type, init) {
+  const event =
+    typeof DragEvent === 'function'
+      ? new DragEvent(type, init)
+      : new Event(type, {
+          bubbles: init.bubbles,
+          cancelable: init.cancelable,
+          composed: init.composed,
+        });
+
+  if (!('dataTransfer' in event)) {
+    Object.defineProperty(event, 'dataTransfer', {
+      configurable: true,
+      enumerable: true,
+      value: init.dataTransfer,
+    });
+  }
+
+  target.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
+function dispatchFileDrop(target, file) {
+  const transfer = new DataTransfer();
+  transfer.items.add(file);
+  transfer.setData('text/plain', file.name);
+  transfer.effectAllowed = 'copy';
+  transfer.dropEffect = 'copy';
+
+  const path = [
+    window,
+    document,
+    document.documentElement,
+    document.body,
+    target,
+  ].filter(Boolean);
+
+  let defaultPrevented = false;
+  for (const dropTarget of path) {
+    const init = getDragEventInit(
+      dropTarget instanceof Window ? document.documentElement : dropTarget,
+      transfer,
+    );
+
+    for (const type of ['dragenter', 'dragover']) {
+      defaultPrevented =
+        dispatchDragEvent(dropTarget, type, init) || defaultPrevented;
+    }
+  }
+
+  const dropInit = getDragEventInit(target, transfer);
+  defaultPrevented =
+    dispatchDragEvent(target, 'drop', dropInit) || defaultPrevented;
+
+  for (const dropTarget of [...path].reverse()) {
+    const init = getDragEventInit(
+      dropTarget instanceof Window ? document.documentElement : dropTarget,
+      transfer,
+    );
+    dispatchDragEvent(dropTarget, 'dragleave', init);
+  }
+
+  return defaultPrevented;
+}
+
+function geminiPageMentionsFilename(filename) {
+  const normalizedFilename = filename.trim().toLowerCase();
+  if (!normalizedFilename) {
+    return false;
+  }
+
+  const bodyText = (document.body?.innerText || document.body?.textContent || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+  if (bodyText.includes(normalizedFilename)) {
+    return true;
+  }
+
+  return querySelectorAllDeep(
+    [
+      '[class*="file" i]',
+      '[class*="upload" i]',
+      '[class*="attachment" i]',
+      '[aria-label*="file" i]',
+      '[aria-label*="upload" i]',
+      'mat-chip',
+      '.mat-mdc-chip',
+    ].join(','),
+  ).some((node) => {
+    const text = [
+      node.textContent,
+      node.getAttribute?.('aria-label'),
+      node.getAttribute?.('title'),
+    ]
+      .join(' ')
+      .toLowerCase();
+    return text.includes(normalizedFilename);
+  });
+}
+
+async function tryDropFileOnGemini(file, debugContext = {}) {
+  const targets = getGeminiDropTargets();
+  reportDebug(
+    'gemini_attach_drop_started',
+    {
+      targetCount: targets.length,
+      targets: targets.slice(0, 8).map((node) => ({
+        tag: node.tagName.toLowerCase(),
+        text: node.textContent?.trim().slice(0, 80) ?? '',
+        ariaLabel: node.getAttribute('aria-label') ?? '',
+        className: String(node.className ?? '').slice(0, 120),
+      })),
+    },
+    debugContext,
+  );
+
+  for (const target of targets) {
+    const defaultPrevented = dispatchFileDrop(target, file);
+    await sleep(1200);
+
+    const createdInput = findAnyGeminiFileInput();
+    if (createdInput instanceof HTMLInputElement) {
+      assignFileToInput(createdInput, file);
+      await sleep(2000);
+      reportDebug(
+        'gemini_attach_drop_created_input_assigned',
+        {
+          target: {
+            tag: target.tagName.toLowerCase(),
+            ariaLabel: target.getAttribute('aria-label') ?? '',
+            className: String(target.className ?? '').slice(0, 120),
+          },
+          defaultPrevented,
+          snapshot: getGeminiUploadSnapshot(),
+        },
+        debugContext,
+      );
+      return true;
+    }
+
+    if (geminiPageMentionsFilename(file.name)) {
+      reportDebug(
+        'gemini_attach_drop_acknowledged',
+        {
+          target: {
+            tag: target.tagName.toLowerCase(),
+            ariaLabel: target.getAttribute('aria-label') ?? '',
+            className: String(target.className ?? '').slice(0, 120),
+          },
+          defaultPrevented,
+          snapshot: getGeminiUploadSnapshot(),
+        },
+        debugContext,
+      );
+      return true;
+    }
+  }
+
+  reportDebug(
+    'gemini_attach_drop_not_acknowledged',
+    { snapshot: getGeminiUploadSnapshot() },
+    debugContext,
+  );
+  return false;
+}
+
+async function attachFileToGemini(file, debugContext = {}) {
   const menuButtonSelectors = [
-    'gem-icon-button[aria-label="Upload & tools"]',
-    'gem-icon-button[arialabel="Upload & tools"]',
     'button[aria-label="Upload & tools"]',
-    '[aria-label="Upload & tools"]',
+    'button[arialabel="Upload & tools"]',
     'button[aria-label="Open upload file menu"]',
     'button[aria-label*="upload file menu" i]',
     'button[aria-label*="Upload" i]',
     'button.upload-card-button.open.mat-primary',
     'button[aria-label*="Add" i]',
+    'gem-icon-button[aria-label="Upload & tools"] button',
+    'gem-icon-button[arialabel="Upload & tools"] button',
+    'gem-icon-button[aria-label="Upload & tools"]',
+    'gem-icon-button[arialabel="Upload & tools"]',
+    '[aria-label="Upload & tools"]',
   ];
+
+  function getNativeClickable(element) {
+    if (!(element instanceof HTMLElement)) {
+      return null;
+    }
+
+    if (
+      element.matches('button, a, [role="button"], [role="menuitem"]') &&
+      isVisible(element)
+    ) {
+      return element;
+    }
+
+    const nested = querySelectorAllDeep(
+      'button, a, [role="button"], [role="menuitem"]',
+      element,
+    ).find((node) => node instanceof HTMLElement && isVisible(node));
+
+    return nested instanceof HTMLElement ? nested : element;
+  }
 
   function findGeminiUploadMenuButton() {
     const direct = findVisibleElement(menuButtonSelectors);
     if (direct) {
-      return direct;
+      return getNativeClickable(direct);
     }
 
     const composer = findVisibleElement([
@@ -1083,7 +1577,7 @@ async function attachFileToGemini(file) {
       return null;
     }
 
-    const buttons = root.querySelectorAll('button, gem-icon-button');
+    const buttons = querySelectorAllDeep('button, gem-icon-button', root);
     for (const button of buttons) {
       if (!isVisible(button)) {
         continue;
@@ -1093,17 +1587,132 @@ async function attachFileToGemini(file) {
         button.getAttribute('arialabel') ??
         '';
       if (/upload|attach|tool|file|add/i.test(label)) {
-        return button;
+        return getNativeClickable(button);
       }
     }
 
     for (const button of buttons) {
       if (isVisible(button)) {
-        return button;
+        return getNativeClickable(button);
       }
     }
 
     return null;
+  }
+
+  function findGeminiUploadItem() {
+    return findElementByText([
+      /^Upload files$/i,
+      /^Files$/i,
+      /Upload from computer/i,
+      /Upload file/i,
+    ]);
+  }
+
+  function findGeminiFileInput() {
+    return (
+      findVisibleElement([
+        'input[type="file"]',
+        'input[accept*="pdf" i]',
+        'input[accept*="file" i]',
+        'input[multiple][type="file"]',
+      ]) ?? querySelectorDeep('input[type="file"]')
+    );
+  }
+
+  async function waitForGeminiUploadSurface() {
+    return waitForElement(
+      () => {
+        const item = findGeminiUploadItem();
+        if (item) {
+          return { kind: 'menuitem', element: item };
+        }
+
+        const input = findGeminiFileInput();
+        if (input) {
+          return { kind: 'input', element: input };
+        }
+
+        return null;
+      },
+      { attempts: 5, delayMs: 350 },
+    );
+  }
+
+  async function activateGeminiUploadMenu(menuButton) {
+    const attempts = [
+      {
+        name: 'pointer_mouse_native_click',
+        run: () => activateElementWithPointer(menuButton),
+      },
+      {
+        name: 'keyboard_enter',
+        run: () => activateElementWithKey(menuButton, 'Enter'),
+      },
+      {
+        name: 'keyboard_space',
+        run: () => activateElementWithKey(menuButton, ' '),
+      },
+      {
+        name: 'legacy_click',
+        run: () => clickElement(menuButton),
+      },
+    ];
+
+    for (const attempt of attempts) {
+      const beforeExpanded = menuButton.getAttribute('aria-expanded') ?? '';
+      attempt.run();
+      const surface = await waitForGeminiUploadSurface();
+      const afterExpanded = menuButton.getAttribute('aria-expanded') ?? '';
+      reportDebug(
+        'gemini_attach_menu_activation_attempt',
+        {
+          attempt: attempt.name,
+          beforeExpanded,
+          afterExpanded,
+          surfaceKind: surface?.kind ?? null,
+          activeElement:
+            document.activeElement instanceof HTMLElement
+              ? {
+                  tag: document.activeElement.tagName.toLowerCase(),
+                  ariaLabel: document.activeElement.getAttribute('aria-label') ?? '',
+                  className: String(document.activeElement.className ?? '').slice(0, 120),
+                }
+              : null,
+          snapshot: getGeminiUploadSnapshot(),
+        },
+        debugContext,
+      );
+
+      if (surface) {
+        return surface;
+      }
+    }
+
+    return null;
+  }
+
+  reportDebug(
+    'gemini_attach_started',
+    {
+      filename: file.name,
+      size: file.size,
+      type: file.type,
+      snapshot: getGeminiUploadSnapshot(),
+    },
+    debugContext,
+  );
+
+  const existingInput = findAnyGeminiFileInput();
+  if (existingInput instanceof HTMLInputElement) {
+    assignFileToInput(existingInput, file);
+    await sleep(2000);
+    reportDebug(
+      'gemini_attach_existing_input_assigned',
+      { snapshot: getGeminiUploadSnapshot() },
+      debugContext,
+    );
+    return;
   }
 
   const menuButton = await waitForElement(findGeminiUploadMenuButton, {
@@ -1112,38 +1721,77 @@ async function attachFileToGemini(file) {
   });
 
   if (menuButton) {
-    clickElement(menuButton);
-    await sleep(700);
-
-    const uploadItem = await waitForElement(
-      () =>
-        findElementByText([
-          /^Upload files$/i,
-          /^Files$/i,
-          /Upload from computer/i,
-          /Upload file/i,
-        ]),
-      { attempts: 10, delayMs: 400 },
+    reportDebug(
+      'gemini_attach_menu_button_found',
+      {
+        tag: menuButton.tagName.toLowerCase(),
+        text: menuButton.textContent?.trim().slice(0, 80) ?? '',
+        ariaLabel:
+          menuButton.getAttribute('aria-label') ??
+          menuButton.getAttribute('arialabel') ??
+          '',
+        className: String(menuButton.className ?? '').slice(0, 180),
+        outerHTML: menuButton.outerHTML.slice(0, 700),
+        hidden: document.hidden,
+      },
+      debugContext,
     );
+    const uploadSurface = await activateGeminiUploadMenu(menuButton);
 
-    if (uploadItem) {
-      clickElement(uploadItem);
-      await sleep(600);
+    if (uploadSurface?.kind === 'input' && uploadSurface.element instanceof HTMLInputElement) {
+      assignFileToInput(uploadSurface.element, file);
+      await sleep(2000);
+      reportDebug(
+        'gemini_attach_menu_created_input_assigned',
+        { snapshot: getGeminiUploadSnapshot() },
+        debugContext,
+      );
+      return;
     }
+
+    if (uploadSurface?.kind === 'menuitem' && uploadSurface.element instanceof HTMLElement) {
+      const uploadItem = uploadSurface.element;
+      reportDebug(
+        'gemini_attach_upload_item_found',
+        {
+          tag: uploadItem.tagName.toLowerCase(),
+          text: uploadItem.textContent?.trim().slice(0, 80) ?? '',
+          hidden: document.hidden,
+        },
+        debugContext,
+      );
+      activateElementWithPointer(uploadItem);
+      await sleep(600);
+    } else {
+      reportDebug(
+        'gemini_attach_upload_item_missing',
+        { snapshot: getGeminiUploadSnapshot() },
+        debugContext,
+      );
+    }
+  } else {
+    reportDebug(
+      'gemini_attach_menu_button_missing',
+      { snapshot: getGeminiUploadSnapshot() },
+      debugContext,
+    );
   }
 
   const input = await waitForElement(
-    () =>
-      findVisibleElement([
-        'input[type="file"]',
-        'input[accept*="pdf" i]',
-        'input[accept*="file" i]',
-        'input[multiple][type="file"]',
-      ]) ?? document.querySelector('input[type="file"]'),
+    () => findGeminiFileInput(),
     { attempts: 12, delayMs: 400 },
   );
 
   if (!input) {
+    if (await tryDropFileOnGemini(file, debugContext)) {
+      return;
+    }
+
+    reportDebug(
+      'gemini_attach_file_input_missing',
+      { snapshot: getGeminiUploadSnapshot() },
+      debugContext,
+    );
     throw new Error(
       'Could not find file upload on gemini. Open a new chat and try again.',
     );
@@ -1151,6 +1799,11 @@ async function attachFileToGemini(file) {
 
   assignFileToInput(input, file);
   await sleep(2000);
+  reportDebug(
+    'gemini_attach_file_input_assigned',
+    { snapshot: getGeminiUploadSnapshot() },
+    debugContext,
+  );
 }
 
 function mimeTypeForFilename(filename) {
@@ -1161,9 +1814,9 @@ function mimeTypeForFilename(filename) {
   return 'application/pdf';
 }
 
-async function attachFile(file, provider) {
+async function attachFile(file, provider, debugContext = {}) {
   if (provider === 'gemini') {
-    await attachFileToGemini(file);
+    await attachFileToGemini(file, debugContext);
     return;
   }
 
@@ -1697,7 +2350,7 @@ async function sendAndCaptureResponse({
     reportProgress('attaching_pdf', 'Attaching source file…');
     const bytes = Uint8Array.from(atob(pdfBase64), (char) => char.charCodeAt(0));
     const file = new File([bytes], filename, { type: mimeTypeForFilename(filename) });
-    await attachFile(file, provider);
+    await attachFile(file, provider, debugContext);
     await sleep(1500);
     reportProgress('pdf_attached', 'Source file attached');
     reportDebug('content_pdf_attached', { filename, bytes: bytes.length }, debugContext);

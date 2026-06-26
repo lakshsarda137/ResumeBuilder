@@ -71,6 +71,17 @@ Remaining possible work:
 - Compress in this order when content edits are needed: remove weak entries, remove weak bullets, shorten wording, reduce skills/coursework, then remove only low-value metrics.
 - If measured fit is well over 100%, run an optional compression prompt with the actual overflow percentage, e.g. "Current render is 115%; reduce content by about 18-22% while preserving source-supported metrics."
 
+## PDF Typography And Spacing Controls
+
+Known current PDF visual issue from the latest downloaded resume screenshot:
+- The "Technical Skills" heading rendered with a massive, very obvious gap between "Technical" and "Skills". It reads like two separate headings instead of one section title.
+- The downloaded PDF text is also way too dark/heavy; the overall type color/weight feels uncanny and harsher than a normal resume PDF.
+
+Future work:
+- Add user-facing functionality to tweak PDF text darkness/weight or rendering intensity without editing code.
+- Add section-heading spacing/word-gap controls or a renderer fix so compound headings like "Technical Skills" cannot spread across the rule.
+- Verify downloaded PDF output, not only the live browser preview, after changing typography settings.
+
 ## Prompt Preview Follow-Ups
 
 Implemented now:
