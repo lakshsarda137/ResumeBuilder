@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
-  Briefcase,
   Database,
   FileUp,
   Link2,
@@ -26,6 +25,7 @@ import {
 import {
   parseOptimizedPdfResponse,
   parseResumeFromLlmResponse,
+  parseStrictGeneratedResume,
 } from '../utils/parseResumeResponse';
 import { readPdfFileAsBase64 } from '../utils/pdf';
 import {
@@ -38,7 +38,7 @@ import {
   estimateSourceMaterialTokens,
 } from '../utils/repositorySources';
 import { saveAiSession, touchAiSession } from '../utils/aiSessionStorage';
-import { formatTokenEstimate } from '../utils/tokenEstimate';
+import { formatCompactTokenEstimate } from '../utils/tokenEstimate';
 import { AiResultModal } from './AiResultModal';
 import { PipelineStatus } from './PipelineStatus';
 import type { PipelineEvent, PipelineVariant } from '../utils/aiPipeline';
@@ -94,6 +94,53 @@ interface ResumeBuilderWizardProps {
 
 function sourceKey(source: RepositorySource) {
   return `${source.kind}:${source.id}`;
+}
+
+interface PromptEstimate {
+  total: number;
+  instructionTokens: number;
+  sourceTokens: number;
+  note: string;
+}
+
+function TokenEstimatePanel({
+  estimate,
+  mode,
+}: {
+  estimate: PromptEstimate;
+  mode: BuildMode;
+}) {
+  return (
+    <div className="rb-wizard-token-card" aria-label="Estimated input tokens">
+      <div className="rb-wizard-token-main">
+        <span className="rb-wizard-token-icon">
+          <Bot size={16} aria-hidden />
+        </span>
+        <div>
+          <span>Estimated input</span>
+          <strong>{formatCompactTokenEstimate(estimate.total)}</strong>
+        </div>
+      </div>
+      <div className="rb-wizard-token-breakdown">
+        <span>
+          <strong>{formatCompactTokenEstimate(estimate.instructionTokens)}</strong>
+          <em>Instructions + JD</em>
+        </span>
+        {mode === 'repository' ? (
+          <span>
+            <strong>{formatCompactTokenEstimate(estimate.sourceTokens)}</strong>
+            <em>Source notes</em>
+          </span>
+        ) : (
+          <span>
+            <strong>Separate</strong>
+            <em>PDF file</em>
+          </span>
+        )}
+        <span className="rb-wizard-token-note">{estimate.note}</span>
+      </div>
+    </div>
+  );
 }
 
 export function ResumeBuilderWizard({
@@ -219,7 +266,9 @@ export function ResumeBuilderWizard({
       );
       return {
         total: promptTokens,
-        detail: `${formatTokenEstimate(promptTokens)} extract + optimize · PDF not counted`,
+        instructionTokens: promptTokens,
+        sourceTokens: 0,
+        note: 'PDF file is counted separately by the provider.',
       };
     }
 
@@ -232,11 +281,19 @@ export function ResumeBuilderWizard({
       const sourceTokens = estimateSourceMaterialTokens(filteredSources);
       return {
         total: promptTokens,
-        detail: `${formatTokenEstimate(promptTokens)} prompt incl. ${formatTokenEstimate(sourceTokens)} source material`,
+        instructionTokens: Math.max(0, promptTokens - sourceTokens),
+        sourceTokens,
+        note: `${filteredSources.length} source${filteredSources.length === 1 ? '' : 's'} selected.`,
       };
     }
 
-    return { total: estimateWizardPromptTokens(jobDescription, false).promptTokens, detail: formatTokenEstimate(jobDescription.length / 4) };
+    const promptTokens = estimateWizardPromptTokens(jobDescription, false).promptTokens;
+    return {
+      total: promptTokens,
+      instructionTokens: promptTokens,
+      sourceTokens: 0,
+      note: 'Choose a build mode to estimate the full send.',
+    };
   }, [mode, jobDescription, filteredSources]);
 
   const toggleSource = (source: RepositorySource) => {
@@ -324,10 +381,7 @@ export function ResumeBuilderWizard({
 
     pushPipeline('parsing_json', 'Parsing generated resume…');
     const emptyBaseline: ResumeData = { contact: { name: '', links: [] }, sections: [] };
-    const generated = parseResumeFromLlmResponse(
-      response.rawResponse!,
-      emptyBaseline,
-    );
+    const generated = parseStrictGeneratedResume(response.rawResponse!);
 
     setBaselineData(emptyBaseline);
     setPreviewData(generated);
@@ -633,10 +687,6 @@ export function ResumeBuilderWizard({
                 {filteredSources.length === 1 ? '' : 's'} selected
               </p>
             ) : null}
-            <p className="rb-wizard-token-line">
-              <Briefcase size={14} aria-hidden />
-              <span>{promptEstimate.detail}</span>
-            </p>
           </div>
         </section>
       )}
@@ -671,11 +721,7 @@ export function ResumeBuilderWizard({
         </div>
 
         {mode && (
-          <p className="rb-wizard-token-line rb-wizard-token-line--prominent">
-            <Bot size={14} />
-            Estimated send: ~{promptEstimate.total.toLocaleString()} input tokens ·{' '}
-            {promptEstimate.detail}
-          </p>
+          <TokenEstimatePanel estimate={promptEstimate} mode={mode} />
         )}
 
         <button

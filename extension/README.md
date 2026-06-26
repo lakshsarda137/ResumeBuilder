@@ -34,3 +34,5 @@ The bridge loads `page-bridge.js` from the extension (not inline script) so it w
 - This is a proof of concept. Chat UIs change often, so selectors may need updates.
 - The extension only runs when you start an AI send/import action.
 - Your login cookies stay in the browser — nothing is sent to a third-party API.
+- Repository imports use explicit JSON delimiters, background backup polling, and app-visible diagnostics so response capture failures can be debugged without asking the user to paste console output.
+- After changing extension files, reload the unpacked extension and refresh the Resume Builder tab.

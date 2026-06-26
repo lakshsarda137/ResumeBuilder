@@ -17,6 +17,7 @@ export interface RepoImportProfile {
 }
 
 export interface RepoImportEntry {
+  merge_target_id?: string | null;
   type: ItemType;
   title: string;
   company?: string | null;
@@ -30,12 +31,39 @@ export interface RepoImportPayload {
   source_label?: string;
   profile?: RepoImportProfile;
   entries: RepoImportEntry[];
+  contradictions?: RepoImportContradiction[];
+}
+
+export interface RepoImportContradiction {
+  category: 'education' | 'repository' | 'profile' | 'other';
+  field?: string;
+  existing_id?: string | null;
+  incoming_index?: number | null;
+  existing_value: unknown;
+  incoming_value: unknown;
+  reason: string;
+}
+
+export interface RepoImportLineDiff {
+  kind: 'context' | 'added' | 'removed';
+  text: string;
+}
+
+export interface RepoImportMergeDiff {
+  id: string;
+  title: string;
+  company?: string | null;
+  sourceLabel: string;
+  before: string;
+  after: string;
+  lines: RepoImportLineDiff[];
 }
 
 export interface RepoImportMergeResult {
   created: number;
   merged: number;
   skipped: number;
+  mergeDiffs: RepoImportMergeDiff[];
   ongoingCreated: number;
   ongoingUpdated: number;
   ongoingSkipped: number;

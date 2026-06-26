@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Launcher",
+  "version": "1.0.0",
+  "description": "Open an LLM provider and paste a prompt",
+  "permissions": ["tabs", "scripting", "storage"],
+  "host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://gemini.google.com/*",
+    "http://localhost:3001/*",
+    "http://127.0.0.1:3001/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LLM Launcher"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["content.js"],
+      "matches": ["https://claude.ai/*", "https://chatgpt.com/*", "https://gemini.google.com/*"]
+    }
+  ]
+}

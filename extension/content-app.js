@@ -69,6 +69,23 @@ function relayProgress(step, detail) {
   );
 }
 
+function relayDebug(entry) {
+  window.postMessage(
+    {
+      source: 'resume-builder-bridge',
+      type: 'DEBUG',
+      entry,
+    },
+    '*',
+  );
+
+  document.dispatchEvent(
+    new CustomEvent('resume-bridge-debug', {
+      detail: { entry },
+    }),
+  );
+}
+
 function forwardToBackground(requestId, payload) {
   if (!isExtensionContextValid()) {
     invalidateBridge(
@@ -79,7 +96,7 @@ function forwardToBackground(requestId, payload) {
   }
 
   try {
-    chrome.runtime.sendMessage(payload, (response) => {
+    chrome.runtime.sendMessage({ ...payload, appRequestId: requestId }, (response) => {
       const error = chrome.runtime.lastError?.message;
 
       if (error?.includes('Extension context invalidated')) {
@@ -87,6 +104,10 @@ function forwardToBackground(requestId, payload) {
           requestId,
           'Extension was reloaded. Refresh this page (Cmd+R), then try again.',
         );
+        return;
+      }
+
+      if (response?.async === true) {
         return;
       }
 
@@ -155,6 +176,21 @@ if (isExtensionContextValid()) {
 
     if (message?.type === 'AI_PROGRESS') {
       relayProgress(message.step, message.detail);
+    }
+
+    if (message?.type === 'AI_DEBUG') {
+      relayDebug(message.entry);
+    }
+
+    if (message?.type === 'AI_RESPONSE') {
+      document.dispatchEvent(
+        new CustomEvent('resume-bridge-response', {
+          detail: {
+            requestId: message.requestId,
+            response: message.response,
+          },
+        }),
+      );
     }
   });
 }

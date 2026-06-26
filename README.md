@@ -21,7 +21,7 @@ If you only want the UI (no API features): `npm run dev:ui`
 2. **Load unpacked** → select `extension/`
 3. **Refresh** the Resume Builder tab after every extension reload (`Cmd+R`)
 
-Extension version is in `extension/manifest.json` (currently **1.4.9**).
+Extension version is in `extension/manifest.json` (currently **1.5.1**).
 
 ---
 
@@ -261,6 +261,8 @@ Opening `/resume` starts with a **wizard** (skip to editor anytime via **New bui
 
 Path A sends a single PDF-attached prompt that extracts the faithful baseline and optimized resume in one response, preserving the before/after diff without a second chat send. Path B sends **freewrite only** (repo `mode=freewrite`; ongoing reflections or compiled freewrite). Token estimates shown before generate.
 
+Repository resume generation uses strict import-style JSON detection (`---JSON-START---` / `---JSON-END---`, balanced-object fallbacks, and substantive-content validation). Prompt schemas or placeholder JSON must never open an empty preview.
+
 The optimize path upload panel is **centered**. The generate button has no decorative icon — spinner only while running.
 
 `PipelineStatus` renders **below the Generate button** (wizard) or below `AiPanel` (editor). See [AI pipeline progress](#ai-pipeline-progress) below.
@@ -426,8 +428,10 @@ Import rules (see `repoImport.ts`, `educationImport.ts`):
   - No match → create new repo entry
   - Empty metadata fields (dates, company) may be filled; populated fields are not replaced
 - **Cross-links Ongoing items** — entries with no end date (or marked Present/Current) also create or update a matching active Ongoing item using the same normalized identity matcher. Imported freewrite is added as a dated reflection; empty metadata fields are filled without overwriting populated ones.
+- **Contradictions require review** — mutually exclusive facts are paused in a review table. Choosing **Existing** removes the conflicting incoming value before merge; choosing **Incoming** patches the existing education/repository record when possible, then preserves additive merge behavior.
+- **Diagnostics are programmatic** — import failures surface extension debug events in the panel with a single copy action. Do not ask the user to paste console snippets for normal debugging.
 
-Requires Chrome extension (v1.4.9+) for PDF send and LinkedIn scrape (`SCRAPE_URL` bridge message).
+Requires Chrome extension (v1.5.1+) for PDF send, LinkedIn scrape (`SCRAPE_URL` bridge message), background capture polling, and import diagnostics.
 
 Each of Repository, Ongoing, Education, and History has a **Delete all** button (with confirmation) that clears that tab's data via collection `DELETE` routes (`/api/repo`, `/api/ongoing`, `/api/education`, `/api/history`).
 
@@ -442,7 +446,7 @@ Separate from the experience/project warehouse. Stores:
 
 Import from Repository/Ongoing/Education routes education to this page, not the repository.
 
-Skills/notes are **saved automatically on import**. The **Saved** button stays clickable when fields have content; it shows **Save notes** when you edit.
+Skills/notes are **saved automatically on import**. The Skills & other notes summary is collapsible like school records; use **Edit notes** to change the saved meta fields.
 
 ---
 
@@ -491,10 +495,10 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
 | Step tracker jumps ahead | Extension fires duplicate `sent` events | Milestone logic in `aiPipeline.ts` — only advance on completion signals |
 | HistoryPage.css HMR error | Old CSS file was deleted, Vite cached the import | Hard refresh (`Cmd+Shift+R`) |
-| Import does nothing | Extension not reloaded after update | Reload extension v1.4.9+ + refresh app |
+| Import does nothing | Extension not reloaded after update | Reload extension v1.5.1+ + refresh app |
 | Provider tab steals focus during import/generate | Extension used to activate the provider tab before send | v1.4.6+ keeps provider sends in background; do not activate Claude/ChatGPT/Gemini tabs during normal sends |
 | Import prompt only sends after visiting provider tab | Hidden-tab composer/button state lagged during import sends | v1.4.8+ writes to one composer instance, avoids false prompt-readback failures, and tries keyboard/form submit fallbacks before waiting on the send button |
-| Claude finishes import but dashboard never merges | Extension missed the rendered JSON or app parser expected a fenced/raw object only | v1.4.9+ scans assistant/code/markdown blocks for parseable JSON and repo import parser extracts JSON objects from commentary |
+| Claude finishes import but dashboard never merges | Extension missed the rendered JSON or app parser accepted the wrong candidate | v1.5.1+ uses explicit JSON delimiters, backup polling, real-payload validation, and app-copyable diagnostics |
 | Repo import response not captured | Extension only detected resume JSON (`sections`/`contact`), not warehouse JSON (`entries`) | v1.4.4+ accepts both schemas |
 | Delete all does nothing | Old `/all` routes hit `/:id` with id `"all"` | Restart API server; use collection routes (`DELETE /api/repo`, etc.) |
 | Education skills not saved after import | `PATCH /api/education/meta` was shadowed by `/:id` route | Fixed — meta route registered first; import saves skills/notes directly |

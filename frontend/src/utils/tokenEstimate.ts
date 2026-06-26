@@ -13,3 +13,13 @@ export function estimateInputTokens(text: string): number {
 export function formatTokenEstimate(count: number): string {
   return `~${count.toLocaleString()} input tokens (estimate)`;
 }
+
+export function formatCompactTokenEstimate(count: number): string {
+  if (count >= 1000) {
+    const rounded =
+      count >= 10000 ? Math.round(count / 1000).toString() : (count / 1000).toFixed(1);
+    return `~${rounded}k`;
+  }
+
+  return `~${Math.max(0, Math.round(count)).toLocaleString()}`;
+}

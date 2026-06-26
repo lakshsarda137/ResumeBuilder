@@ -58,4 +58,19 @@
       '*',
     );
   });
+
+  document.addEventListener('resume-bridge-debug', (event) => {
+    const detail = event.detail;
+    if (!detail?.entry) {
+      return;
+    }
+    window.postMessage(
+      {
+        source: BRIDGE_SOURCE,
+        type: 'DEBUG',
+        entry: detail.entry,
+      },
+      '*',
+    );
+  });
 })();

@@ -41,6 +41,181 @@ function extractJsonCandidate(text: string): string {
   );
 }
 
+function parseJsonCandidate(candidate: string): unknown {
+  try {
+    return JSON.parse(repairJson(candidate));
+  } catch {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function expandToJsonObject(text: string, anchorPos: number): string {
+  let depth = 0;
+  let start = -1;
+
+  for (let index = anchorPos; index >= 0; index -= 1) {
+    if (text[index] === '}') {
+      depth += 1;
+    } else if (text[index] === '{') {
+      if (depth === 0) {
+        start = index;
+        break;
+      }
+      depth -= 1;
+    }
+  }
+
+  if (start === -1) {
+    return '';
+  }
+
+  depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < text.length; index += 1) {
+    const char = text[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) {
+      continue;
+    }
+
+    if (char === '{') {
+      depth += 1;
+    } else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(start, index + 1).trim();
+      }
+    }
+  }
+
+  return '';
+}
+
+function collectJsonCandidates(text: string): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const push = (candidate: string | undefined) => {
+    const trimmed = candidate?.trim();
+    if (trimmed && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      candidates.push(trimmed);
+    }
+  };
+
+  for (const match of text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g)) {
+    push(match[1]);
+  }
+
+  for (const match of text.matchAll(/```json\s*([\s\S]*?)```/gi)) {
+    push(match[1]);
+  }
+
+  for (const match of text.matchAll(/```\s*([\s\S]*?)```/g)) {
+    push(match[1]);
+  }
+
+  for (const anchor of ['"contact"', '"sections"', '"entries"', '"skills"', '"bullets"']) {
+    let position = text.lastIndexOf(anchor);
+    while (position !== -1) {
+      push(expandToJsonObject(text, position));
+      position = text.lastIndexOf(anchor, position - 1);
+    }
+  }
+
+  const objectMatch = text.match(/\{[\s\S]*\}/);
+  push(objectMatch?.[0]);
+
+  return candidates;
+}
+
+function normalizeComparableText(value: unknown): string {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/\s+/g, ' ')
+    : '';
+}
+
+function isPlaceholderText(value: unknown): boolean {
+  const text = normalizeComparableText(value);
+  if (!text) {
+    return true;
+  }
+
+  return (
+    text === 'string' ||
+    text === 'title' ||
+    text === 'category' ||
+    text === 'section' ||
+    text === 'bullet' ||
+    text === 'bullet text' ||
+    text === 'optional string' ||
+    text.startsWith('optional ') ||
+    /^bullet \d+$/.test(text)
+  );
+}
+
+function hasRealText(value: unknown): boolean {
+  return typeof value === 'string' && value.trim().length > 1 && !isPlaceholderText(value);
+}
+
+export function resumeHasSubstantiveContent(resume: ResumeData): boolean {
+  if (!Array.isArray(resume.sections) || resume.sections.length === 0) {
+    return false;
+  }
+
+  return resume.sections.some((section) => {
+    const hasRealEntry = section.entries.some((entry) => {
+      const hasEntryIdentity =
+        hasRealText(entry.title) ||
+        hasRealText(entry.subtitle) ||
+        hasRealText(entry.location) ||
+        hasRealText(entry.date);
+      const hasRealBullet = entry.bullets.some((bullet) => hasRealText(bullet.text));
+      return (
+        hasEntryIdentity &&
+        (hasRealBullet ||
+          hasRealText(entry.subtitle) ||
+          hasRealText(entry.location) ||
+          hasRealText(entry.date))
+      );
+    });
+
+    const hasRealSkill = (section.skills ?? []).some(
+      (skill) => hasRealText(skill.label) || hasRealText(skill.items),
+    );
+
+    return hasRealEntry || hasRealSkill;
+  });
+}
+
+function looksLikeResumePayload(parsed: unknown): boolean {
+  if (!isRecord(parsed)) {
+    return false;
+  }
+
+  return isRecord(parsed.contact) && Array.isArray(parsed.sections);
+}
+
 function normalizeBullet(raw: unknown, index: number): ResumeBullet {
   if (typeof raw === 'string') {
     return makeBullet(raw);
@@ -252,6 +427,46 @@ export function parseResumeFromLlmResponse(
   }
 
   return normalizeAiResume(parsed, fallback);
+}
+
+export function parseStrictGeneratedResume(rawResponse: string): ResumeData {
+  const candidates = collectJsonCandidates(rawResponse);
+  let sawResumeShape = false;
+  let sawParseableJson = false;
+
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const parsed = parseJsonCandidate(candidates[index]);
+    if (!parsed) {
+      continue;
+    }
+
+    sawParseableJson = true;
+    if (!looksLikeResumePayload(parsed)) {
+      continue;
+    }
+
+    sawResumeShape = true;
+    const normalized = normalizeAiResume(parsed, IMPORT_BASELINE);
+    if (resumeHasSubstantiveContent(normalized)) {
+      return normalized;
+    }
+  }
+
+  if (sawResumeShape) {
+    throw new Error(
+      'Captured JSON was a resume-shaped schema or placeholder, not a real generated resume. The provider likely returned or exposed prompt text before generation completed.',
+    );
+  }
+
+  if (sawParseableJson) {
+    throw new Error(
+      'Captured JSON was parseable but did not match the generated resume schema. Try again from a fresh chat.',
+    );
+  }
+
+  throw new Error(
+    'No complete generated resume JSON was detected. Try again from a fresh chat after the provider finishes generating.',
+  );
 }
 
 function bulletTexts(bullets: ResumeBullet[]) {

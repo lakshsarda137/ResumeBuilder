@@ -1,5 +1,6 @@
 import type { ResumeData } from '../types/resume';
-import type { RepositorySource } from '../types/repository';
+import type { EducationData } from '../types/education';
+import type { RepoItem, RepositorySource } from '../types/repository';
 
 export const RESUME_JSON_SCHEMA = `{
   "contact": {
@@ -55,6 +56,15 @@ ${RESUME_JSON_SCHEMA}
 5. PRESERVE all existing section ids, entry ids, link ids, and skill ids from the input JSON — reuse them exactly even when reordering sections or entries. Only generate new ids for genuinely new items.
 6. After the closing \`\`\` write exactly: ---END---`;
 
+const REPOSITORY_RESUME_OUTPUT_RULES = `CRITICAL OUTPUT FORMAT — the editor can ONLY load JSON:
+1. Write exactly ---JSON-START--- on its own line, then the raw JSON object, then ---JSON-END--- on its own line.
+2. The JSON must match this schema:
+${RESUME_JSON_SCHEMA}
+3. For skills sections use the "skills" array and keep "entries" as [].
+4. Generate stable unique string ids for all sections, entries, links, skills, and bullets.
+5. Do not output the schema/example placeholders as content. The resume must contain real candidate material from the source notes.
+6. No text outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
+
 const DEFAULT_USER_PROMPT =
   'Improve one bullet point for clarity and tighten the wording. Keep all facts accurate.';
 
@@ -91,6 +101,7 @@ const REPO_IMPORT_SCHEMA = `{
   },
   "entries": [
     {
+      "merge_target_id": "optional existing repository id if this source should be merged into an existing item",
       "type": "experience | project",
       "title": "role or project name",
       "company": "optional employer or org",
@@ -99,34 +110,114 @@ const REPO_IMPORT_SCHEMA = `{
       "end_date": "optional YYYY-MM or null if ongoing",
       "freewrite": "raw narrative freewrite — NOT resume bullets. Include all bullet text as plain sentences/paragraphs with facts, metrics, tools, and context. Do NOT polish into action-verb bullets."
     }
+  ],
+  "contradictions": [
+    {
+      "category": "education | repository | profile | other",
+      "field": "optional field name, e.g. school, degree, company, date",
+      "existing_id": "id from existing context when available",
+      "incoming_index": "zero-based index in profile.education for education contradictions, or entries[] for repository contradictions, when available",
+      "existing_value": "the existing saved fact or object",
+      "incoming_value": "the conflicting incoming fact or object",
+      "reason": "short explanation of why both facts cannot be true at the same time"
+    }
   ]
 }`;
 
 const REPO_IMPORT_RULES = `CRITICAL OUTPUT FORMAT:
-1. Return exactly ONE fenced code block: \`\`\`json ... \`\`\`
-2. Schema:
+1. Output the JSON object with NO fenced code block, NO commentary before or after.
+2. Write exactly ---JSON-START--- on its own line, then the raw JSON object, then ---JSON-END--- on its own line.
+3. Schema:
 ${REPO_IMPORT_SCHEMA}
-3. Extract EVERY distinct experience and project as separate entries — dedupe only exact duplicates within this source.
-4. Put graduation date, major, degree, school, GPA in profile.education — also capture skills and fixed facts in profile when present.
-5. freewrite must be raw warehouse notes (paragraphs or dash lines), never polished resume bullets.
-6. Use type "experience" for jobs/internships/research roles; "project" for projects, hackathons, and coursework builds.
-7. Dates as YYYY-MM when possible.
-8. Put ALL education (school, degree, major, GPA, graduation date, honors, relevant coursework) in profile.education — never in entries.
-9. Put skills, certifications, and other fixed facts in profile.skills_note / profile.other_fixed_facts.
-10. No commentary outside the JSON block.
-11. After the closing \`\`\` write exactly: ---END---`;
+4. Extract EVERY distinct experience and project as separate entries — dedupe only exact duplicates within this source.
+5. Put graduation date, major, degree, school, GPA in profile.education — also capture skills and fixed facts in profile when present.
+6. freewrite must be raw warehouse notes (paragraphs or dash lines), never polished resume bullets.
+7. Use type "experience" for jobs/internships/research roles; "project" for projects, hackathons, and coursework builds.
+8. Dates as YYYY-MM when possible.
+9. Put ALL education (school, degree, major, GPA, graduation date, honors, relevant coursework) in profile.education — never in entries.
+10. Put skills, certifications, and other fixed facts in profile.skills_note / profile.other_fixed_facts.
+11. Compare the source against EXISTING REPOSITORY CONTEXT and EXISTING EDUCATION INFO CONTEXT when provided. If an incoming fact contradicts an existing saved fact, add a record to "contradictions" instead of silently merging it.
+12. Contradictions are mutually exclusive identity facts that need human review, e.g. same degree/major but different school, same role/date but different employer, different graduation dates for the same school/degree, or incompatible titles for the same dated role.
+13. Additive facts are NOT contradictions. Example: existing skills say Python/SQL/Java and incoming skills say Docker/AWS/GCP; merge those into profile.skills_note without a contradiction.
+14. For education contradictions, include existing_id from the existing education item and incoming_index pointing to the profile.education item that conflicts.
+15. For repository contradictions, include existing_id from the existing repository item and incoming_index pointing to the entries[] item that conflicts.
+16. For profile/meta contradictions, set field to "skills_note" or "other_fixed_facts" when applicable.
+17. If there are no contradictions, output "contradictions": [].
+18. No text outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
 
-export function buildRepoImportFromPdfPrompt(filename?: string): string {
+function trimForPrompt(value: string | null | undefined, max = 1800): string {
+  const text = (value ?? '').trim();
+  if (text.length <= max) {
+    return text;
+  }
+  return `${text.slice(0, max)}\n...[truncated]`;
+}
+
+function buildExistingRepositoryContext(existingItems?: RepoItem[]): string {
+  const items = (existingItems ?? []).filter((item) => item.title?.trim());
+  if (items.length === 0) {
+    return '';
+  }
+
+  const compact = items.slice(0, 40).map((item) => ({
+    id: item.id,
+    type: item.type,
+    title: item.title,
+    company: item.company,
+    position: item.position,
+    start_date: item.start_date,
+    end_date: item.end_date,
+    mode: item.mode,
+    content: trimForPrompt(item.content),
+  }));
+
+  return `\n\nEXISTING REPOSITORY CONTEXT:\n${JSON.stringify(compact, null, 2)}\n\nMERGE RULES AGAINST EXISTING REPOSITORY:\n- If the attached/source material describes the same experience or project as an existing repository item, do NOT create a duplicate.\n- For that entry, set "merge_target_id" to the existing item's id.\n- When using "merge_target_id", write "freewrite" as ONLY the missing or more specific facts from the new source that should be appended to that existing item. Do not repeat facts already present in existing content.\n- If the source item is genuinely new, omit "merge_target_id" or set it to null.\n- Preserve the existing item's identity; the app will append your new freewrite to it.`;
+}
+
+function buildExistingEducationContext(existingEducation?: EducationData): string {
+  const items = existingEducation?.items ?? [];
+  const meta = existingEducation?.meta;
+  const hasMeta = Boolean(meta?.skills_note?.trim() || meta?.other_notes?.trim());
+
+  if (items.length === 0 && !hasMeta) {
+    return '';
+  }
+
+  const compact = {
+    education: items.slice(0, 12).map((item) => ({
+      id: item.id,
+      school: item.school,
+      degree: item.degree,
+      major: item.major,
+      grad_date: item.grad_date,
+      gpa: item.gpa,
+      location: item.location,
+      coursework: trimForPrompt(item.coursework, 900),
+    })),
+    skills_note: trimForPrompt(meta?.skills_note, 1200),
+    other_notes: trimForPrompt(meta?.other_notes, 1200),
+  };
+
+  return `\n\nEXISTING EDUCATION INFO CONTEXT:\n${JSON.stringify(compact, null, 2)}\n\nMERGE RULES AGAINST EXISTING EDUCATION INFO:\n- If the source repeats an existing school/degree with no new details, omit it from profile.education.\n- If the source adds missing GPA, graduation date, coursework, honors, or location for an existing school, include only those useful details in profile.education so the app can merge them.\n- If the source appears to describe the same education credential but conflicts on a mutually exclusive field (for example BS in CS from Harvard vs BS in CS from Stanford, or same school/degree with different graduation dates), include the incoming education record in profile.education and add a contradictions[] item with category "education", existing_id, incoming_index, existing_value, incoming_value, and reason.\n- For skills_note and other_fixed_facts, include only facts that are missing or more specific than the existing notes. Do not repeat skills or facts already present.`;
+}
+
+export function buildRepoImportFromPdfPrompt(
+  filename?: string,
+  existingItems?: RepoItem[],
+  existingEducation?: EducationData,
+): string {
   return `Extract repository warehouse material from the attached resume PDF. This is NOT for a formatted resume editor — it feeds a freewrite warehouse for later AI resume building.
 
 ${REPO_IMPORT_RULES}
 11. Set source_label to ${JSON.stringify(filename ?? 'resume PDF')}.
-12. Include all employers and projects in entries; put education and skills in profile.`;
+12. Include all employers and projects in entries; put education and skills in profile.${buildExistingRepositoryContext(existingItems)}${buildExistingEducationContext(existingEducation)}`;
 }
 
 export function buildRepoImportFromProfileTextPrompt(
   profileText: string,
   sourceLabel: string,
+  existingItems?: RepoItem[],
+  existingEducation?: EducationData,
 ): string {
   return `Extract repository warehouse material from this profile text (e.g. LinkedIn). Output freewrite warehouse entries, NOT resume bullets.
 
@@ -139,7 +230,7 @@ ${profileText.slice(0, 48_000)}
 
 ${REPO_IMPORT_RULES}
 11. Set source_label to ${JSON.stringify(sourceLabel)}.
-12. Extract all experiences and projects into entries; put education and skills in profile.`;
+12. Extract all experiences and projects into entries; put education and skills in profile.${buildExistingRepositoryContext(existingItems)}${buildExistingEducationContext(existingEducation)}`;
 }
 
 export function buildOptimizeResumePrompt(jobDescription: string): string {
@@ -263,8 +354,7 @@ WRITING RULES:
 
 ${JD_HONESTY_RULES}
 
-${OUTPUT_RULES}
-5. Generate stable unique string ids for all sections, entries, links, skills, and bullets.`;
+${REPOSITORY_RESUME_OUTPUT_RULES}`;
 }
 
 export function buildAiPrompt(

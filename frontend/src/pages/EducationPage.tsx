@@ -39,9 +39,11 @@ export function EducationPage() {
   const [meta, setMeta] = useState<EducationMeta>({ skills_note: '', other_notes: '' });
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showMetaForm, setShowMetaForm] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [metaExpanded, setMetaExpanded] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<FormState>(EMPTY_FORM);
   const [editSaving, setEditSaving] = useState(false);
@@ -118,16 +120,32 @@ export function EducationPage() {
       const updated: EducationMeta = await r.json();
       setMeta(updated);
       setMetaDraft(updated);
+      setShowMetaForm(false);
+      setMetaExpanded(
+        updated.skills_note.trim().length > 0 ||
+          updated.other_notes.trim().length > 0,
+      );
     } finally { setMetaSaving(false); }
+  };
+
+  const toggleMetaForm = () => {
+    setMetaDraft(meta);
+    setMetaExpanded(true);
+    setShowMetaForm(v => !v);
+  };
+
+  const cancelMetaEdit = () => {
+    setMetaDraft(meta);
+    setShowMetaForm(false);
   };
 
   const metaDirty =
     metaDraft.skills_note !== meta.skills_note ||
     metaDraft.other_notes !== meta.other_notes;
 
-  const metaHasDraft =
-    metaDraft.skills_note.trim().length > 0 ||
-    metaDraft.other_notes.trim().length > 0;
+  const metaHasContent =
+    meta.skills_note.trim().length > 0 ||
+    meta.other_notes.trim().length > 0;
 
   const hasAnyContent =
     items.length > 0 ||
@@ -151,6 +169,10 @@ export function EducationPage() {
           onComplete={load}
         />
         <RepoImportPanel onComplete={load} />
+        <button className="btn btn--secondary" onClick={toggleMetaForm}>
+          {metaHasContent ? <Pencil size={15} /> : <Plus size={15} />}
+          {metaHasContent ? 'Edit notes' : 'Add notes'}
+        </button>
         <button className="btn btn--primary" onClick={() => setShowForm(v => !v)}>
           <Plus size={15} /> Add school
         </button>
@@ -211,35 +233,89 @@ export function EducationPage() {
         </div>
       )}
 
-      <div className="card education-meta-card">
-        <h2 className="education-section-title">Skills &amp; other notes</h2>
-        <p className="education-section-sub">Languages, tools, certifications, awards — not tied to one school.</p>
-        <div className="education-meta-fields">
-          <div className="field">
-            <label>Skills &amp; certifications</label>
-            <textarea rows={3} value={metaDraft.skills_note}
-              onChange={e => setMetaDraft(m => ({ ...m, skills_note: e.target.value }))}
-              placeholder="Python, TypeScript, AWS, React…" />
+      {showMetaForm && (
+        <div className="card education-meta-card">
+          <h2 className="education-section-title">Skills &amp; other notes</h2>
+          <p className="education-section-sub">Languages, tools, certifications, awards — not tied to one school.</p>
+          <div className="education-meta-fields">
+            <div className="field">
+              <label>Skills &amp; certifications</label>
+              <textarea rows={3} value={metaDraft.skills_note}
+                onChange={e => setMetaDraft(m => ({ ...m, skills_note: e.target.value }))}
+                placeholder="Python, TypeScript, AWS, React…" />
+            </div>
+            <div className="field">
+              <label>Other notes</label>
+              <textarea rows={3} value={metaDraft.other_notes}
+                onChange={e => setMetaDraft(m => ({ ...m, other_notes: e.target.value }))}
+                placeholder="Work authorization, awards, publications…" />
+            </div>
           </div>
-          <div className="field">
-            <label>Other notes</label>
-            <textarea rows={3} value={metaDraft.other_notes}
-              onChange={e => setMetaDraft(m => ({ ...m, other_notes: e.target.value }))}
-              placeholder="Work authorization, awards, publications…" />
+          <div className="education-form-actions">
+            <button type="button" className="btn btn--ghost" onClick={cancelMetaEdit}>Cancel</button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={saveMeta}
+              disabled={metaSaving || !metaDirty}
+            >
+              {metaSaving ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
+              {metaSaving ? 'Saving…' : metaDirty ? 'Save notes' : 'Saved'}
+            </button>
           </div>
         </div>
-        <div className="education-form-actions">
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={saveMeta}
-            disabled={metaSaving || !metaHasDraft}
+      )}
+
+      {!showMetaForm && metaHasContent && (
+        <div className="card education-meta-card education-meta-card--summary">
+          <div
+            className="education-meta-header education-meta-header--clickable"
+            role="button"
+            tabIndex={0}
+            onClick={() => setMetaExpanded(v => !v)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setMetaExpanded(v => !v);
+              }
+            }}
           >
-            {metaSaving ? <Loader2 size={14} className="spin" /> : <Check size={14} />}
-            {metaSaving ? 'Saving…' : metaDirty ? 'Save notes' : 'Saved'}
-          </button>
+            <div>
+              <h2 className="education-section-title">Skills &amp; other notes</h2>
+              <p className="education-section-sub">Stored education-adjacent details for resume generation.</p>
+            </div>
+            <div className="education-item-right">
+              <button
+                type="button"
+                className="btn btn--sm btn--ghost"
+                onClick={e => {
+                  e.stopPropagation();
+                  toggleMetaForm();
+                }}
+              >
+                <Pencil size={13} /> Edit
+              </button>
+              {metaExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </div>
+          </div>
+          {metaExpanded && (
+            <div className="education-meta-summary education-meta-body">
+              {meta.skills_note.trim() && (
+                <div>
+                  <p className="education-meta-label">Skills &amp; certifications</p>
+                  <pre>{meta.skills_note}</pre>
+                </div>
+              )}
+              {meta.other_notes.trim() && (
+                <div>
+                  <p className="education-meta-label">Other notes</p>
+                  <pre>{meta.other_notes}</pre>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      </div>
+      )}
 
       <div className="education-list-area">
         {loading ? (

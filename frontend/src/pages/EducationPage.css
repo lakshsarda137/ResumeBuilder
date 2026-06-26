@@ -17,6 +17,27 @@
   flex-direction: column;
 }
 
+.education-meta-card--summary {
+  gap: 14px;
+}
+
+.education-meta-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.education-meta-header--clickable {
+  cursor: pointer;
+  border-radius: 8px;
+  outline: none;
+}
+
+.education-meta-header--clickable:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
 .education-meta-fields {
   display: flex;
   flex-direction: column;
@@ -54,6 +75,39 @@
 .education-section-sub {
   margin: 0 0 14px;
   font-size: 13px;
+  color: var(--text-2);
+}
+
+.education-meta-header .education-section-sub {
+  margin-bottom: 0;
+}
+
+.education-meta-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.education-meta-body {
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.education-meta-label {
+  margin: 0 0 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.education-meta-summary pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--text-2);
 }
 

@@ -23,8 +23,42 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
+chrome.runtime.onStartup?.addListener(() => {
+  reportDebug('background_started', { backupPoller: true }).catch(() => {});
+});
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const completedCaptureRequests = new Set();
+
+function requestKey(appTabId, requestId) {
+  return `${appTabId ?? 'no-tab'}:${requestId ?? 'no-request'}`;
+}
+
+async function reportDebug(event, detail = {}, appTabId = null, requestId = null) {
+  const entry = {
+    at: new Date().toISOString(),
+    event,
+    detail,
+    requestId,
+  };
+
+  const tabs =
+    appTabId != null
+      ? [{ id: appTabId }]
+      : await chrome.tabs.query({
+          url: ['http://localhost/*', 'http://127.0.0.1/*'],
+        });
+
+  for (const tab of tabs) {
+    if (tab.id != null) {
+      chrome.tabs
+        .sendMessage(tab.id, { type: 'AI_DEBUG', entry })
+        .catch(() => {});
+    }
+  }
 }
 
 function waitForTabComplete(tabId) {
@@ -55,6 +89,32 @@ async function reportProgress(step, detail) {
         .catch(() => {});
     }
   }
+}
+
+async function relayResponseToApp(appTabId, requestId, response) {
+  if (appTabId == null || !requestId) {
+    return;
+  }
+
+  completedCaptureRequests.add(requestKey(appTabId, requestId));
+  await reportDebug(
+    'relay_response_to_app',
+    {
+      ok: response?.ok === true,
+      rawLength: response?.rawResponse?.length ?? 0,
+      error: response?.error ?? null,
+    },
+    appTabId,
+    requestId,
+  );
+
+  await chrome.tabs
+    .sendMessage(appTabId, {
+      type: 'AI_RESPONSE',
+      requestId,
+      response,
+    })
+    .catch(() => {});
 }
 
 async function openNewChat(provider) {
@@ -126,6 +186,469 @@ async function ensureLlmBridge(tabId) {
 async function sendToLlmTab(tabId, message) {
   await ensureLlmBridge(tabId);
   return chrome.tabs.sendMessage(tabId, message);
+}
+
+async function startLlmCapture(tabId, message) {
+  await ensureLlmBridge(tabId);
+  const response = await chrome.tabs.sendMessage(tabId, {
+    ...message,
+    asyncCapture: true,
+  });
+
+  if (!response?.ok) {
+    throw new Error(response?.error ?? 'Provider page did not accept the request.');
+  }
+
+  await reportDebug(
+    'content_capture_started',
+    {
+      provider: message.provider,
+      tabId,
+      asyncAccepted: response.async === true,
+      skipAttach: message.skipAttach === true,
+      hasPdf: Boolean(message.pdfBase64),
+      promptLength: message.prompt?.length ?? 0,
+    },
+    message.appTabId,
+    message.appRequestId,
+  );
+
+  if (message.appRequestId && message.appTabId != null) {
+    startBackupCapturePoll(tabId, message).catch((error) => {
+      reportDebug(
+        'backup_poll_crashed',
+        { error: error instanceof Error ? error.message : String(error) },
+        message.appTabId,
+        message.appRequestId,
+      );
+    });
+  }
+
+  return response;
+}
+
+function looksLikeDetectionError(error) {
+  return /timed out waiting|not detected|incomplete|no response captured/i.test(
+    error ?? '',
+  );
+}
+
+function extractDelimitedPayloadFromPage() {
+  function repairJson(json) {
+    return json
+      .replace(/^\uFEFF/, '')
+      .replace(/,\s*([}\]])/g, '$1')
+      .replace(/[\u201C\u201D]/g, '"')
+      .replace(/[\u2018\u2019]/g, "'");
+  }
+
+  function isRealImportPayload(parsed) {
+    if (!parsed || !Array.isArray(parsed.entries) || parsed.entries.length === 0) {
+      return false;
+    }
+
+    return parsed.entries.some((entry) => {
+      const type = typeof entry.type === 'string' ? entry.type.trim() : '';
+      const title =
+        typeof entry.title === 'string' ? entry.title.trim().toLowerCase() : '';
+      const freewrite =
+        typeof entry.freewrite === 'string' ? entry.freewrite.trim() : '';
+
+      return (
+        (type === 'experience' || type === 'project') &&
+        title !== 'role or project name' &&
+        freewrite.length > 15 &&
+        !/raw narrative freewrite/i.test(freewrite)
+      );
+    });
+  }
+
+  function isRealResumePayload(parsed) {
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.sections)) {
+      return false;
+    }
+
+    const contactName =
+      typeof parsed.contact?.name === 'string' ? parsed.contact.name.trim() : '';
+    if (contactName && contactName.toLowerCase() !== 'string') {
+      return true;
+    }
+
+    return parsed.sections.some((section) => {
+      const id = typeof section.id === 'string' ? section.id.trim().toLowerCase() : '';
+      const title =
+        typeof section.title === 'string' ? section.title.trim().toLowerCase() : '';
+      const type = typeof section.type === 'string' ? section.type.trim() : '';
+
+      if (id && id !== 'string' && title && title !== 'string') {
+        return true;
+      }
+
+      if (
+        type &&
+        type !== 'education | experience | projects | skills | custom' &&
+        title &&
+        title !== 'string'
+      ) {
+        return true;
+      }
+
+      const entries = Array.isArray(section.entries) ? section.entries : [];
+      if (
+        entries.some((entry) => {
+          const entryTitle =
+            typeof entry.title === 'string' ? entry.title.trim().toLowerCase() : '';
+          const bullets = Array.isArray(entry.bullets) ? entry.bullets : [];
+          return (
+            entryTitle &&
+            entryTitle !== 'string' &&
+            bullets.some((bullet) => {
+              const text =
+                typeof bullet === 'string'
+                  ? bullet.trim().toLowerCase()
+                  : typeof bullet?.text === 'string'
+                    ? bullet.text.trim().toLowerCase()
+                    : '';
+              return text && text !== 'string';
+            })
+          );
+        })
+      ) {
+        return true;
+      }
+
+      const skills = Array.isArray(section.skills) ? section.skills : [];
+      return skills.some((skill) => {
+        const label =
+          typeof skill.label === 'string' ? skill.label.trim().toLowerCase() : '';
+        const items =
+          typeof skill.items === 'string' ? skill.items.trim().toLowerCase() : '';
+        return (
+          (label && label !== 'string' && label !== 'category') ||
+          (items && items !== 'string')
+        );
+      });
+    });
+  }
+
+  function parseCandidate(candidate) {
+    try {
+      const parsed = JSON.parse(repairJson(candidate));
+      return {
+        ok: true,
+        real: isRealImportPayload(parsed) || isRealResumePayload(parsed),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        real: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  function expandToObject(text, anchorPos) {
+    let depth = 0;
+    let start = -1;
+
+    for (let index = anchorPos; index >= 0; index -= 1) {
+      if (text[index] === '}') {
+        depth += 1;
+      } else if (text[index] === '{') {
+        if (depth === 0) {
+          start = index;
+          break;
+        }
+        depth -= 1;
+      }
+    }
+
+    if (start === -1) {
+      return '';
+    }
+
+    depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index];
+
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) {
+        continue;
+      }
+
+      if (char === '{') {
+        depth += 1;
+      } else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          return text.slice(start, index + 1);
+        }
+      }
+    }
+
+    return '';
+  }
+
+  function jsonObjectCandidates(text) {
+    const candidates = [];
+    const anchors = [
+      '"source_label"',
+      '"profile"',
+      '"entries"',
+      '"contradictions"',
+      '"sections"',
+      '"contact"',
+    ];
+
+    for (const anchor of anchors) {
+      let position = text.lastIndexOf(anchor);
+      while (position !== -1) {
+        const candidate = expandToObject(text, position);
+        if (candidate && !candidates.includes(candidate)) {
+          candidates.push(candidate);
+        }
+        position = text.lastIndexOf(anchor, position - 1);
+      }
+    }
+
+    return candidates;
+  }
+
+  function parseBestCandidate(candidates) {
+    let lastError = null;
+    for (let index = candidates.length - 1; index >= 0; index -= 1) {
+      const candidate = candidates[index];
+      const parsed = parseCandidate(candidate);
+      if (parsed.ok && parsed.real) {
+        return { rawResponse: candidate, lastError };
+      }
+      if (parsed.error) {
+        lastError = parsed.error;
+      }
+
+      const objectCandidates = jsonObjectCandidates(candidate);
+      for (const objectCandidate of objectCandidates) {
+        const objectParsed = parseCandidate(objectCandidate);
+        if (objectParsed.ok && objectParsed.real) {
+          return { rawResponse: objectCandidate, lastError };
+        }
+        if (objectParsed.error) {
+          lastError = objectParsed.error;
+        }
+      }
+    }
+
+    return { rawResponse: '', lastError };
+  }
+
+  function extractFromText(text) {
+    const delimitedCandidates = [
+      ...text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g),
+    ]
+      .map((match) => match[1]?.trim())
+      .filter(Boolean);
+
+    const objectCandidates = jsonObjectCandidates(text);
+    const best = parseBestCandidate([...delimitedCandidates, ...objectCandidates]);
+    if (best.rawResponse) {
+      return {
+        rawResponse: best.rawResponse,
+        candidateCount: delimitedCandidates.length,
+        objectCandidateCount: objectCandidates.length,
+        method: best.rawResponse.includes('"entries"') ? 'object_or_delimited' : 'unknown',
+      };
+    }
+
+    return {
+      rawResponse: '',
+      candidateCount: delimitedCandidates.length,
+      objectCandidateCount: objectCandidates.length,
+      lastError: best.lastError,
+    };
+  }
+
+  const textSources = [
+    { name: 'body.innerText', text: document.body?.innerText ?? '' },
+    { name: 'body.textContent', text: document.body?.textContent ?? '' },
+    {
+      name: 'documentElement.innerText',
+      text: document.documentElement?.innerText ?? '',
+    },
+    {
+      name: 'documentElement.textContent',
+      text: document.documentElement?.textContent ?? '',
+    },
+  ].filter((source) => source.text.trim());
+
+  const selectorCounts = {};
+  for (const selector of [
+    '[data-testid="conversation-turn-assistant"]',
+    'div.font-claude-message',
+    'div.standard-markdown',
+    '.font-claude-message',
+    'pre code',
+    'code',
+  ]) {
+    selectorCounts[selector] = document.querySelectorAll(selector).length;
+  }
+
+  const samples = [];
+  for (const source of textSources) {
+    const result = extractFromText(source.text);
+    samples.push({
+      source: source.name,
+      length: source.text.length,
+      hasStart: source.text.includes('---JSON-START---'),
+      hasEnd: source.text.includes('---JSON-END---'),
+      candidateCount: result.candidateCount,
+      objectCandidateCount: result.objectCandidateCount,
+      method: result.method ?? null,
+      lastError: result.lastError ?? null,
+    });
+
+    if (result.rawResponse) {
+      return {
+        ok: true,
+        rawResponse: result.rawResponse,
+        source: source.name,
+        samples,
+        selectorCounts,
+        title: document.title,
+        url: location.href,
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    samples,
+    selectorCounts,
+    title: document.title,
+    url: location.href,
+  };
+}
+
+async function startBackupCapturePoll(tabId, message) {
+  const { appTabId, appRequestId, provider, sessionId } = message;
+  const key = requestKey(appTabId, appRequestId);
+  const started = Date.now();
+  const timeoutMs = 570000;
+  let lastDebugAt = 0;
+
+  await reportDebug(
+    'backup_poll_started',
+    { provider, tabId, timeoutMs },
+    appTabId,
+    appRequestId,
+  );
+
+  while (Date.now() - started < timeoutMs) {
+    if (completedCaptureRequests.has(key)) {
+      await reportDebug(
+        'backup_poll_stopped_already_completed',
+        { elapsedMs: Date.now() - started },
+        appTabId,
+        appRequestId,
+      );
+      return;
+    }
+
+    let result;
+    try {
+      const [injection] = await chrome.scripting.executeScript({
+        target: { tabId },
+        func: extractDelimitedPayloadFromPage,
+      });
+      result = injection?.result;
+    } catch (error) {
+      await reportDebug(
+        'backup_poll_injection_error',
+        { error: error instanceof Error ? error.message : String(error) },
+        appTabId,
+        appRequestId,
+      );
+      await sleep(3000);
+      continue;
+    }
+
+    if (result?.ok && result.rawResponse) {
+      const tab = await chrome.tabs.get(tabId).catch(() => null);
+      const session = {
+        ...buildSession({
+          provider,
+          tabId,
+          chatTitle: result.title || tab?.title,
+          chatUrl: result.url || tab?.url,
+        }),
+        ...(sessionId ? { id: sessionId } : {}),
+        lastUsedAt: Date.now(),
+      };
+      await saveSession(session);
+      await reportDebug(
+        'backup_poll_capture_found',
+        {
+          source: result.source,
+          rawLength: result.rawResponse.length,
+          samples: result.samples,
+          selectorCounts: result.selectorCounts,
+        },
+        appTabId,
+        appRequestId,
+      );
+      await relayResponseToApp(appTabId, appRequestId, {
+        ok: true,
+        rawResponse: result.rawResponse,
+        session,
+      });
+      return;
+    }
+
+    if (Date.now() - lastDebugAt >= 10000) {
+      await reportDebug(
+        'backup_poll_sample',
+        {
+          elapsedMs: Date.now() - started,
+          samples: result?.samples ?? [],
+          selectorCounts: result?.selectorCounts ?? {},
+        },
+        appTabId,
+        appRequestId,
+      );
+      lastDebugAt = Date.now();
+    }
+
+    await sleep(2000);
+  }
+
+  if (!completedCaptureRequests.has(key)) {
+    await reportDebug(
+      'backup_poll_timeout',
+      { elapsedMs: Date.now() - started },
+      appTabId,
+      appRequestId,
+    );
+    await relayResponseToApp(appTabId, appRequestId, {
+      ok: false,
+      error:
+        'Timed out waiting for delimited JSON in the provider tab. Diagnostics were captured in the import panel.',
+    });
+  }
 }
 
 function buildSession({ provider, tabId, chatTitle, chatUrl }) {
@@ -236,6 +759,22 @@ async function handleSendPrompt({ provider, prompt }) {
   };
 }
 
+async function startSendPrompt({ provider, prompt, appRequestId, appTabId }) {
+  const tabId = await openNewChat(provider);
+  await sleep(800);
+
+  await startLlmCapture(tabId, {
+    type: 'INJECT_PDF',
+    provider,
+    prompt,
+    skipAttach: true,
+    appRequestId,
+    appTabId,
+  });
+
+  return { ok: true, async: true };
+}
+
 async function handleSendPdf(
   { provider, prompt, pdfBase64, filename, forceNewChat },
 ) {
@@ -274,6 +813,35 @@ async function handleSendPdf(
     rawResponse: response.rawResponse ?? '',
     session,
   };
+}
+
+async function startSendPdf({
+  provider,
+  prompt,
+  pdfBase64,
+  filename,
+  forceNewChat,
+  appRequestId,
+  appTabId,
+}) {
+  const tabId = forceNewChat
+    ? await openNewChat(provider)
+    : await openNewChat(provider);
+
+  await sleep(800);
+
+  await startLlmCapture(tabId, {
+    type: 'INJECT_PDF',
+    provider,
+    prompt,
+    pdfBase64,
+    filename,
+    skipAttach: false,
+    appRequestId,
+    appTabId,
+  });
+
+  return { ok: true, async: true };
 }
 
 async function handleSendImprovement({
@@ -322,11 +890,120 @@ async function handleSendImprovement({
   };
 }
 
+async function startSendImprovement({
+  sessionId,
+  provider,
+  tabId,
+  chatTitle,
+  prompt,
+  appRequestId,
+  appTabId,
+}) {
+  await resolveTab(tabId);
+  await reportProgress(
+    'returning_to_chat',
+    `Returning to chat "${chatTitle || 'linked chat'}"…`,
+  );
+
+  await startLlmCapture(tabId, {
+    type: 'INJECT_PDF',
+    provider,
+    prompt,
+    skipAttach: true,
+    sessionId,
+    appRequestId,
+    appTabId,
+  });
+
+  return { ok: true, async: true };
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     try {
+      if (message.type === 'LLM_CAPTURE_RESULT') {
+        const provider = message.provider;
+        const tabId = _sender.tab?.id;
+        const key = requestKey(message.appTabId, message.appRequestId);
+        const captureResponse = message.response ?? {
+          ok: false,
+          error: 'No response captured from provider tab.',
+        };
+
+        await reportDebug(
+          'content_capture_result',
+          {
+            ok: captureResponse.ok === true,
+            rawLength: captureResponse.rawResponse?.length ?? 0,
+            error: captureResponse.error ?? null,
+            tabId,
+          },
+          message.appTabId,
+          message.appRequestId,
+        );
+
+        if (completedCaptureRequests.has(key)) {
+          await reportDebug(
+            'content_capture_result_ignored_duplicate',
+            { ok: captureResponse.ok === true },
+            message.appTabId,
+            message.appRequestId,
+          );
+          sendResponse({ ok: true });
+          return;
+        }
+
+        if (captureResponse.ok && tabId != null) {
+          const session = {
+            ...buildSession({
+              provider,
+              tabId,
+              chatTitle: captureResponse.chatTitle,
+              chatUrl: captureResponse.chatUrl,
+            }),
+            ...(message.sessionId ? { id: message.sessionId } : {}),
+            lastUsedAt: Date.now(),
+          };
+          await saveSession(session);
+          await relayResponseToApp(message.appTabId, message.appRequestId, {
+            ok: true,
+            rawResponse: captureResponse.rawResponse ?? '',
+            session,
+          });
+        } else if (looksLikeDetectionError(captureResponse.error)) {
+          await reportDebug(
+            'content_detection_error_deferred_to_backup_poll',
+            { error: captureResponse.error },
+            message.appTabId,
+            message.appRequestId,
+          );
+        } else {
+          await relayResponseToApp(message.appTabId, message.appRequestId, captureResponse);
+        }
+
+        sendResponse({ ok: true });
+        return;
+      }
+
       if (message.type === 'AI_PROGRESS') {
         await reportProgress(message.step, message.detail);
+        sendResponse({ ok: true });
+        return;
+      }
+
+      if (message.type === 'AI_DEBUG') {
+        const entry = message.entry ?? {
+          at: new Date().toISOString(),
+          event: 'debug_message_without_entry',
+          detail: {},
+          requestId: message.appRequestId ?? null,
+        };
+        await reportDebug(
+          entry.event,
+          entry.detail,
+          message.appTabId ?? null,
+          entry.requestId ?? message.appRequestId ?? null,
+        );
         sendResponse({ ok: true });
         return;
       }
@@ -342,16 +1019,43 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       }
 
       if (message.type === 'SEND_PDF') {
+        if (message.appRequestId && _sender.tab?.id != null) {
+          sendResponse(
+            await startSendPdf({
+              ...message,
+              appTabId: _sender.tab.id,
+            }),
+          );
+          return;
+        }
         sendResponse(await handleSendPdf(message));
         return;
       }
 
       if (message.type === 'SEND_PROMPT') {
+        if (message.appRequestId && _sender.tab?.id != null) {
+          sendResponse(
+            await startSendPrompt({
+              ...message,
+              appTabId: _sender.tab.id,
+            }),
+          );
+          return;
+        }
         sendResponse(await handleSendPrompt(message));
         return;
       }
 
       if (message.type === 'SEND_IMPROVEMENT') {
+        if (message.appRequestId && _sender.tab?.id != null) {
+          sendResponse(
+            await startSendImprovement({
+              ...message,
+              appTabId: _sender.tab.id,
+            }),
+          );
+          return;
+        }
         sendResponse(await handleSendImprovement(message));
         return;
       }

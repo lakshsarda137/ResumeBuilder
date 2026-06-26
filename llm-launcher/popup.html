@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LLM Launcher</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h2>LLM Launcher</h2>
+
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="claude">Claude (claude.ai)</option>
+      <option value="chatgpt">ChatGPT (chatgpt.com)</option>
+      <option value="gemini">Gemini (gemini.google.com)</option>
+    </select>
+
+    <label>PDF (optional)</label>
+    <div class="file-zone" id="file-zone">
+      <span id="file-label">Click or drag a PDF here</span>
+      <input type="file" id="pdf-input" accept=".pdf,application/pdf">
+      <button type="button" id="clear-file" class="clear-btn" hidden>x Remove</button>
+    </div>
+
+    <label for="prompt">Prompt (optional)</label>
+    <textarea id="prompt" rows="5" placeholder="Enter your prompt..."></textarea>
+
+    <button id="launch">Launch</button>
+    <div id="status"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

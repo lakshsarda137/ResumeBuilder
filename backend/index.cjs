@@ -2,6 +2,7 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
 const os = require('os');
+const { spawnSync } = require('child_process');
 
 const DATA_DIR = path.join(os.homedir(), '.resume-builder');
 const DB_PATH = path.join(DATA_DIR, 'data.db');
@@ -89,11 +90,55 @@ db.exec(`
 db.prepare(`INSERT OR IGNORE INTO education_meta (id) VALUES ('default')`).run();
 
 const app = express();
-app.use(express.json({ limit: '4mb' }));
+app.use(express.json({ limit: '25mb' }));
 
 function nowId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
+
+/* ── PDF EXTRACTION ─────────────────────────────────────────────────────── */
+
+app.post('/api/pdf/markdown', (req, res) => {
+  const { base64, filename } = req.body ?? {};
+  if (!base64 || typeof base64 !== 'string') {
+    return res.status(400).json({ error: 'base64 PDF required' });
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resume-pdf-'));
+  const safeName = (filename || 'resume.pdf').replace(/[^a-z0-9._-]/gi, '_');
+  const pdfPath = path.join(tempDir, safeName.toLowerCase().endsWith('.pdf') ? safeName : `${safeName}.pdf`);
+
+  try {
+    const buffer = Buffer.from(base64, 'base64');
+    if (buffer.length === 0 || buffer.subarray(0, 4).toString('utf8') !== '%PDF') {
+      return res.status(400).json({ error: 'Uploaded file is not a valid PDF.' });
+    }
+
+    fs.writeFileSync(pdfPath, buffer);
+
+    const scriptPath = path.join(__dirname, 'pdf_to_markdown.py');
+    const result = spawnSync('python3', [scriptPath, pdfPath], {
+      encoding: 'utf8',
+      maxBuffer: 20 * 1024 * 1024,
+    });
+
+    const raw = result.stdout.trim();
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (result.status !== 0 || !parsed?.ok) {
+      const detail = parsed?.error || result.stderr.trim() || 'PDF text extraction failed.';
+      return res.status(422).json({ error: detail });
+    }
+
+    return res.json({
+      markdown: parsed.markdown,
+      engine: parsed.engine,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'PDF text extraction failed.' });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 /* ── REPOSITORY ─────────────────────────────────────────────────────────── */
 

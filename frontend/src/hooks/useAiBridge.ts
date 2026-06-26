@@ -21,6 +21,13 @@ export type BridgeResponse = {
   title?: string;
 };
 
+export type BridgeDebugEvent = {
+  at: string;
+  event: string;
+  detail?: unknown;
+  requestId?: string | null;
+};
+
 function createRequestId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -39,7 +46,7 @@ function getTimeoutForPayload(payload: Record<string, unknown>) {
     payload.type === 'SEND_PROMPT' ||
     payload.type === 'SEND_IMPROVEMENT'
   ) {
-    return 240_000;
+    return 600_000;
   }
   if (payload.type === 'SCRAPE_URL') {
     return 60_000;
@@ -56,6 +63,7 @@ export function useAiBridge() {
   const [pipelineVariant, setPipelineVariant] = useState<PipelineVariant | null>(
     null,
   );
+  const [debugEvents, setDebugEvents] = useState<BridgeDebugEvent[]>([]);
   const pendingRef = useRef(
     new Map<
       string,
@@ -79,11 +87,16 @@ export function useAiBridge() {
   const startPipeline = useCallback((variant: PipelineVariant) => {
     setPipelineVariant(variant);
     setPipelineEvents([]);
+    setDebugEvents([]);
   }, []);
 
   const clearPipeline = useCallback(() => {
     setPipelineEvents([]);
     setPipelineVariant(null);
+  }, []);
+
+  const clearDebugEvents = useCallback(() => {
+    setDebugEvents([]);
   }, []);
 
   useEffect(() => {
@@ -112,6 +125,23 @@ export function useAiBridge() {
 
       if (data.type === 'PROGRESS') {
         pushPipeline(data.step, data.detail);
+        return;
+      }
+
+      if (data.type === 'DEBUG') {
+        setDebugEvents((events) => {
+          const entry = data.entry as BridgeDebugEvent;
+          const last = events[events.length - 1];
+          if (
+            last &&
+            last.at === entry.at &&
+            last.event === entry.event &&
+            JSON.stringify(last.detail ?? null) === JSON.stringify(entry.detail ?? null)
+          ) {
+            return events;
+          }
+          return [...events, entry].slice(-120);
+        });
         return;
       }
 
@@ -349,8 +379,10 @@ export function useAiBridge() {
     scrapeUrlAndWait,
     pipelineEvents,
     pipelineVariant,
+    debugEvents,
     pushPipeline,
     startPipeline,
     clearPipeline,
+    clearDebugEvents,
   };
 }

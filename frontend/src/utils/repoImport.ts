@@ -1,6 +1,8 @@
 import type { OngoingItem, RepoItem } from '../types/repository';
 import type {
   RepoImportEntry,
+  RepoImportLineDiff,
+  RepoImportMergeDiff,
   RepoImportMergeResult,
   RepoImportPayload,
   RepoImportProfile,
@@ -172,6 +174,7 @@ function contentCompatible(
 }
 
 function findImportMatch<T extends {
+  id: string;
   type: string;
   title: string;
   company?: string | null;
@@ -182,6 +185,13 @@ function findImportMatch<T extends {
   existing: T[],
   entry: RepoImportEntry,
 ): T | undefined {
+  if (entry.merge_target_id?.trim()) {
+    const target = existing.find((item) => item.id === entry.merge_target_id?.trim());
+    if (target) {
+      return target;
+    }
+  }
+
   const exactKey = entryMatchKey(entry);
   const exact = existing.find((item) => entryMatchKey(item) === exactKey);
   if (exact) {
@@ -240,6 +250,57 @@ function appendImportBlock(existing: string, incoming: string, sourceLabel: stri
   return `${existing.trim()}${header}${block}`;
 }
 
+function splitDiffLines(value: string): string[] {
+  return value.replace(/\r\n/g, '\n').split('\n');
+}
+
+export function createRepoImportLineDiff(before: string, after: string): RepoImportLineDiff[] {
+  const beforeLines = splitDiffLines(before);
+  const afterLines = splitDiffLines(after);
+  const table: number[][] = Array.from({ length: beforeLines.length + 1 }, () =>
+    Array(afterLines.length + 1).fill(0),
+  );
+
+  for (let i = beforeLines.length - 1; i >= 0; i -= 1) {
+    for (let j = afterLines.length - 1; j >= 0; j -= 1) {
+      table[i][j] =
+        beforeLines[i] === afterLines[j]
+          ? table[i + 1][j + 1] + 1
+          : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+  }
+
+  const lines: RepoImportLineDiff[] = [];
+  let i = 0;
+  let j = 0;
+
+  while (i < beforeLines.length && j < afterLines.length) {
+    if (beforeLines[i] === afterLines[j]) {
+      lines.push({ kind: 'context', text: beforeLines[i] });
+      i += 1;
+      j += 1;
+    } else if (table[i + 1][j] >= table[i][j + 1]) {
+      lines.push({ kind: 'removed', text: beforeLines[i] });
+      i += 1;
+    } else {
+      lines.push({ kind: 'added', text: afterLines[j] });
+      j += 1;
+    }
+  }
+
+  while (i < beforeLines.length) {
+    lines.push({ kind: 'removed', text: beforeLines[i] });
+    i += 1;
+  }
+
+  while (j < afterLines.length) {
+    lines.push({ kind: 'added', text: afterLines[j] });
+    j += 1;
+  }
+
+  return lines;
+}
+
 function pickDate(
   existing: string | null | undefined,
   incoming: string | null | undefined,
@@ -254,22 +315,119 @@ export function flattenImportPayload(payload: RepoImportPayload): RepoImportEntr
   return (payload.entries ?? []).filter((e) => e.title?.trim() && e.freewrite?.trim());
 }
 
-export function parseRepoImportResponse(raw: string): RepoImportPayload {
-  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const objectMatch = raw.match(/\{[\s\S]*\}/);
-  const candidate = (fence?.[1] ?? objectMatch?.[0] ?? raw).trim();
-  const parsed = JSON.parse(candidate) as RepoImportPayload;
+function repairJsonString(s: string): string {
+  return s
+    .replace(/^\uFEFF/, '')
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'");
+}
 
-  if (!parsed || !Array.isArray(parsed.entries)) {
-    throw new Error('Import response missing entries array.');
+function expandToOutermostObject(text: string, anchorPos: number): string {
+  let depth = 0;
+  let start = -1;
+  for (let i = anchorPos; i >= 0; i--) {
+    if (text[i] === '}') depth++;
+    else if (text[i] === '{') {
+      if (depth === 0) { start = i; break; }
+      depth--;
+    }
+  }
+  if (start === -1) return '';
+  depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return '';
+}
+
+function isRealImportPayload(parsed: RepoImportPayload): boolean {
+  if (!parsed || !Array.isArray(parsed.entries) || parsed.entries.length === 0) return false;
+  return parsed.entries.some((e) => {
+    const type = typeof e.type === 'string' ? e.type.trim() : '';
+    const title = typeof e.title === 'string' ? e.title.trim().toLowerCase() : '';
+    const freewrite = typeof e.freewrite === 'string' ? e.freewrite.trim() : '';
+
+    return (
+      (type === 'experience' || type === 'project') &&
+      title !== 'role or project name' &&
+      freewrite.length > 15 &&
+      !/raw narrative freewrite/i.test(freewrite)
+    );
+  });
+}
+
+function extractResponseJsonFromText(text: string): string {
+  const anchors = ['"freewrite":', '"source_label":', '"entries":'];
+  for (const anchor of anchors) {
+    let pos = text.lastIndexOf(anchor);
+    while (pos !== -1) {
+      const candidate = expandToOutermostObject(text, pos);
+      if (candidate) {
+        try {
+          const parsed = JSON.parse(repairJsonString(candidate)) as RepoImportPayload;
+          if (isRealImportPayload(parsed)) {
+            return candidate;
+          }
+        } catch {
+          // try earlier occurrence
+        }
+      }
+      pos = text.lastIndexOf(anchor, pos - 1);
+    }
+  }
+  return '';
+}
+
+function getDelimitedJsonCandidates(text: string): string[] {
+  return [...text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g)]
+    .map((match) => match[1]?.trim())
+    .filter(Boolean);
+}
+
+export function parseRepoImportResponse(raw: string): RepoImportPayload {
+  const candidates: string[] = [];
+
+  // Best path: explicit delimiters written by the model.
+  const delimitedCandidates = getDelimitedJsonCandidates(raw);
+  for (let index = delimitedCandidates.length - 1; index >= 0; index -= 1) {
+    candidates.push(delimitedCandidates[index]);
   }
 
-  return parsed;
+  // Fallback: fenced code block.
+  const fenceMatches = [...raw.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)];
+  if (fenceMatches.length > 0) {
+    candidates.push(fenceMatches[fenceMatches.length - 1][1].trim());
+  }
+
+  // Last resort: anchor-based extraction.
+  const anchorBased = extractResponseJsonFromText(raw);
+  if (anchorBased) candidates.push(anchorBased);
+
+  const errors: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(repairJsonString(candidate)) as RepoImportPayload;
+      if (parsed && Array.isArray(parsed.entries)) {
+        return parsed;
+      }
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  throw new Error(
+    `Could not parse import response. The AI may have returned truncated output. Last error: ${errors[errors.length - 1] ?? 'unknown'}`,
+  );
 }
 
 export interface RepoImportMergePlan {
   create: Array<Omit<RepoItem, 'id' | 'created_at' | 'updated_at'>>;
-  patch: Array<{ id: string; body: Partial<RepoItem> }>;
+  patch: Array<{ id: string; body: Partial<RepoItem>; diff: RepoImportMergeDiff }>;
   skipped: number;
 }
 
@@ -299,15 +457,25 @@ export function planRepoImportMerge(
         continue;
       }
 
+      const nextContent = appendImportBlock(match.content, freewrite, sourceLabel);
       patch.push({
         id: match.id,
         body: {
-          content: appendImportBlock(match.content, freewrite, sourceLabel),
+          content: nextContent,
           mode: 'freewrite',
           company: pickDate(match.company, entry.company ?? null),
           position: pickDate(match.position, entry.position ?? null),
           start_date: pickDate(match.start_date, entry.start_date ?? null),
           end_date: pickDate(match.end_date, entry.end_date ?? null),
+        },
+        diff: {
+          id: match.id,
+          title: match.title,
+          company: match.company,
+          sourceLabel,
+          before: match.content,
+          after: nextContent,
+          lines: createRepoImportLineDiff(match.content, nextContent),
         },
       });
       continue;
@@ -518,6 +686,7 @@ export async function applyRepoImportMerge(
     created,
     merged,
     skipped: plan.skipped,
+    mergeDiffs: plan.patch.map(({ diff }) => diff),
     ...ongoing,
     ...education,
   };
