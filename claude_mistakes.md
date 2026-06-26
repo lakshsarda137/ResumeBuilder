@@ -209,3 +209,34 @@ Correct fix:
 - distinguish "provider tab is in the background / waiting for generation to start" from "model is generating",
 - keep response capture logic intact when completed responses import successfully,
 - avoid diagnosing this as JSON detection failure unless generation completes and capture fails.
+
+---
+
+## Session: Resume Editor Layout / PDF Fit Repairs (2026-06-26)
+
+### False claim: purple editor chrome was removed
+I said the weird purple background had been removed after checking only the toolbar/style screenshot. That was false. The Web AI panel still had hardcoded dark-blue/slate colors in `AiPanel.css`, and its Send PDF button was still purple. I also answered "True" to the user's direct true/false question without verifying the exact area they meant.
+
+Correct fix:
+- inspect the exact user-visible region before making a binary claim,
+- remove hardcoded blue/slate/purple colors from `AiPanel.css`,
+- keep the editor toolbar, Style panel, Format toolbar, and Web AI panel on the neutral/warm app palette,
+- verify against a real saved editor session, not only the wizard or a partial editor screenshot.
+
+### Top toolbar overlap was still present
+The initial layout fix only addressed the Style panel grid. The top editor toolbar still used grid columns that could let the format controls and right-side action buttons collide at wide-but-crowded widths, especially with a session title, page-fit badge, and Style/New build/Save controls visible.
+
+Correct fix:
+- make the top editor toolbar a wrapping flex layout,
+- constrain the template select width,
+- allow center and right toolbar groups to wrap before overlap,
+- verify with the `Dummy` saved session and JD notes visible.
+
+### One-page PDF fix must be explicit, not hand-wavy
+The previous PDF exporter silently skipped text outside the single page media box. That made the preview show content that the downloaded PDF omitted.
+
+Correct fix:
+- measure the rendered export DOM against an 8.5x11 page,
+- show under/fit/over one-page status in the editor,
+- block export/send when rendered content is over one page instead of creating a truncated PDF,
+- keep the text-PDF writer path; do not return to canvas/raster export.

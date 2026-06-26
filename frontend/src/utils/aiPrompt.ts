@@ -410,7 +410,7 @@ WRITING RULES:
 - Select and prioritize experiences/projects that best fit the job description and have enough source detail for credible bullets.
 - Do NOT include every repository source. Omit weak/thin entries, especially entries with little more than title/company/date.
 - Convert selected freewrite material into polished resume bullets with action verbs, numbers, and impact.
-- Use 1-3 bullets per selected experience/project. Never give one entry 4 bullets while other entries have only 1-2; if there is enough material for a fourth bullet, add/keep another high-signal entry or redistribute.
+- Use the explicit bullet-count range from the resume settings/profile for each selected experience/project. Keep density balanced across entries; if an entry would need more bullets than the configured maximum, merge related points or omit lower-signal material.
 - Prefer 5-6 credible entries with balanced density over one overloaded flagship entry and sparse filler.
 - Use the resume settings/profile as a content contract for section order, section inclusion, emphasis, and density. The app will render the returned JSON into the final visual format.
 - Hard layout constraint: never put a tech stack beside an entry name/title. If tools are useful, keep them in the subtitle line below the title or in bullets/skills.

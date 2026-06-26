@@ -29,7 +29,7 @@
 }
 
 .resume-name {
-  font-family: var(--resume-heading-font, 'Times New Roman', Times, 'Liberation Serif', serif);
+  font-family: var(--resume-name-font, 'Times New Roman', Times, 'Liberation Serif', serif);
   font-size: var(--resume-name-size, 22pt);
   font-weight: 700;
   margin: 0 0 2pt;

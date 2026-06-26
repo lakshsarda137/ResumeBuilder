@@ -1,14 +1,31 @@
 const PDF_WIDTH_PT = 612;
 const PDF_HEIGHT_PT = 792;
 
-type FontKey = 'regular' | 'bold' | 'italic' | 'boldItalic';
+type FontStyleKey = 'regular' | 'bold' | 'italic' | 'boldItalic';
+type PdfFontKey =
+  | 'timesRegular'
+  | 'timesBold'
+  | 'timesItalic'
+  | 'timesBoldItalic'
+  | 'helveticaRegular'
+  | 'helveticaBold'
+  | 'helveticaItalic'
+  | 'helveticaBoldItalic';
+
+export interface ResumePageFit {
+  status: 'under' | 'fit' | 'over';
+  usageRatio: number;
+  usedHeightPt: number;
+  pageHeightPt: number;
+  overflowPt: number;
+}
 
 interface TextRun {
   text: string;
   x: number;
   y: number;
   size: number;
-  font: FontKey;
+  font: PdfFontKey;
   width: number;
 }
 
@@ -126,7 +143,7 @@ function isVisibleElement(element: Element) {
   );
 }
 
-function fontKeyFor(style: CSSStyleDeclaration): FontKey {
+function fontStyleKeyFor(style: CSSStyleDeclaration): FontStyleKey {
   const weight = Number.parseInt(style.fontWeight, 10);
   const isBold = style.fontWeight === 'bold' || Number.isFinite(weight) && weight >= 600;
   const isItalic = style.fontStyle === 'italic' || style.fontStyle === 'oblique';
@@ -135,6 +152,32 @@ function fontKeyFor(style: CSSStyleDeclaration): FontKey {
   if (isBold) return 'bold';
   if (isItalic) return 'italic';
   return 'regular';
+}
+
+function pdfFontKeyFor(style: CSSStyleDeclaration): PdfFontKey {
+  const fontFamily = style.fontFamily.toLowerCase();
+  const family = (
+    fontFamily.includes('arial') ||
+    fontFamily.includes('calibri') ||
+    fontFamily.includes('helvetica') ||
+    fontFamily.includes('inter') ||
+    fontFamily.includes('sans')
+  )
+    ? 'helvetica'
+    : 'times';
+  const variant = fontStyleKeyFor(style);
+
+  if (family === 'helvetica') {
+    if (variant === 'boldItalic') return 'helveticaBoldItalic';
+    if (variant === 'bold') return 'helveticaBold';
+    if (variant === 'italic') return 'helveticaItalic';
+    return 'helveticaRegular';
+  }
+
+  if (variant === 'boldItalic') return 'timesBoldItalic';
+  if (variant === 'bold') return 'timesBold';
+  if (variant === 'italic') return 'timesItalic';
+  return 'timesRegular';
 }
 
 function textByte(char: string) {
@@ -203,7 +246,7 @@ function addTextNodeRuns(
   if (!parent) return;
 
   const style = window.getComputedStyle(parent);
-  const font = fontKeyFor(style);
+  const font = pdfFontKeyFor(style);
   const size = Number.parseFloat(style.fontSize) * scale;
 
   for (const match of text.matchAll(/\S+/g)) {
@@ -243,7 +286,7 @@ function addBulletRuns(page: HTMLElement, pageRect: DOMRect, scale: number, runs
       x: (rect.left - pageRect.left) * scale,
       y: PDF_HEIGHT_PT - (rect.top - pageRect.top) * scale - size * 0.82,
       size,
-      font: fontKeyFor(before),
+      font: pdfFontKeyFor(before),
       width: size * 0.4,
     });
   });
@@ -263,7 +306,7 @@ function addExtractionSpaces(runs: TextRun[]) {
         x: previous.x + previous.width + gap / 2,
         y: run.y,
         size: run.size,
-        font: 'regular',
+        font: 'timesRegular',
         width: Math.min(gap, run.size * 0.35),
       });
     }
@@ -317,11 +360,15 @@ function collectRules(page: HTMLElement) {
 }
 
 function buildContentStream(textRuns: TextRun[], rules: RuleRun[]) {
-  const fontNames: Record<FontKey, string> = {
-    regular: 'F1',
-    bold: 'F2',
-    italic: 'F3',
-    boldItalic: 'F4',
+  const fontNames: Record<PdfFontKey, string> = {
+    timesRegular: 'F1',
+    timesBold: 'F2',
+    timesItalic: 'F3',
+    timesBoldItalic: 'F4',
+    helveticaRegular: 'F5',
+    helveticaBold: 'F6',
+    helveticaItalic: 'F7',
+    helveticaBoldItalic: 'F8',
   };
 
   const lines = [
@@ -369,8 +416,8 @@ function buildPdfBytes(content: string) {
         '<< /Type /Page',
         '/Parent 2 0 R',
         `/MediaBox [0 0 ${PDF_WIDTH_PT} ${PDF_HEIGHT_PT}]`,
-        '/Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R /F4 7 0 R >> >>',
-        '/Contents 8 0 R',
+        '/Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R /F4 7 0 R /F5 8 0 R /F6 9 0 R /F7 10 0 R /F8 11 0 R >> >>',
+        '/Contents 12 0 R',
         '>>',
       ].join('\n'),
     ),
@@ -378,7 +425,11 @@ function buildPdfBytes(content: string) {
     makeObject(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Times-Bold /Encoding /WinAnsiEncoding >>'),
     makeObject(6, '<< /Type /Font /Subtype /Type1 /BaseFont /Times-Italic /Encoding /WinAnsiEncoding >>'),
     makeObject(7, '<< /Type /Font /Subtype /Type1 /BaseFont /Times-BoldItalic /Encoding /WinAnsiEncoding >>'),
-    makeObject(8, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`),
+    makeObject(8, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'),
+    makeObject(9, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>'),
+    makeObject(10, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>'),
+    makeObject(11, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-BoldOblique /Encoding /WinAnsiEncoding >>'),
+    makeObject(12, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`),
   ];
 
   let pdf = '%PDF-1.4\n';
@@ -416,6 +467,31 @@ function buildTextPdfBlob(page: HTMLElement) {
   return new Blob([buildPdfBytes(content)], { type: 'application/pdf' });
 }
 
+function measurePageFit(page: HTMLElement): ResumePageFit {
+  const pageRect = page.getBoundingClientRect();
+  const expectedHeightPx = pageRect.width * (PDF_HEIGHT_PT / PDF_WIDTH_PT);
+  const usedHeightPx = Math.max(pageRect.height, page.scrollHeight);
+  const usageRatio = expectedHeightPx > 0 ? usedHeightPx / expectedHeightPx : 1;
+  const usedHeightPt = usageRatio * PDF_HEIGHT_PT;
+  const overflowPt = Math.max(0, usedHeightPt - PDF_HEIGHT_PT);
+  const status =
+    usageRatio > 1.005 ? 'over' : usageRatio < 0.975 ? 'under' : 'fit';
+
+  return {
+    status,
+    usageRatio,
+    usedHeightPt,
+    pageHeightPt: PDF_HEIGHT_PT,
+    overflowPt,
+  };
+}
+
+export async function inspectResumePageFit(elementId: string): Promise<ResumePageFit> {
+  const wrapper = getExportWrapper(elementId);
+  await waitForLayout();
+  return measurePageFit(getResumePage(wrapper));
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -436,7 +512,16 @@ async function renderPdf(
 
   try {
     await waitForLayout();
-    const blob = buildTextPdfBlob(getResumePage(state.wrapper));
+    const page = getResumePage(state.wrapper);
+    const fit = measurePageFit(page);
+    if (fit.status === 'over') {
+      const overflowInches = fit.overflowPt / 72;
+      throw new Error(
+        `Resume is over one page by ${overflowInches.toFixed(2)} in. Tighten content or reduce type size before exporting so the PDF is not truncated.`,
+      );
+    }
+
+    const blob = buildTextPdfBlob(page);
 
     if (mode === 'blob') {
       return blob;

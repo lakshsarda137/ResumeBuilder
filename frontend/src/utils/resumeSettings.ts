@@ -12,7 +12,10 @@ export interface ResumeRenderSettings {
   defaultTemplate: ResumeRenderTemplateId;
   sectionHeadings: string[];
   bodyFontFamily: string;
+  nameFontFamily: string;
   headingFontFamily: string;
+  minBulletsPerExperience: number;
+  maxBulletsPerExperience: number;
   nameFontSize: number;
   headingFontSize: number;
   bodyFontSize: number;
@@ -50,7 +53,10 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   defaultTemplate: 'classic',
   sectionHeadings: ['Education', 'Experience', 'Projects', 'Technical Skills'],
   bodyFontFamily: 'Times New Roman',
+  nameFontFamily: 'Times New Roman',
   headingFontFamily: 'Times New Roman',
+  minBulletsPerExperience: 1,
+  maxBulletsPerExperience: 3,
   nameFontSize: 22,
   headingFontSize: 11,
   bodyFontSize: 10.5,
@@ -91,6 +97,10 @@ function asNumber(value: unknown, fallback: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function asInteger(value: unknown, fallback: number, min: number, max: number) {
+  return Math.round(asNumber(value, fallback, min, max));
+}
+
 function asBoolean(value: unknown, fallback: boolean) {
   return typeof value === 'boolean' ? value : fallback;
 }
@@ -110,10 +120,34 @@ export function mergeResumeRenderSettings(
       typeof value?.bodyFontFamily === 'string' && value.bodyFontFamily.trim()
         ? value.bodyFontFamily.trim()
         : defaults.bodyFontFamily,
+    nameFontFamily:
+      typeof value?.nameFontFamily === 'string' && value.nameFontFamily.trim()
+        ? value.nameFontFamily.trim()
+        : defaults.nameFontFamily,
     headingFontFamily:
       typeof value?.headingFontFamily === 'string' && value.headingFontFamily.trim()
         ? value.headingFontFamily.trim()
         : defaults.headingFontFamily,
+    minBulletsPerExperience: asInteger(
+      value?.minBulletsPerExperience,
+      defaults.minBulletsPerExperience,
+      1,
+      5,
+    ),
+    maxBulletsPerExperience: Math.max(
+      asInteger(
+        value?.maxBulletsPerExperience,
+        defaults.maxBulletsPerExperience,
+        1,
+        6,
+      ),
+      asInteger(
+        value?.minBulletsPerExperience,
+        defaults.minBulletsPerExperience,
+        1,
+        5,
+      ),
+    ),
     nameFontSize: asNumber(value?.nameFontSize, defaults.nameFontSize, 16, 32),
     headingFontSize: asNumber(value?.headingFontSize, defaults.headingFontSize, 8, 16),
     bodyFontSize: asNumber(value?.bodyFontSize, defaults.bodyFontSize, 8, 14),
@@ -173,6 +207,8 @@ export function settingsToBuildTemplateId(
 }
 
 export function buildSettingsInstructions(settings: ResumeRenderSettings): string {
+  const minBullets = settings.minBulletsPerExperience;
+  const maxBullets = Math.max(settings.maxBulletsPerExperience, minBullets);
   const keywordInstruction =
     settings.keywordTerms.length > 0
       ? `Use restrained <strong> tags for genuinely important keywords you choose from the job/source context, with special attention to: ${settings.keywordTerms.join(', ')}. The JSON text itself must contain the <strong> tags; the renderer will not color, highlight, or guess keyword emphasis after generation.`
@@ -181,6 +217,7 @@ export function buildSettingsInstructions(settings: ResumeRenderSettings): strin
   return [
     'Hard one page only.',
     `Use these section headings, in this order when supported by source material: ${settings.sectionHeadings.join(', ')}.`,
+    `Bullet-count contract for selected experience/project entries: use ${minBullets}-${maxBullets} bullet${maxBullets === 1 ? '' : 's'} per entry. This explicit setting overrides generic template guidance. If the resume would not fit one page, omit or merge lower-signal entries instead of exceeding ${maxBullets} bullet${maxBullets === 1 ? '' : 's'} on an entry.`,
     settings.defaultTemplate === 'keyword'
       ? keywordInstruction
       : 'Do not bold arbitrary buzzwords.',

@@ -3,8 +3,8 @@
   align-items: center;
   gap: 6px;
   padding: 8px 24px;
-  background: #252538;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #1d1d1d;
+  border-bottom: 1px solid #2a2a2a;
   flex-shrink: 0;
 }
 
@@ -44,9 +44,9 @@
 }
 
 .format-btn--active {
-  background: rgba(59, 130, 246, 0.25);
-  border-color: rgba(59, 130, 246, 0.5);
-  color: #93c5fd;
+  background: var(--accent-dim, rgba(232, 213, 183, 0.12));
+  border-color: rgba(232, 213, 183, 0.35);
+  color: var(--accent, #e8d5b7);
 }
 
 .format-select {
@@ -92,8 +92,8 @@
 
 /* Canvas toolbar — dark bar above the resume page */
 .format-toolbar--canvas {
-  background: #2a2a2a;
-  border: 1px solid #444;
+  background: #202020;
+  border: 1px solid #3a3a3a;
   border-bottom: none;
   border-radius: 6px 6px 0 0;
   padding: 7px 10px;

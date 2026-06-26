@@ -3,8 +3,9 @@
   flex-direction: column;
   gap: 10px;
   padding: 10px 24px 12px;
-  background: #111827;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: #181818;
+  border-top: 1px solid #2a2a2a;
+  border-bottom: 1px solid #2a2a2a;
   color: #e5e7eb;
   flex-shrink: 0;
 }
@@ -55,9 +56,9 @@
 }
 
 .ai-panel-field select {
-  background: #1f2937;
+  background: #242424;
   color: #f9fafb;
-  border: 1px solid #374151;
+  border: 1px solid #3a3a3a;
   border-radius: 6px;
   padding: 6px 8px;
   font-size: 12px;
@@ -93,12 +94,12 @@
 }
 
 .ai-panel-btn--primary {
-  background: #7c3aed;
-  color: #fff;
+  background: var(--accent, #e8d5b7);
+  color: #0f0f0f;
 }
 
 .ai-panel-btn--primary:hover:not(:disabled) {
-  background: #6d28d9;
+  background: #f0dfc8;
 }
 
 .ai-panel-prompt {
@@ -114,9 +115,9 @@
   resize: vertical;
   min-height: 44px;
   max-height: 96px;
-  background: #1f2937;
+  background: #242424;
   color: #f9fafb;
-  border: 1px solid #374151;
+  border: 1px solid #3a3a3a;
   border-radius: 8px;
   padding: 7px 10px;
   font-size: 12px;

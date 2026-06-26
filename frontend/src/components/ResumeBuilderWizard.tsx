@@ -783,6 +783,38 @@ export function ResumeBuilderWizard({
                   }
                 />
               </label>
+              <label className="rb-wizard-label">
+                <span>Min bullets per experience</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  step={1}
+                  className="rb-wizard-input"
+                  value={draftSettings.minBulletsPerExperience}
+                  onChange={(event) =>
+                    updateDraftSettings({
+                      minBulletsPerExperience: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="rb-wizard-label">
+                <span>Max bullets per experience</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={6}
+                  step={1}
+                  className="rb-wizard-input"
+                  value={draftSettings.maxBulletsPerExperience}
+                  onChange={(event) =>
+                    updateDraftSettings({
+                      maxBulletsPerExperience: Number(event.target.value),
+                    })
+                  }
+                />
+              </label>
             </div>
 
             <div className="rb-wizard-style-toggles">

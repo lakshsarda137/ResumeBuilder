@@ -25,8 +25,15 @@ function cssFontFamily(name: string) {
   if (!normalized) {
     return "'Times New Roman', Times, 'Liberation Serif', serif";
   }
-  if (normalized.toLowerCase().includes('serif')) {
-    return normalized;
+  const lower = normalized.toLowerCase();
+  if (
+    lower.includes('arial') ||
+    lower.includes('calibri') ||
+    lower.includes('helvetica') ||
+    lower.includes('inter') ||
+    lower.includes('sans')
+  ) {
+    return `'${normalized.replace(/'/g, '')}', Arial, Helvetica, sans-serif`;
   }
   return `'${normalized.replace(/'/g, '')}', Times, 'Liberation Serif', serif`;
 }
@@ -86,6 +93,7 @@ export function ResumeDocument({
     () =>
       ({
         '--resume-body-font': cssFontFamily(effectiveSettings.bodyFontFamily),
+        '--resume-name-font': cssFontFamily(effectiveSettings.nameFontFamily),
         '--resume-heading-font': cssFontFamily(effectiveSettings.headingFontFamily),
         '--resume-name-size': `${effectiveSettings.nameFontSize}pt`,
         '--resume-heading-size': `${effectiveSettings.headingFontSize}pt`,

@@ -157,7 +157,7 @@ ResumeBuilder/
 |-----|---------|
 | `resume-editor-data` | `ResumeData` JSON |
 | `resume-editor-show-jd-notes` | `"true"` / `"false"` — JD sidebar visibility in editor |
-| `resume-render-settings` | Resume template/style defaults used by preview, editor, export, and generation hints |
+| `resume-render-settings` | Resume template/style defaults, section/name fonts, and generation density hints such as min/max bullets per experience |
 | `resume-builder-ai-provider` | Last selected provider |
 | `resume-builder-ai-sessions` | Array of `AiChatSession` (max 30) |
 
@@ -292,15 +292,17 @@ Each change card shows:
 - **Template baseline**: LaTeX-style single column, US Letter (8.5×11in)
 - **WYSIWYG**: `EditableText` (`contentEditable`) on all fields; supports inline HTML (bold, italic, font, size)
 - **Post-apply style switching**: the editor toolbar's **Style** button opens a persistent style panel after generation/apply. Changing template, fonts, sizes, or italic/uppercase toggles updates the live preview and `#resume-export`.
-- **High-level style settings**: `ResumeRenderSettings` controls body/heading fonts, name/heading/body/bullet sizes, line height, section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, and generation notes.
+- **High-level style settings**: `ResumeRenderSettings` controls body/name/section-heading fonts, name/heading/body/bullet sizes, line height, section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, min/max bullets per experience, and generation notes.
 - **Removed template**: stack-beside-names is intentionally gone. Do not reintroduce a layout that places a detected tech stack beside the entry name.
+- **Editor toolbar layout**: the top toolbar is a wrapping flex layout. Controls must wrap to a new row before they overlap; do not use a fixed grid that lets center/right controls collide.
+- **Editor chrome color**: after the editor opens, the toolbar, Style panel, and Web AI panel use the neutral/warm app palette. Do not reintroduce purple/blue panel backgrounds or purple primary actions in the editor chrome.
 - **Keyword renderer**: bolds configured keywords in the live editor and PDF export while preserving editable source text. Keyword emphasis is bold only: no color, background, highlight, or PDF annotation styling. Empty keyword terms are valid and must stay empty when the user clears the terms box.
 - **Editor chrome**: `+ link`, `+ bullet`, `+ entry` buttons are `position: absolute` in the gray margin — they do **not** appear in PDF export
 - **`+ bullet` positioning**: sits at `bottom: 22px` on `.resume-entry` so it doesn't overlap the `+ entry` button which sits at `bottom: 0` on `.resume-section`
 
 ### Settings page (`SettingsPage.tsx`)
 
-`/settings` edits global defaults persisted under `resume-render-settings`. These defaults seed the wizard, result preview, editor Style panel, History snapshots, and PDF export. Wizard build settings can override them for a single generation; applying the generated resume carries those selected render settings into the editor.
+`/settings` edits global defaults persisted under `resume-render-settings`. These defaults seed the wizard, result preview, editor Style panel, History snapshots, and PDF export. Wizard build settings can override them for a single generation; applying the generated resume carries those selected render settings into the editor. Min/max bullets per experience are prompt constraints for repository generation; they do not replace the editor's local one-page fit check.
 
 ### Format toolbar (`FormatToolbar.tsx`)
 
@@ -333,10 +335,11 @@ PDF export must create a real text PDF. Do not reintroduce `html2pdf`, `html2can
 
 1. Export targets `#resume-export` → `.resume-page-wrapper`
 2. Before writing, the wrapper is made visible at the 8.5in page width so DOM layout measurements are stable
-3. `pdf.ts` walks rendered text nodes and section-rule elements, then writes PDF text operators and vector lines directly
-4. Standard PDF fonts (`Times`, bold, italic, bold-italic) preserve selectable text without embedding a page image
-5. `generateResumePdfBlob()` for AI send and `exportResumeToPdf()` for download share the same text-PDF path
-6. Verification for any generated resume PDF: extractable characters should be nonzero, embedded page images should be zero, and ATS/parser tools should not see a blank resume
+3. `pdf.ts` measures the rendered page against an 8.5x11 page; if content exceeds one page, export is blocked instead of silently clipping text
+4. `pdf.ts` walks rendered text nodes and section-rule elements, then writes PDF text operators and vector lines directly
+5. Standard PDF fonts (`Times`/`Helvetica`, with bold/italic variants) preserve selectable text without embedding a page image
+6. `generateResumePdfBlob()` for AI send and `exportResumeToPdf()` for download share the same text-PDF path
+7. Verification for any generated resume PDF: extractable characters should be nonzero, embedded page images should be zero, and ATS/parser tools should not see a blank resume
 
 ---
 
@@ -521,6 +524,9 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | Generated resume has `(edit)` / fake GPA / fake contact | Prompt allowed editable placeholders or education/contact context was missing | Repository generation includes `/api/education`, prompt forbids visible editor notes, parser strips known placeholder artifacts |
 | Generated resume omits education | Wizard only sent repository/ongoing freewrite | Repository generation now sends saved Education Info records and meta notes with the prompt |
 | Applied resume cannot change template/style | Style controls existed only before generation | Editor toolbar **Style** panel changes renderer/fonts/sizes/toggles after apply and drives PDF export |
+| Downloaded PDF truncated at bottom | Export clipped text outside the single page without warning | Editor shows under/fit/over one-page status and `pdf.ts` blocks export when rendered content exceeds one page |
+| Purple/blue editor panel returned | `AiPanel.css` had its own hardcoded slate/purple colors outside the toolbar CSS | Keep `AiPanel.css`, `ResumeEditor.css`, and `FormatToolbar.css` on the neutral/warm palette; verify on an actual editor session |
+| Top toolbar controls overlap | Fixed grid columns let toolbar center/right groups collide at wide-but-crowded widths | Toolbar uses wrapping flex layout with constrained select width; verify with a saved session and JD notes visible |
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
 | Step tracker jumps ahead | Extension fires duplicate `sent` events | Milestone logic in `aiPipeline.ts` — only advance on completion signals |
 | HistoryPage.css HMR error | Old CSS file was deleted, Vite cached the import | Hard refresh (`Cmd+Shift+R`) |

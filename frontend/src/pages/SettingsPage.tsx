@@ -127,6 +127,40 @@ export function SettingsPage() {
               }
             />
           </label>
+          <label className="field">
+            <span>Min bullets per experience</span>
+            <input
+              type="number"
+              min={1}
+              max={5}
+              step={1}
+              value={settings.minBulletsPerExperience}
+              onChange={(event) =>
+                setSettings(
+                  updateSetting(settings, {
+                    minBulletsPerExperience: Number(event.target.value),
+                  }),
+                )
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Max bullets per experience</span>
+            <input
+              type="number"
+              min={1}
+              max={6}
+              step={1}
+              value={settings.maxBulletsPerExperience}
+              onChange={(event) =>
+                setSettings(
+                  updateSetting(settings, {
+                    maxBulletsPerExperience: Number(event.target.value),
+                  }),
+                )
+              }
+            />
+          </label>
         </div>
         <label className="field settings-notes">
           <span>Special resume generation notes</span>
@@ -257,7 +291,26 @@ export function SettingsPage() {
             </select>
           </label>
           <label className="field">
-            <span>Heading font</span>
+            <span>Name font</span>
+            <select
+              value={settings.nameFontFamily}
+              onChange={(event) =>
+                setSettings(
+                  updateSetting(settings, {
+                    nameFontFamily: event.target.value,
+                  }),
+                )
+              }
+            >
+              {FONT_OPTIONS.map((font) => (
+                <option key={font} value={font}>
+                  {font}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Section heading font</span>
             <select
               value={settings.headingFontFamily}
               onChange={(event) =>

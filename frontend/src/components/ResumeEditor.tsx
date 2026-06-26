@@ -17,7 +17,11 @@ import type { ResumeData } from '../types/resume';
 import { ResumeWithJdNotes } from './ResumeWithJdNotes';
 import { useResumeState } from '../hooks/useResumeState';
 import { useAiBridge } from '../hooks/useAiBridge';
-import { exportResumeToPdf } from '../utils/pdf';
+import {
+  exportResumeToPdf,
+  inspectResumePageFit,
+  type ResumePageFit,
+} from '../utils/pdf';
 import { resumeHasJdNotes } from '../utils/jdNotes';
 import { getDefaultAiUserPrompt } from '../utils/aiPrompt';
 import {
@@ -50,6 +54,20 @@ const FONT_OPTIONS = [
   'Inter',
 ];
 
+function pageFitText(fit: ResumePageFit | null) {
+  if (!fit) {
+    return 'Checking page fit...';
+  }
+  const percent = Math.round(fit.usageRatio * 100);
+  if (fit.status === 'over') {
+    return `Over 1 page (${percent}%)`;
+  }
+  if (fit.status === 'under') {
+    return `Under 1 page (${percent}%)`;
+  }
+  return `Fits 1 page (${percent}%)`;
+}
+
 function loadShowJdNotes(): boolean {
   try {
     const stored = localStorage.getItem(SHOW_JD_NOTES_KEY);
@@ -67,6 +85,8 @@ export function ResumeEditor() {
   const { data, setData, undo, canUndo, reset, isSaving } = useResumeState();
   const didSeedRef = useRef(false);
   const loadedSessionRef = useRef<string | null>(null);
+  const editorCanvasRef = useRef<HTMLElement | null>(null);
+  const pendingEditorScrollRef = useRef(false);
   const [view, setView] = useState<'wizard' | 'editor'>('wizard');
   const [linkedSession, setLinkedSession] = useState<AiChatSession | null>(null);
   const [jobDescription, setJobDescription] = useState('');
@@ -81,6 +101,19 @@ export function ResumeEditor() {
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
   const [renderSettings, setRenderSettingsState] = useState(loadResumeRenderSettings);
   const [stylePanelOpen, setStylePanelOpen] = useState(false);
+  const [pageFit, setPageFit] = useState<ResumePageFit | null>(null);
+  const [zoom, setZoom] = useState(0.85);
+  const [exporting, setExporting] = useState(false);
+  const [aiPanelBusy, setAiPanelBusy] = useState(false);
+  const [showJdNotes, setShowJdNotes] = useState(loadShowJdNotes);
+
+  const scrollEditorToTop = useCallback(() => {
+    editorCanvasRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    document
+      .querySelector<HTMLElement>('.layout-main')
+      ?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, []);
 
   const setRenderSettings = useCallback((next: ResumeRenderSettings) => {
     const merged = mergeResumeRenderSettings(next);
@@ -94,6 +127,43 @@ export function ResumeEditor() {
     },
     [renderSettings, setRenderSettings],
   );
+
+  useEffect(() => {
+    if (view !== 'editor' || !pendingEditorScrollRef.current) {
+      return;
+    }
+
+    pendingEditorScrollRef.current = false;
+    requestAnimationFrame(() => {
+      scrollEditorToTop();
+    });
+  }, [scrollEditorToTop, view]);
+
+  useEffect(() => {
+    if (view !== 'editor') {
+      return;
+    }
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      inspectResumePageFit('resume-export')
+        .then((fit) => {
+          if (!cancelled) {
+            setPageFit(fit);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setPageFit(null);
+          }
+        });
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [data, renderSettings, view]);
 
   useEffect(() => {
     if (didSeedRef.current) return;
@@ -126,6 +196,7 @@ export function ResumeEditor() {
       );
       setHistorySessionId(sessionId);
       setHistorySessionTitle(title);
+      pendingEditorScrollRef.current = true;
       setView('editor');
       try {
         localStorage.setItem(SHOW_JD_NOTES_KEY, String(snapshot.showJdNotes));
@@ -172,11 +243,6 @@ export function ResumeEditor() {
     startPipeline,
   } = useAiBridge();
 
-  const [zoom, setZoom] = useState(0.85);
-  const [exporting, setExporting] = useState(false);
-  const [aiPanelBusy, setAiPanelBusy] = useState(false);
-  const [showJdNotes, setShowJdNotes] = useState(loadShowJdNotes);
-
   const hasJdNotes = resumeHasJdNotes(data);
 
   const toggleJdNotes = useCallback(() => {
@@ -189,7 +255,7 @@ export function ResumeEditor() {
       }
       return next;
     });
-  }, []);
+  }, [setShowJdNotes]);
 
   const buildSnapshot = useCallback((): HistorySessionSnapshot => {
     return {
@@ -271,10 +337,19 @@ export function ResumeEditor() {
   const handleDownload = useCallback(async () => {
     setExporting(true);
     try {
+      const fit = await inspectResumePageFit('resume-export');
+      setPageFit(fit);
+      if (fit.status === 'over') {
+        const overflowInches = fit.overflowPt / 72;
+        alert(
+          `This resume is over one page by ${overflowInches.toFixed(2)} in. Tighten content or reduce type size before downloading so the PDF is not truncated.`,
+        );
+        return;
+      }
       await exportResumeToPdf('resume-export', resumeFilename);
     } catch (err) {
       console.error(err);
-      alert('Failed to export PDF. Please try again.');
+      alert(err instanceof Error ? err.message : 'Failed to export PDF. Please try again.');
     } finally {
       setExporting(false);
     }
@@ -295,6 +370,7 @@ export function ResumeEditor() {
       setHistorySessionTitle(null);
       loadedSessionRef.current = null;
       setSearchParams({}, { replace: true });
+      pendingEditorScrollRef.current = true;
       setView('editor');
       try {
         fetch('/api/versions', {
@@ -320,6 +396,7 @@ export function ResumeEditor() {
     setHistorySessionTitle(null);
     loadedSessionRef.current = null;
     setSearchParams({}, { replace: true });
+    pendingEditorScrollRef.current = true;
     setView('editor');
   }, [setSearchParams]);
 
@@ -424,6 +501,12 @@ export function ResumeEditor() {
           >
             <ZoomIn size={16} />
           </button>
+          <span
+            className={`editor-page-fit editor-page-fit--${pageFit?.status ?? 'checking'}`}
+            title="Measured from the PDF export layout"
+          >
+            {pageFitText(pageFit)}
+          </span>
           <button
             type="button"
             className={`toolbar-btn toolbar-btn--style${stylePanelOpen ? ' toolbar-btn--toggle-on' : ''}`}
@@ -534,7 +617,22 @@ export function ResumeEditor() {
               </select>
             </label>
             <label className="editor-style-field">
-              <span>Heading font</span>
+              <span>Name font</span>
+              <select
+                value={renderSettings.nameFontFamily}
+                onChange={(event) =>
+                  updateRenderSettings({ nameFontFamily: event.target.value })
+                }
+              >
+                {FONT_OPTIONS.map((font) => (
+                  <option key={font} value={font}>
+                    {font}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="editor-style-field">
+              <span>Section heading font</span>
               <select
                 value={renderSettings.headingFontFamily}
                 onChange={(event) =>
@@ -652,7 +750,10 @@ export function ResumeEditor() {
       <AiPanel
         resumeFilename={resumeFilename}
         resumeData={data}
-        onApplyResume={(next) => setData(next, true)}
+        onApplyResume={(next) => {
+          setData(next, true);
+          requestAnimationFrame(() => scrollEditorToTop());
+        }}
         bridgeReady={bridgeReady}
         connectedProvider={connectedProvider}
         linkedSession={linkedSession}
@@ -672,7 +773,7 @@ export function ResumeEditor() {
 
       <PipelineStatus events={pipelineEvents} variant={pipelineVariant} />
 
-      <main className="editor-canvas">
+      <main className="editor-canvas" ref={editorCanvasRef}>
         <div className="resume-export-container" aria-hidden="true">
           <ResumeDocument
             data={data}
