@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { GripVertical, RotateCcw, SlidersHorizontal } from 'lucide-react';
 import type { ResumeData } from '../types/resume';
 import { makeBullet } from '../types/resume';
 import {
@@ -193,6 +193,7 @@ function clampInteger(value: number, min: number, max: number) {
 }
 
 export function SettingsPage() {
+  const [draggedSectionIndex, setDraggedSectionIndex] = useState<number | null>(null);
   const [{ settings, bulletDrafts, numericDrafts }, setPageState] = useState(() => {
     const initialSettings = loadResumeRenderSettings();
     return {
@@ -305,6 +306,27 @@ export function SettingsPage() {
     saveResumeRenderSettings(next);
   }
 
+  function updateSectionHeadings(sectionHeadings: string[]) {
+    setSettings(updateSetting(settings, { sectionHeadings }));
+  }
+
+  function moveSectionHeading(fromIndex: number, toIndex: number) {
+    if (
+      fromIndex === toIndex ||
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= settings.sectionHeadings.length ||
+      toIndex >= settings.sectionHeadings.length
+    ) {
+      return;
+    }
+
+    const nextHeadings = [...settings.sectionHeadings];
+    const [heading] = nextHeadings.splice(fromIndex, 1);
+    nextHeadings.splice(toIndex, 0, heading);
+    updateSectionHeadings(nextHeadings);
+  }
+
   function syncBulletDrafts() {
     setPageState((current) => ({
       ...current,
@@ -396,19 +418,44 @@ export function SettingsPage() {
       <section className="card settings-card">
         <h2>Content Defaults</h2>
         <div className="settings-grid">
-          <label className="field">
-            <span>Section headings</span>
+          <div className="field settings-section-order">
+            <span>Section order</span>
+            <div className="settings-section-order-list">
+              {settings.sectionHeadings.map((heading, index) => (
+                <div
+                  key={`${heading}-${index}`}
+                  className={`settings-section-order-row${draggedSectionIndex === index ? ' settings-section-order-row--dragging' : ''}`}
+                  draggable
+                  onDragStart={(event) => {
+                    setDraggedSectionIndex(index);
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', String(index));
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'move';
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    const fromIndex = Number(event.dataTransfer.getData('text/plain'));
+                    if (Number.isInteger(fromIndex)) {
+                      moveSectionHeading(fromIndex, index);
+                    }
+                    setDraggedSectionIndex(null);
+                  }}
+                  onDragEnd={() => setDraggedSectionIndex(null)}
+                >
+                  <GripVertical className="settings-section-order-grip" size={16} />
+                  <span>{heading}</span>
+                </div>
+              ))}
+            </div>
             <input
+              aria-label="Section headings in display order"
               value={settings.sectionHeadings.join(', ')}
-              onChange={(event) =>
-                setSettings(
-                  updateSetting(settings, {
-                    sectionHeadings: parseCommaList(event.target.value),
-                  }),
-                )
-              }
+              onChange={(event) => updateSectionHeadings(parseCommaList(event.target.value))}
             />
-          </label>
+          </div>
           <label className="field">
             <span>Keyword terms</span>
             <input

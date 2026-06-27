@@ -461,6 +461,40 @@ function expandToOutermostObject(text, anchorPos) {
   return '';
 }
 
+function normalizeComparableText(value) {
+  return typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/\s+/g, ' ')
+    : '';
+}
+
+function isPlaceholderCaptureText(value) {
+  const text = normalizeComparableText(value);
+  if (!text) {
+    return true;
+  }
+
+  return (
+    text === 'string' ||
+    text === 'title' ||
+    text === 'category' ||
+    text === 'section' ||
+    text === 'bullet' ||
+    text === 'bullet text' ||
+    text === 'optional string' ||
+    text.startsWith('optional ') ||
+    /^bullet \d+$/.test(text) ||
+    /^entry \d+$/.test(text)
+  );
+}
+
+function hasRealCaptureText(value) {
+  return (
+    typeof value === 'string' &&
+    value.trim().length > 1 &&
+    !isPlaceholderCaptureText(value)
+  );
+}
+
 function isRealImportPayload(parsed) {
   if (!parsed || !Array.isArray(parsed.entries) || parsed.entries.length === 0) {
     return false;
@@ -486,37 +520,37 @@ function isRealResumePayload(parsed) {
     return false;
   }
 
-  const contactName =
-    typeof parsed.contact?.name === 'string' ? parsed.contact.name.trim() : '';
-  if (contactName && contactName.toLowerCase() !== 'string') {
-    return true;
-  }
-
   return parsed.sections.some((section) => {
-    const id = typeof section.id === 'string' ? section.id.trim().toLowerCase() : '';
-    const title =
-      typeof section.title === 'string' ? section.title.trim().toLowerCase() : '';
     const type = typeof section.type === 'string' ? section.type.trim() : '';
-
-    if (id && id !== 'string' && title && title !== 'string') {
-      return true;
-    }
-
-    if (
+    const sectionLooksReal =
+      hasRealCaptureText(section.title) &&
       type &&
-      type !== 'education | experience | projects | skills | custom' &&
-      title &&
-      title !== 'string'
-    ) {
-      return true;
-    }
+      type !== 'education | experience | projects | skills | custom';
 
     const entries = Array.isArray(section.entries) ? section.entries : [];
     if (
       entries.some((entry) => {
-        const entryTitle =
-          typeof entry.title === 'string' ? entry.title.trim().toLowerCase() : '';
-        return entryTitle && entryTitle !== 'string';
+        const bullets = Array.isArray(entry.bullets) ? entry.bullets : [];
+        const hasEntryIdentity =
+          hasRealCaptureText(entry.title) ||
+          hasRealCaptureText(entry.subtitle) ||
+          hasRealCaptureText(entry.location) ||
+          hasRealCaptureText(entry.date);
+        const hasEntryContent =
+          hasRealCaptureText(entry.subtitle) ||
+          hasRealCaptureText(entry.location) ||
+          hasRealCaptureText(entry.date) ||
+          bullets.some((bullet) => {
+            const text =
+              typeof bullet === 'string'
+                ? bullet
+                : typeof bullet?.text === 'string'
+                  ? bullet.text
+                  : '';
+            return hasRealCaptureText(text);
+          });
+
+        return sectionLooksReal && hasEntryIdentity && hasEntryContent;
       })
     ) {
       return true;
@@ -528,13 +562,42 @@ function isRealResumePayload(parsed) {
         typeof skill.label === 'string' ? skill.label.trim().toLowerCase() : '';
       const items =
         typeof skill.items === 'string' ? skill.items.trim().toLowerCase() : '';
-      return (label && label !== 'string') || (items && items !== 'string');
+      return (
+        sectionLooksReal &&
+        ((label && label !== 'string' && label !== 'category') ||
+          (items && items !== 'string'))
+      );
     });
   });
 }
 
-function isCapturedPayload(parsed) {
-  return isRealImportPayload(parsed) || isRealResumePayload(parsed);
+function expectsResumeWrapper(promptText = '') {
+  return (
+    /"baseline"\s*:/.test(promptText) &&
+    /"optimized"\s*:/.test(promptText) &&
+    /before\/after diff|attached resume PDF|baseline resume JSON/i.test(promptText)
+  );
+}
+
+function isResumeWrapperPayload(parsed) {
+  return (
+    parsed &&
+    typeof parsed === 'object' &&
+    isRealResumePayload(parsed.baseline) &&
+    isRealResumePayload(parsed.optimized)
+  );
+}
+
+function isCapturedPayload(parsed, promptText = '') {
+  if (expectsResumeWrapper(promptText)) {
+    return isResumeWrapperPayload(parsed);
+  }
+
+  if (isRealImportPayload(parsed) || isRealResumePayload(parsed)) {
+    return true;
+  }
+
+  return isResumeWrapperPayload(parsed);
 }
 
 function parseJsonSafely(candidate) {
@@ -543,6 +606,42 @@ function parseJsonSafely(candidate) {
   } catch {
     return null;
   }
+}
+
+function candidateAppearsInSubmittedPrompt(candidate, promptText = '') {
+  if (!candidate || !promptText || candidate.length < 30) {
+    return false;
+  }
+
+  const normalizedCandidate = candidate.replace(/\s+/g, ' ').trim();
+  const normalizedPrompt = promptText.replace(/\s+/g, ' ').trim();
+  if (
+    normalizedCandidate &&
+      normalizedPrompt &&
+      normalizedPrompt.includes(normalizedCandidate)
+  ) {
+    return true;
+  }
+
+  const parsedCandidate = parseJsonSafely(candidate);
+  if (!parsedCandidate) {
+    return false;
+  }
+
+  const canonicalCandidate = JSON.stringify(parsedCandidate);
+  const promptCandidates = [
+    ...promptText.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g),
+    ...promptText.matchAll(/```json\s*([\s\S]*?)```/gi),
+    ...promptText.matchAll(/```\s*([\s\S]*?)```/g),
+  ];
+
+  return promptCandidates.some((match) => {
+    const parsedPromptCandidate = parseJsonSafely(match[1]?.trim() ?? '');
+    return (
+      parsedPromptCandidate &&
+      JSON.stringify(parsedPromptCandidate) === canonicalCandidate
+    );
+  });
 }
 
 function getDelimitedJsonCandidates(text) {
@@ -555,26 +654,25 @@ function getDelimitedJsonCandidates(text) {
     .filter(Boolean);
 }
 
-function extractDelimitedJson(text) {
+function extractDelimitedJson(text, promptText = '') {
   const candidates = getDelimitedJsonCandidates(text);
 
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     const candidate = candidates[index];
+    if (candidateAppearsInSubmittedPrompt(candidate, promptText)) {
+      continue;
+    }
     const parsed = parseJsonSafely(candidate);
-    if (parsed && isCapturedPayload(parsed)) {
+    if (parsed && isCapturedPayload(parsed, promptText)) {
       return candidate;
     }
   }
 
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     const candidate = candidates[index];
-    if (parseJsonSafely(candidate)) {
-      return candidate;
+    if (candidateAppearsInSubmittedPrompt(candidate, promptText)) {
+      continue;
     }
-  }
-
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const candidate = candidates[index];
     const anchorResult = extractResponseJsonFromPageText(candidate);
     if (anchorResult) {
       return anchorResult;
@@ -651,12 +749,12 @@ function getCandidateResponseTexts(provider) {
   return candidates;
 }
 
-function getBestJsonResponseText(provider, baselineText = '') {
+function getBestJsonResponseText(provider, baselineText = '', promptText = '') {
   const candidates = getCandidateResponseTexts(provider);
 
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     const text = candidates[index];
-    const delimited = extractDelimitedJson(text);
+    const delimited = extractDelimitedJson(text, promptText);
     if (
       delimited &&
       delimited !== baselineText &&
@@ -669,7 +767,7 @@ function getBestJsonResponseText(provider, baselineText = '') {
       text &&
       text !== baselineText &&
       hasMeaningfulChange(text, baselineText) &&
-      canParseResumeJson(text)
+      canParseResumeJson(text, promptText)
     ) {
       return text;
     }
@@ -678,14 +776,14 @@ function getBestJsonResponseText(provider, baselineText = '') {
   return '';
 }
 
-function getParseableResponseText(provider, baselineText = '') {
-  const domResult = getBestJsonResponseText(provider, baselineText);
+function getParseableResponseText(provider, baselineText = '', promptText = '') {
+  const domResult = getBestJsonResponseText(provider, baselineText, promptText);
   if (domResult) {
     return domResult;
   }
 
   const pageText = getFullPageText();
-  const delimitedPageResult = extractDelimitedJson(pageText);
+  const delimitedPageResult = extractDelimitedJson(pageText, promptText);
   if (delimitedPageResult && hasMeaningfulChange(delimitedPageResult, baselineText)) {
     return delimitedPageResult;
   }
@@ -806,7 +904,7 @@ function extractJsonCandidate(text) {
   return '';
 }
 
-function canParseResumeJson(text) {
+function canParseResumeJson(text, promptText = '') {
   if (!looksLikeResumeJson(text)) {
     return false;
   }
@@ -816,9 +914,13 @@ function canParseResumeJson(text) {
     return false;
   }
 
+  if (candidateAppearsInSubmittedPrompt(candidate, promptText)) {
+    return false;
+  }
+
   try {
-    JSON.parse(repairJson(candidate));
-    return true;
+    const parsed = JSON.parse(repairJson(candidate));
+    return isCapturedPayload(parsed, promptText);
   } catch {
     return false;
   }
@@ -862,15 +964,15 @@ function getFullPageText() {
   return getPageTextCandidates().join('\n\n');
 }
 
-function extractDelimitedJsonFromPage() {
+function extractDelimitedJsonFromPage(promptText = '') {
   for (const text of getPageTextCandidates()) {
-    const candidate = extractDelimitedJson(text);
+    const candidate = extractDelimitedJson(text, promptText);
     if (candidate) {
       return candidate;
     }
   }
 
-  return extractDelimitedJson(getFullPageText());
+  return extractDelimitedJson(getFullPageText(), promptText);
 }
 
 function getCaptureSnapshot(provider) {
@@ -903,7 +1005,13 @@ function getCaptureSnapshot(provider) {
   };
 }
 
-async function waitForAssistantResponse(provider, baselineText, timeoutMs = 360000, debugContext = {}) {
+async function waitForAssistantResponse(
+  provider,
+  baselineText,
+  timeoutMs = 360000,
+  debugContext = {},
+  promptText = '',
+) {
   const started = Date.now();
   let lastProgressAt = 0;
   let lastDebugAt = 0;
@@ -949,7 +1057,7 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 3600
     // If Claude has rendered the requested delimited payload anywhere in the
     // page text, capture it immediately. This avoids depending on assistant DOM
     // selectors or streaming flags, both of which have changed under us.
-    const pageDelimited = extractDelimitedJsonFromPage();
+    const pageDelimited = extractDelimitedJsonFromPage(promptText);
     if (pageDelimited && hasMeaningfulChange(pageDelimited, baselineText)) {
       reportDebug(
         'content_capture_page_delimited',
@@ -985,7 +1093,7 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 3600
 
       // Best path: explicit delimiters — unambiguous regardless of DOM or page text order.
       const finalPage = getFullPageText();
-      const delimited = extractDelimitedJson(finalPage);
+      const delimited = extractDelimitedJson(finalPage, promptText);
       if (delimited) {
         reportDebug(
           'content_capture_sentinel_delimited',
@@ -996,7 +1104,7 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 3600
       }
 
       // Fallback: try DOM elements (works for Claude/ChatGPT).
-      const domResult = getParseableResponseText(provider, baselineText);
+      const domResult = getParseableResponseText(provider, baselineText, promptText);
       if (domResult) {
         reportDebug(
           'content_capture_dom_parseable',
@@ -1025,12 +1133,16 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 3600
       return finalPage;
     }
 
-    const parseableCandidate = getParseableResponseText(provider, baselineText);
+    const parseableCandidate = getParseableResponseText(
+      provider,
+      baselineText,
+      promptText,
+    );
     if (parseableCandidate) {
       if (parseableCandidate !== stableCandidate) {
         stableCandidate = parseableCandidate;
         stableCandidateSince = Date.now();
-      } else if (Date.now() - stableCandidateSince >= (streaming ? 8000 : 2200)) {
+      } else if (!streaming && Date.now() - stableCandidateSince >= 2200) {
         reportDebug(
           'content_capture_stable_parseable',
           {
@@ -1050,8 +1162,10 @@ async function waitForAssistantResponse(provider, baselineText, timeoutMs = 3600
     await sleep(350);
   }
 
-  const fallback = getParseableResponseText(provider, baselineText) || getLatestAssistantText(provider);
-  if (canParseResumeJson(fallback)) {
+  const fallback =
+    getParseableResponseText(provider, baselineText, promptText) ||
+    getLatestAssistantText(provider);
+  if (canParseResumeJson(fallback, promptText)) {
     reportDebug(
       'content_capture_timeout_fallback_parseable',
       { rawLength: fallback.length, snapshot: getCaptureSnapshot(provider) },
@@ -2243,7 +2357,11 @@ async function submitMessage(provider, promptLength = 0, composer = null, debugC
   try {
     button = await waitForEnabledSendButton(provider);
   } catch (error) {
-    const parseableResponse = getParseableResponseText(provider, baselineText);
+    const parseableResponse = getParseableResponseText(
+      provider,
+      baselineText,
+      prompt,
+    );
     if (isStopButtonActive() || isMessageStreaming(provider) || parseableResponse) {
       reportDebug(
         'content_submit_late_evidence_after_disabled_wait',
@@ -2372,7 +2490,13 @@ async function sendAndCaptureResponse({
     : 'Waiting for model to start generating…');
   reportDebug('content_prompt_submitted', getCaptureSnapshot(provider), debugContext);
 
-  const rawResponse = await waitForAssistantResponse(provider, baselineText, 360000, debugContext);
+  const rawResponse = await waitForAssistantResponse(
+    provider,
+    baselineText,
+    360000,
+    debugContext,
+    prompt,
+  );
   const metadata = getChatMetadata(provider);
   reportProgress('response_detected', 'Response detected');
   reportDebug(

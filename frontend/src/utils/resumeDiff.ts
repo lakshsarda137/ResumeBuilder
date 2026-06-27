@@ -433,8 +433,8 @@ export function computeResumeDiff(
 
 export function countDiffChanges(changes: ResumeDiffChange[]) {
   return {
-    added: changes.filter((c) => c.kind === 'added').length,
-    removed: changes.filter((c) => c.kind === 'removed').length,
+    added: changes.filter((change) => Boolean(change.after?.trim())).length,
+    removed: changes.filter((change) => Boolean(change.before?.trim())).length,
     modified: changes.filter((c) => c.kind === 'modified').length,
   };
 }

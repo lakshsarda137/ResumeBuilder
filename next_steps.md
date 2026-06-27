@@ -59,6 +59,7 @@ The app can measure rendered page fit, but the LLM cannot see the renderer. The 
 Implemented now:
 - Repository generation targets 4-5 substantial experience/project entries when source quality supports it.
 - Repository generation targets 11-13 total experience/project bullets, mostly 1-2 bullets per entry, with 3 bullets reserved for the strongest entry.
+- Settings exposes draggable section ordering; the renderer/export path applies that order post-generation without mutating resume JSON.
 - Settings expose page margins, font sizes, line height, and section/title-to-content/entry spacing with units.
 - Settings has a scaled live preview rendered by the same `ResumeDocument` component used for PDF export.
 - Settings number inputs use typed drafts so clearing/replacing values does not snap to clamped minimums mid-edit.
@@ -79,7 +80,7 @@ Implemented now:
 - Settings, wizard pre-generation typography controls, the generated-result modal, and the editor Style panel expose typography controls after generation.
 - Shared render-settings controls use typed numeric drafts so clearing/replacing values does not snap immediately to clamped values.
 - The PDF writer honors `font-weight` and selects the real bold/bold-italic PDF font faces (Times-Bold, Times-BoldItalic, Helvetica-Bold, Helvetica-BoldOblique) instead of faking weight with a synthetic stroke. The synthetic `-webkit-text-stroke` reinforcement was removed from both the preview and the export DOM so the two render weight through the identical real-font mechanism.
-- Every Settings/Style parameter has an `i` info dot (hover or click) with a plain-language explanation of what the control does. Tooltips render only while open and are scoped so they cannot be forced visible by broad descendant selectors.
+- Shared render-settings controls have `i` info dots (hover or click) with plain-language explanations. Tooltips render only while open and are scoped so they cannot be forced visible by broad descendant selectors.
 
 Known remaining issue:
 - Built-in PDF fonts only ship regular and bold weights. Intermediate CSS weight values (e.g. a body weight of 500) collapse to the nearest available face in both the preview and the downloaded PDF, so the body-weight slider (300-500) has no visible effect with Times/Helvetica. The bold-weight slider (500-800) still toggles regular vs bold at the 600 threshold in both paths.
@@ -94,11 +95,24 @@ Implemented now:
 - The wizard has a Preview prompt button before generation.
 - Repository prompt preview refetches repo, ongoing, and education before showing text, using the same prompt construction path as Generate.
 - The prompt modal can copy the exact prompt text.
+- Optimize-PDF prompts now use `---JSON-START---` / `---JSON-END---` delimiters and require the top-level `{ baseline, optimized }` wrapper.
+- Capture validation rejects prompt/schema echoes and refuses plain resume payloads when the current flow expects a wrapper.
 
 Potential improvements:
 - Show selected source labels and token estimates inside the prompt preview modal header.
 - Highlight the source JSON block inside the prompt preview for faster inspection.
 - Add a small "numbers found" summary for selected sources so omitted metrics are easier to catch before sending.
+
+## Diff / Review UX
+
+Implemented now:
+- Bullet diffs are matched within each entry by semantic similarity rather than raw index alone.
+- Optimize-PDF requires a faithful baseline so removals can be shown.
+- Diff summary counts now match the visual legend: a changed item has one removed text block and one added text block.
+
+Potential improvements:
+- Add filters for changed/added/removed cards when the diff list is long.
+- Collapse AI-note-only changes by default if they clutter content review.
 
 ## Repository And Ongoing Source Semantics
 
@@ -118,4 +132,5 @@ Possible future work:
 - Generate from repository and inspect first verbs; no repeated bullet-opening verb.
 - Inspect bold spans in preview/PDF; bolding should be sparse and evidence-driven.
 - Compare source numbers with generated bullets; important metrics should survive.
+- Change Settings section order after generation and confirm preview/export reorder sections without changing resume JSON.
 - If generated preview is over one page, use measured overflow to drive compression rather than exporting a truncated PDF.

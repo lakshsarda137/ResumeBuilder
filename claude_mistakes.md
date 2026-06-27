@@ -339,3 +339,51 @@ When introducing a new nested element (a `<span>` inside a `<button>` inside a f
 - Do not rely on `[hidden]` alone to suppress an element that any CSS rule might flip to `display: flex/block`; conditionally render the node so it does not exist in the DOM when closed, and set an explicit `display` on it.
 
 I shipped the info-icon CSS without re-auditing the existing selector scope. The user caught it immediately from a screenshot. Should have visually verified the rendered panel before declaring it done.
+
+---
+
+## Session: Optimize-PDF Capture, Diff Counts, and Section Ordering (2026-06-27)
+
+### Claude generated the correct wrapper, but the app still errored
+The user provided two Claude responses that clearly contained the required top-level `baseline` and `optimized` wrapper. The UI still showed:
+
+```text
+The LLM response did not include the required "baseline" and "optimized" wrapper, so the app cannot show an accurate before/after diff.
+```
+
+The right diagnosis was not "Claude omitted the wrapper." The likely capture failure was that the extension/app accepted or extracted the wrong JSON candidate from the provider page: a nested plain resume object (`contact` / `sections`) or schema-shaped candidate instead of the full optimize-PDF wrapper.
+
+Correct fix:
+- optimize-PDF prompts now use `---JSON-START---` / `---JSON-END---` delimiters,
+- capture validation is flow-aware: if the prompt requests `baseline` and `optimized`, both the content script and background backup poller reject plain `ResumeData` objects,
+- prompt-origin filtering rejects JSON candidates that are semantically identical to submitted prompt code blocks,
+- stable parseable resume JSON is not returned while the provider is still streaming,
+- the frontend parser scans multiple candidates and reports captured top-level keys when the wrapper is missing.
+
+Lesson:
+- Validate against the expected payload for the current flow, not merely "real resume JSON."
+- When a user attaches the actual provider response, parse that attachment locally before changing prompt wording.
+- A valid nested object can be actively harmful if the UI expects a wrapper contract.
+
+### Diff summary counts were semantically wrong
+The diff cards showed changed bullets with both a red "was on resume" block and a green "now on resume" block, but the summary read `+0 added` / `-0 removed`. The old summary counted change cards by kind, not visual text blocks.
+
+Correct fix:
+- `modified` remains a changed card,
+- added count is the number of changes with an `after` text block,
+- removed count is the number of changes with a `before` text block.
+
+This makes one changed bullet show as `1 changed`, `+1 added`, `-1 removed`, matching the legend.
+
+### Section order needed to be tunable after generation
+The first implementation exposed section order as up/down buttons in Settings. The buttons were visually too large and pushed controls into an awkward layout. The user preferred drag-and-drop.
+
+Correct fix:
+- Settings now shows a draggable section-order list with a small grip icon,
+- the comma-separated input remains as a fallback for adding/removing/renaming headings,
+- `ResumeDocument` sorts display/export sections by saved settings without mutating the underlying resume JSON,
+- the same order also feeds future generation prompts.
+
+Lesson:
+- For ordered lists, drag handles are a better default than large arrow buttons in dense settings UIs.
+- If a setting is useful after generation, apply it in the renderer/export path, not only in prompt text.

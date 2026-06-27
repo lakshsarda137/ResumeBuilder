@@ -233,13 +233,87 @@ function looksLikeDetectionError(error) {
   );
 }
 
-function extractDelimitedPayloadFromPage() {
+function extractDelimitedPayloadFromPage(promptText = '') {
   function repairJson(json) {
     return json
       .replace(/^\uFEFF/, '')
       .replace(/,\s*([}\]])/g, '$1')
       .replace(/[\u201C\u201D]/g, '"')
       .replace(/[\u2018\u2019]/g, "'");
+  }
+
+  function normalizeComparableText(value) {
+    return typeof value === 'string'
+      ? value.trim().toLowerCase().replace(/\s+/g, ' ')
+      : '';
+  }
+
+  function isPlaceholderCaptureText(value) {
+    const text = normalizeComparableText(value);
+    if (!text) {
+      return true;
+    }
+
+    return (
+      text === 'string' ||
+      text === 'title' ||
+      text === 'category' ||
+      text === 'section' ||
+      text === 'bullet' ||
+      text === 'bullet text' ||
+      text === 'optional string' ||
+      text.startsWith('optional ') ||
+      /^bullet \d+$/.test(text) ||
+      /^entry \d+$/.test(text)
+    );
+  }
+
+  function hasRealCaptureText(value) {
+    return (
+      typeof value === 'string' &&
+      value.trim().length > 1 &&
+      !isPlaceholderCaptureText(value)
+    );
+  }
+
+  function candidateAppearsInSubmittedPrompt(candidate) {
+    if (!candidate || !promptText || candidate.length < 30) {
+      return false;
+    }
+
+    const normalizedCandidate = candidate.replace(/\s+/g, ' ').trim();
+    const normalizedPrompt = promptText.replace(/\s+/g, ' ').trim();
+    if (
+      normalizedCandidate &&
+        normalizedPrompt &&
+        normalizedPrompt.includes(normalizedCandidate)
+    ) {
+      return true;
+    }
+
+    let canonicalCandidate = '';
+    try {
+      canonicalCandidate = JSON.stringify(JSON.parse(repairJson(candidate)));
+    } catch {
+      return false;
+    }
+
+    const promptCandidates = [
+      ...promptText.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g),
+      ...promptText.matchAll(/```json\s*([\s\S]*?)```/gi),
+      ...promptText.matchAll(/```\s*([\s\S]*?)```/g),
+    ];
+
+    return promptCandidates.some((match) => {
+      try {
+        return (
+          JSON.stringify(JSON.parse(repairJson(match[1]?.trim() ?? ''))) ===
+          canonicalCandidate
+        );
+      } catch {
+        return false;
+      }
+    });
   }
 
   function isRealImportPayload(parsed) {
@@ -268,50 +342,37 @@ function extractDelimitedPayloadFromPage() {
       return false;
     }
 
-    const contactName =
-      typeof parsed.contact?.name === 'string' ? parsed.contact.name.trim() : '';
-    if (contactName && contactName.toLowerCase() !== 'string') {
-      return true;
-    }
-
     return parsed.sections.some((section) => {
-      const id = typeof section.id === 'string' ? section.id.trim().toLowerCase() : '';
-      const title =
-        typeof section.title === 'string' ? section.title.trim().toLowerCase() : '';
       const type = typeof section.type === 'string' ? section.type.trim() : '';
-
-      if (id && id !== 'string' && title && title !== 'string') {
-        return true;
-      }
-
-      if (
+      const sectionLooksReal =
+        hasRealCaptureText(section.title) &&
         type &&
-        type !== 'education | experience | projects | skills | custom' &&
-        title &&
-        title !== 'string'
-      ) {
-        return true;
-      }
+        type !== 'education | experience | projects | skills | custom';
 
       const entries = Array.isArray(section.entries) ? section.entries : [];
       if (
         entries.some((entry) => {
-          const entryTitle =
-            typeof entry.title === 'string' ? entry.title.trim().toLowerCase() : '';
           const bullets = Array.isArray(entry.bullets) ? entry.bullets : [];
-          return (
-            entryTitle &&
-            entryTitle !== 'string' &&
+          const hasEntryIdentity =
+            hasRealCaptureText(entry.title) ||
+            hasRealCaptureText(entry.subtitle) ||
+            hasRealCaptureText(entry.location) ||
+            hasRealCaptureText(entry.date);
+          const hasEntryContent =
+            hasRealCaptureText(entry.subtitle) ||
+            hasRealCaptureText(entry.location) ||
+            hasRealCaptureText(entry.date) ||
             bullets.some((bullet) => {
               const text =
                 typeof bullet === 'string'
-                  ? bullet.trim().toLowerCase()
+                  ? bullet
                   : typeof bullet?.text === 'string'
-                    ? bullet.text.trim().toLowerCase()
+                    ? bullet.text
                     : '';
-              return text && text !== 'string';
-            })
-          );
+              return hasRealCaptureText(text);
+            });
+
+          return sectionLooksReal && hasEntryIdentity && hasEntryContent;
         })
       ) {
         return true;
@@ -324,19 +385,57 @@ function extractDelimitedPayloadFromPage() {
         const items =
           typeof skill.items === 'string' ? skill.items.trim().toLowerCase() : '';
         return (
-          (label && label !== 'string' && label !== 'category') ||
-          (items && items !== 'string')
+          sectionLooksReal &&
+          ((label && label !== 'string' && label !== 'category') ||
+            (items && items !== 'string'))
         );
       });
     });
   }
 
+  function expectsResumeWrapper() {
+    return (
+      /"baseline"\s*:/.test(promptText) &&
+      /"optimized"\s*:/.test(promptText) &&
+      /before\/after diff|attached resume PDF|baseline resume JSON/i.test(promptText)
+    );
+  }
+
+  function isResumeWrapperPayload(parsed) {
+    return (
+      parsed &&
+      typeof parsed === 'object' &&
+      isRealResumePayload(parsed.baseline) &&
+      isRealResumePayload(parsed.optimized)
+    );
+  }
+
+  function isCapturedPayload(parsed) {
+    if (expectsResumeWrapper()) {
+      return isResumeWrapperPayload(parsed);
+    }
+
+    if (isRealImportPayload(parsed) || isRealResumePayload(parsed)) {
+      return true;
+    }
+
+    return isResumeWrapperPayload(parsed);
+  }
+
   function parseCandidate(candidate) {
+    if (candidateAppearsInSubmittedPrompt(candidate)) {
+      return {
+        ok: false,
+        real: false,
+        error: 'candidate is part of submitted prompt',
+      };
+    }
+
     try {
       const parsed = JSON.parse(repairJson(candidate));
       return {
         ok: true,
-        real: isRealImportPayload(parsed) || isRealResumePayload(parsed),
+        real: isCapturedPayload(parsed),
       };
     } catch (error) {
       return {
@@ -574,6 +673,7 @@ async function startBackupCapturePoll(tabId, message) {
       const [injection] = await chrome.scripting.executeScript({
         target: { tabId },
         func: extractDelimitedPayloadFromPage,
+        args: [message.prompt ?? ''],
       });
       result = injection?.result;
     } catch (error) {

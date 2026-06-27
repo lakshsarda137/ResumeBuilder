@@ -21,6 +21,13 @@ function repairJson(json: string): string {
 }
 
 function extractJsonCandidate(text: string): string {
+  const delimitedBlocks = [
+    ...text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g),
+  ];
+  if (delimitedBlocks.length > 0) {
+    return delimitedBlocks[delimitedBlocks.length - 1][1].trim();
+  }
+
   const fencedBlocks = [...text.matchAll(/```json\s*([\s\S]*?)```/gi)];
   if (fencedBlocks.length > 0) {
     return fencedBlocks[fencedBlocks.length - 1][1].trim();
@@ -135,7 +142,15 @@ function collectJsonCandidates(text: string): string[] {
     push(match[1]);
   }
 
-  for (const anchor of ['"contact"', '"sections"', '"entries"', '"skills"', '"bullets"']) {
+  for (const anchor of [
+    '"baseline"',
+    '"optimized"',
+    '"contact"',
+    '"sections"',
+    '"entries"',
+    '"skills"',
+    '"bullets"',
+  ]) {
     let position = text.lastIndexOf(anchor);
     while (position !== -1) {
       push(expandToJsonObject(text, position));
@@ -479,26 +494,37 @@ export function parseOptimizedPdfResponse(rawResponse: string): {
   baseline: ResumeData;
   optimized: ResumeData;
 } {
-  const candidate = extractJsonCandidate(rawResponse);
-  let parsed: unknown;
+  const candidates = collectJsonCandidates(rawResponse);
+  let sawInvalidJson = false;
+  let sawOptimizedOnly = false;
+  let sawPlainResume = false;
+  let firstParseableKeys: string[] = [];
 
-  try {
-    parsed = JSON.parse(repairJson(candidate));
-  } catch {
-    try {
-      parsed = JSON.parse(candidate);
-    } catch {
-      throw new Error(
-        'LLM returned invalid JSON. Open the linked chat, confirm the full ```json block finished, then try again.',
-      );
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const parsed = parseJsonCandidate(candidates[index]);
+    if (!parsed) {
+      sawInvalidJson = true;
+      continue;
     }
-  }
 
-  if (
-    isRecord(parsed) &&
-    isRecord(parsed.baseline) &&
-    isRecord(parsed.optimized)
-  ) {
+    if (firstParseableKeys.length === 0 && isRecord(parsed)) {
+      firstParseableKeys = Object.keys(parsed).slice(0, 8);
+    }
+
+    if (isRecord(parsed) && isRecord(parsed.optimized) && !isRecord(parsed.baseline)) {
+      sawOptimizedOnly = true;
+      continue;
+    }
+
+    if (looksLikeResumePayload(parsed)) {
+      sawPlainResume = true;
+      continue;
+    }
+
+    if (!isRecord(parsed) || !isRecord(parsed.baseline) || !isRecord(parsed.optimized)) {
+      continue;
+    }
+
     const baseline = normalizeAiResume(parsed.baseline, IMPORT_BASELINE);
     const optimized = normalizeAiResume(parsed.optimized, baseline);
     if (!resumeHasSubstantiveContent(baseline) && resumeHasSubstantiveContent(optimized)) {
@@ -509,14 +535,28 @@ export function parseOptimizedPdfResponse(rawResponse: string): {
     return { baseline, optimized };
   }
 
-  if (isRecord(parsed) && isRecord(parsed.optimized)) {
+  if (sawOptimizedOnly) {
     throw new Error(
       'The LLM returned only an optimized resume. Re-run and ask it to include both "baseline" and "optimized" so removals can be shown.',
     );
   }
 
+  if (sawPlainResume) {
+    throw new Error(
+      'Captured a single resume JSON object instead of the required "baseline" and "optimized" wrapper. The provider response is correct only if the captured raw response starts with both wrapper keys.',
+    );
+  }
+
+  if (sawInvalidJson) {
+    throw new Error(
+      'LLM returned invalid JSON. Open the linked chat, confirm the full JSON response finished, then try again.',
+    );
+  }
+
   throw new Error(
-    'The LLM response did not include the required "baseline" and "optimized" wrapper, so the app cannot show an accurate before/after diff.',
+    firstParseableKeys.length > 0
+      ? `The LLM response did not include the required "baseline" and "optimized" wrapper. Captured top-level keys: ${firstParseableKeys.join(', ')}.`
+      : 'The LLM response did not include the required "baseline" and "optimized" wrapper, so the app cannot show an accurate before/after diff.',
   );
 }
 

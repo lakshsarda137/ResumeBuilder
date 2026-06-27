@@ -21,7 +21,7 @@ If you only want the UI (no API features): `npm run dev:ui`
 2. **Load unpacked** → select `extension/`
 3. **Refresh** the Resume Builder tab after every extension reload (`Cmd+R`)
 
-Extension version is in `extension/manifest.json` (currently **1.5.14**).
+Extension version is in `extension/manifest.json` (currently **1.5.16**).
 
 ---
 
@@ -252,7 +252,7 @@ ResumeData {
 }
 ```
 
-LLM output is constrained to a single ` ```json ` block. Most flows return `ResumeData` directly; the wizard optimize-PDF flow returns `{ baseline: ResumeData, optimized: ResumeData }` in one response so the app can diff the faithful PDF extraction against the tailored resume without a second LLM call. See `aiPrompt.ts`. Prompts require **preserving section/entry ids** when editing so diffs stay accurate across reordering.
+LLM output is constrained to explicit JSON only. New import/generation paths prefer `---JSON-START---` / `---JSON-END---` delimiters so capture can distinguish the answer from prompt/schema text; older edit/refine paths may still use a single ` ```json ` block plus `---END---`. Most flows return `ResumeData` directly; the wizard optimize-PDF flow returns `{ baseline: ResumeData, optimized: ResumeData }` in one response so the app can diff the faithful PDF extraction against the tailored resume without a second LLM call. See `aiPrompt.ts`. Prompts require **preserving section/entry ids** when editing so diffs stay accurate across reordering.
 
 ---
 
@@ -298,7 +298,7 @@ Each change card shows:
 - **Template baseline**: LaTeX-style single column, US Letter (8.5×11in)
 - **WYSIWYG**: `EditableText` (`contentEditable`) on all fields; supports inline HTML (bold, italic, font, size)
 - **Post-apply style switching**: the editor toolbar's **Style** button opens a persistent style panel after generation/apply. Changing template, fonts, sizes, spacing, margins, text/rule intensity, CSS weight values, keyword terms, or bold/italic/uppercase toggles updates the live preview and `#resume-export`.
-- **High-level style settings**: `ResumeRenderSettings` controls body/name/section-heading fonts, name/heading/body/bullet sizes, line height, page margins (top/right/bottom/left in inches), section/title-to-content/entry spacing (points), text intensity, rule intensity, body/bold/strong CSS weight, section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, min/max bullets per experience, and generation notes.
+- **High-level style settings**: `ResumeRenderSettings` controls body/name/section-heading fonts, name/heading/body/bullet sizes, line height, page margins (top/right/bottom/left in inches), section/title-to-content/entry spacing (points), text intensity, rule intensity, body/bold/strong CSS weight, section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, section order/headings, min/max bullets per experience, and generation notes.
 - **Removed template**: stack-beside-names is intentionally gone. Do not reintroduce a layout that places a detected tech stack beside the entry name.
 - **Editor toolbar layout**: the top toolbar is a wrapping flex layout. Controls must wrap to a new row before they overlap; do not use a fixed grid that lets center/right controls collide.
 - **Editor chrome color**: after the editor opens, the toolbar, Style panel, and Web AI panel use the neutral/warm app palette. Do not reintroduce purple/blue panel backgrounds or purple primary actions in the editor chrome.
@@ -311,11 +311,13 @@ Each change card shows:
 
 `/settings` edits global defaults persisted under `resume-render-settings`. These defaults seed the wizard, result preview, editor Style panel, History snapshots, and PDF export. Wizard build settings can override them for a single generation; applying the generated resume carries those selected render settings into the editor. Min/max bullets per experience are prompt constraints for repository generation; they do not replace the editor's local one-page fit check.
 
-The Settings page includes a scaled live resume preview using the same `ResumeDocument` renderer as export, so margin, font, line-height, spacing, bold/italic, intensity, weight, and template changes are visible before generation. Numeric labels include units: font and spacing controls are points, margins are inches, intensity is percent, CSS weight is unitless, and line height is a unitless multiplier.
+The Settings page includes a scaled live resume preview using the same `ResumeDocument` renderer as export, so section order, margin, font, line-height, spacing, bold/italic, intensity, weight, and template changes are visible before generation. Numeric labels include units: font and spacing controls are points, margins are inches, intensity is percent, CSS weight is unitless, and line height is a unitless multiplier.
+
+Section order is controlled by the **Section order** list in Content Defaults. Rows are draggable via the grip icon, with the comma-separated input kept as a fallback for adding/removing/renaming headings. The setting affects both future generation prompts and post-generation rendering/export: `ResumeDocument` sorts display sections by the saved order without mutating the underlying resume JSON. Unknown/custom sections remain after known ordered sections in their original relative order.
 
 All controlled number inputs keep a temporary typed draft so clearing and replacing a number does not immediately snap to clamped values while the user is mid-edit. This applies to Settings, wizard pre-generation typography fields, generated-result modal controls, and the editor Style panel. Sanitized values are still saved back through `mergeResumeRenderSettings` when the draft is valid and synced back on blur/reset.
 
-Every parameter in the Settings page and editor Style panel (template, fonts, keyword terms, every numeric field, and every bold/italic/uppercase toggle) has a small italic `i` info dot next to its label. Hover or click the dot to see a plain-language explanation of what that control does. The tooltip is rendered only while open (hover or click), closes on mouse-leave/blur, and is announced to screen readers via `role="tooltip"` and `aria-describedby`.
+The shared render-settings controls used in wizard previews, generated-result modal, and editor Style panel include small italic `i` info dots for template, fonts, keyword terms, numeric fields, and bold/italic/uppercase toggles. Hover or click the dot to see a plain-language explanation of what that control does. The tooltip is rendered only while open (hover or click), closes on mouse-leave/blur, and is announced to screen readers via `role="tooltip"` and `aria-describedby`.
 
 ### Format toolbar (`FormatToolbar.tsx`)
 
@@ -426,13 +428,15 @@ Message types (background):
 ### LLM response capture (`content-llm.js`)
 
 1. Snapshot baseline assistant text before submit
-2. Poll every 350ms for up to 180s
+2. Poll every 350ms for up to 360s
 3. Detect streaming via stop button or `[data-is-streaming="true"]`
-4. **Only return when JSON is complete** — waits for closed ` ```json ` fence
+4. **Only return when JSON is complete** — prefers complete `---JSON-START---` / `---JSON-END---` payloads and otherwise waits for a closed ` ```json ` fence
 5. **ChatGPT** — prefers `<pre><code>` content from latest assistant turn
 6. **Gemini** — two-step upload: open `+` menu → "Upload files" → assign PDF to file input
 
 Submit verification must not trust the pre-submit composer node after click/keyboard/form submit. Claude can accept the prompt, clear or replace the live composer, and continue generating while a stale DOM reference still contains the old prompt. `verifyMessageSubmitted()` re-queries the live composer, polls for streaming/rendered-prompt/composer-cleared evidence, and checks for late parseable responses before surfacing a send-button-disabled error.
+
+Optimize-PDF capture is stricter than generic resume capture: when the submitted prompt requests the `baseline`/`optimized` wrapper, both `content-llm.js` and the background backup poller reject plain nested resume objects even if they are otherwise valid `ResumeData`. This prevents the app from receiving a section-level or optimized-only object and showing a false "missing wrapper" error after Claude generated the correct delimited wrapper.
 
 **Fragile area:** LLM DOM changes frequently. Selectors in `PROVIDER_SELECTORS` and upload-button logic will need updates when providers ship new UI. Gemini PDF upload currently cannot be made reliable in a hidden/background tab: diagnostics showed the native "Upload & tools" button was found, but pointer/keyboard/click activation left `aria-expanded=false`, no menu surface, no file input, and drag/drop was ignored. Do not offer background Gemini PDF upload unless the user explicitly accepts activating/focusing the Gemini tab.
 
@@ -472,7 +476,7 @@ Import rules (see `repoImport.ts`, `educationImport.ts`):
 - **Contradictions require review** — mutually exclusive facts are paused in a review table. Choosing **Existing** or **Incoming** applies the selected field; repository conflicts can use LLM-provided clean freewrite variants for each choice, so conflict notes are not saved into the warehouse text.
 - **Diagnostics are programmatic** — import failures surface extension debug events in the panel with a single copy action. Do not ask the user to paste console snippets for normal debugging.
 
-Requires Chrome extension (v1.5.14+) for PDF send, LinkedIn scrape (`SCRAPE_URL` bridge message), background capture polling, and import diagnostics.
+Requires Chrome extension (v1.5.16+) for PDF send, LinkedIn scrape (`SCRAPE_URL` bridge message), background capture polling, and import diagnostics.
 
 Each of Repository, Ongoing, Education, and History has a **Delete all** button (with confirmation) that clears that tab's data via collection `DELETE` routes (`/api/repo`, `/api/ongoing`, `/api/education`, `/api/history`).
 
@@ -539,13 +543,14 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | Repo edit hidden by matching Ongoing item | Source dedupe preferred ongoing over repo for same identity | Repo and ongoing sources keep `kind` in their identity key, so both remain visible/sendable |
 | Numeric Settings input jumps while typing | Controlled input saved through clamping/rounding on every keystroke | Keep a typed draft for each number input and sanitize on valid values/blur |
 | Need to inspect LLM input before spend | Prompt was built only inside the send path | Wizard has **Preview prompt**, using the same fresh prompt path as generation |
+| Need to reorder sections after generation | Section order was prompt-only / implicit in generated JSON | Settings has a draggable **Section order** list; renderer/export applies it post-generation without mutating resume JSON |
 | Generated resume has `(edit)` / fake GPA / fake contact | Prompt allowed editable placeholders or education/contact context was missing | Repository generation includes `/api/education`, prompt forbids visible editor notes, parser strips known placeholder artifacts |
 | Generated resume omits education | Wizard only sent repository/ongoing freewrite | Repository generation now sends saved Education Info records and meta notes with the prompt |
 | Applied resume cannot change template/style | Style controls existed only before generation | Editor toolbar **Style** panel changes renderer/fonts/sizes/toggles after apply and drives PDF export |
 | Downloaded PDF truncated at bottom | Export clipped text outside the single page without warning | Editor shows under/fit/over one-page status and `pdf.ts` blocks export when rendered content exceeds one page |
 | Resume is barely over one page | Small overflow can often be solved by layout, not content deletion | Editor can apply deterministic small-overflow fit tweaks up to 105% usage; larger overflow requires content edits/compression |
 | Fit success message covers Web AI panel | Toolbar status was positioned as an absolute toast under a wrapping toolbar | Keep status messages in toolbar flow and ellipsize long text |
-| Optimized resume diff shows additions but hides removals | Missing faithful baseline, or bullet deletions/reorders were compared by raw index/id instead of semantic match | Optimize-PDF responses must include both `baseline` and `optimized`; bullet diffs match within each entry and show unmatched baseline bullets as removed |
+| Optimized resume diff shows additions but hides removals, or summary counts look wrong | Missing faithful baseline, bullet deletions/reorders were compared by raw index/id, or summary counted cards rather than red/green text blocks | Optimize-PDF responses must include both `baseline` and `optimized`; bullet diffs match within each entry and show unmatched baseline bullets as removed; summary counts now count actual `before`/`after` text blocks so a changed bullet contributes one added and one removed line |
 | "Technical Skills" heading has a massive gap in downloaded PDF | The text-PDF writer emitted each non-justified word as a separate absolute-positioned text object | PDF export now groups normal line text into contiguous chunks; verify downloaded PDF headings, not just browser preview |
 | Downloaded PDF font is too dark/heavy | PDF text weight was faked with a synthetic `-webkit-text-stroke` that was invisible on screen but visible at vector resolution in the PDF, and `pdf.ts` ignored `font-weight` so bold text was rendered as stroked regular text | `pdf.ts` now honors `font-weight` and selects the real bold/bold-italic PDF font faces; the synthetic text-stroke was removed from preview and export so both render weight via real fonts |
 | Preview and downloaded PDF weight do not look the same | Preview resolved `font-weight` to real browser fonts while the PDF writer ignored `font-weight` and faked weight with a synthetic stroke (sub-pixel on screen, visible in the PDF) | Both paths now resolve `font-weight` to the same real font faces; intermediate weights still collapse to the nearest available face until a variable font is embedded |
@@ -555,10 +560,10 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
 | Step tracker jumps ahead | Extension fires duplicate `sent` events | Milestone logic in `aiPipeline.ts` — only advance on completion signals |
 | HistoryPage.css HMR error | Old CSS file was deleted, Vite cached the import | Hard refresh (`Cmd+Shift+R`) |
-| Import does nothing | Extension not reloaded after update | Reload extension v1.5.14+ + refresh app |
+| Import does nothing | Extension not reloaded after update | Reload extension v1.5.16+ + refresh app |
 | Provider tab steals focus during import/generate | Extension used to activate the provider tab before send | v1.4.6+ keeps provider sends in background; do not activate Claude/ChatGPT/Gemini tabs during normal sends |
 | Import prompt only sends after visiting provider tab | Hidden-tab composer/button state lagged during import sends | v1.4.8+ writes to one composer instance, avoids false prompt-readback failures, and tries keyboard/form submit fallbacks before waiting on the send button |
-| Claude finishes import but dashboard never merges | Extension missed the rendered JSON or app parser accepted the wrong candidate | v1.5.14+ uses explicit JSON delimiters, backup polling, real-payload validation, and app-copyable diagnostics |
+| Claude finishes import but dashboard never merges | Extension missed the rendered JSON or app parser accepted the wrong candidate | v1.5.16+ uses explicit JSON delimiters, backup polling, real-payload validation, and app-copyable diagnostics |
 | Repo import response not captured | Extension only detected resume JSON (`sections`/`contact`), not warehouse JSON (`entries`) | v1.4.4+ accepts both schemas |
 | Delete all does nothing | Old `/all` routes hit `/:id` with id `"all"` | Restart API server; use collection routes (`DELETE /api/repo`, etc.) |
 | Education skills not saved after import | `PATCH /api/education/meta` was shadowed by `/:id` route | Fixed — meta route registered first; import saves skills/notes directly |

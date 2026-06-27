@@ -344,7 +344,7 @@ Do this in ONE pass:
 Return both objects so the app can show an accurate before/after diff.
 
 CRITICAL OUTPUT FORMAT — the editor can ONLY load JSON:
-1. Return exactly ONE fenced code block: \`\`\`json ... \`\`\`
+1. Write exactly ---JSON-START--- on its own line, then the raw JSON object, then ---JSON-END--- on its own line.
 2. The JSON must match this wrapper schema:
 {
   "baseline": ${RESUME_JSON_SCHEMA},
@@ -355,8 +355,7 @@ CRITICAL OUTPUT FORMAT — the editor can ONLY load JSON:
 5. For skills sections use the "skills" array and keep "entries" as [].
 6. Generate stable unique string ids for baseline sections, entries, links, and skills.
 7. Reuse the corresponding baseline ids in optimized whenever an item came from the same resume item; only generate new ids for genuinely new optimized structure.
-8. Do not include commentary outside the JSON block.
-9. After the closing \`\`\` write exactly: ---END---
+8. Do not include commentary, Markdown fences, or text outside the ---JSON-START--- / ---JSON-END--- delimiters.
 
 OPTIMIZATION RULES:
 - Lead bullets with strong action verbs (Built, Led, Shipped, Reduced, Increased, etc.).
