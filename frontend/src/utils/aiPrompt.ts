@@ -20,10 +20,10 @@ export const RESUME_JSON_SCHEMA = `{
       "entries": [
         {
           "id": "string",
-          "title": "string",
+          "title": "string — top-line label. For experience entries, this MUST be the employer/company/org name, not the job title. For projects, use the project name; for education, use the school.",
           "location": "string",
           "date": "string",
-          "subtitle": "string",
+          "subtitle": "string — for experience entries, job title/role only (no technologies). Do not put the employer/company here unless needed for non-experience context.",
           "jdComment": "optional — how this entry matches the job description",
           "bullets": [
             {
@@ -71,6 +71,11 @@ ${RESUME_JSON_SCHEMA}
 
 const DEFAULT_USER_PROMPT =
   'Improve one bullet point for clarity and tighten the wording. Keep all facts accurate.';
+
+const EDIT_RESUME_WRITING_RULES = `RESUME STRUCTURE RULES (preserve unless the user explicitly asks to change layout):
+- Experience format is company-first: for every experience entry, put the employer/company/org name in entry.title so the renderer places it on the same baseline as entry.date; put only the job title/role in entry.subtitle on the line below. Do not put job title and date together on the top line.
+- Do not add technologies, tools, or tech stacks to entry.subtitle. Keep tools in bullets or the Technical Skills section only.
+- Hard layout constraint: never put a tech stack beside an entry name/title.`;
 
 export function getDefaultAiUserPrompt() {
   return DEFAULT_USER_PROMPT;
@@ -306,6 +311,7 @@ OPTIMIZATION RULES:
 - Prioritize and reorder content to foreground what matters most for THIS job.
 - Mirror legitimate JD keywords only where the candidate's real experience supports them.
 - Do not invent employers, titles, dates, tools, or metrics.
+- Experience format is company-first: put the employer/company/org in entry.title so it renders on the same baseline as entry.date; put the job title/role first in entry.subtitle on the line below.
 
 ${JD_HONESTY_RULES}
 
@@ -364,6 +370,7 @@ OPTIMIZATION RULES:
 - Prioritize and reorder content to foreground what matters most for THIS job.
 - Mirror legitimate JD keywords only where the candidate's real experience supports them.
 - Do not invent employers, titles, dates, tools, or metrics.
+- Experience format is company-first: put the employer/company/org in entry.title so it renders on the same baseline as entry.date; put the job title/role first in entry.subtitle on the line below.
 - Preserve truthful section structure where sensible; you may add/remove/reorder bullets if it improves fit.
 
 ${JD_HONESTY_RULES}`;
@@ -409,6 +416,7 @@ WRITING RULES:
 - Select and prioritize experiences/projects that best fit the job description and have enough source detail for credible bullets.
 - Do NOT include every repository source. Omit weak/thin entries, especially entries with little more than title/company/date.
 - Convert selected freewrite material into polished resume bullets with action verbs, numbers, and impact.
+- Experience format is company-first: for every experience entry, put the employer/company/org name in entry.title so the renderer places it on the same baseline as entry.date; put the job title/role first in entry.subtitle on the line below. Do not put job title and date together on the top line.
 - Use the explicit bullet-count range from the resume settings/profile for each selected experience/project. Keep density balanced across entries; if an entry would need more bullets than the configured maximum, merge related points or omit lower-signal material.
 - Prefer 4-5 credible entries with balanced density and 11-13 total experience/project bullets when source quality supports it. Do not underfill with only 2-3 entries or fewer than 10 bullets unless the source material is genuinely thin.
 - Use the resume settings/profile as a content contract for section order, section inclusion, emphasis, and density. The app will render the returned JSON into the final visual format.
@@ -437,6 +445,8 @@ export function buildAiPrompt(
 
 You are editing a resume. Apply the requested change to the resume content.
 
+${EDIT_RESUME_WRITING_RULES}
+
 ${OUTPUT_RULES}
 3. Preserve section order, ids, jdComment fields, and structure whenever possible.
 
@@ -455,6 +465,8 @@ export function buildImprovementPrompt(
   return `${instruction}
 
 Continue in this same chat. Update the resume from your previous response.
+
+${EDIT_RESUME_WRITING_RULES}
 
 ${JD_HONESTY_RULES}
 

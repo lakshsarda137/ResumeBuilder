@@ -25,6 +25,8 @@ interface FlatItem {
   aiNote?: string;
   itemType?: 'field' | 'bullet';
   groupKey?: string;
+  fieldName?: string;
+  sectionType?: string;
   index?: number;
 }
 
@@ -149,6 +151,10 @@ function flattenResume(data: ResumeData): Map<string, FlatItem> {
           location: loc,
           label: fieldLabel,
           text: value,
+          itemType: 'field',
+          groupKey: entryBase,
+          fieldName: field,
+          sectionType: section.type,
         });
       }
 
@@ -317,6 +323,56 @@ function buildBulletDiffChanges(
   return changes;
 }
 
+function collectLegacyExperienceTitleSubtitleSwaps(
+  beforeMap: Map<string, FlatItem>,
+  afterMap: Map<string, FlatItem>,
+): Set<string> {
+  const suppressed = new Set<string>();
+
+  beforeMap.forEach((prevTitle, titleKey) => {
+    if (
+      prevTitle.itemType !== 'field' ||
+      prevTitle.fieldName !== 'title' ||
+      prevTitle.sectionType !== 'experience' ||
+      !prevTitle.groupKey
+    ) {
+      return;
+    }
+
+    const prevSubtitle = beforeMap.get(`${prevTitle.groupKey}/subtitle`);
+    const nextTitle = afterMap.get(titleKey);
+    const nextSubtitle = afterMap.get(`${prevTitle.groupKey}/subtitle`);
+
+    if (
+      !prevSubtitle ||
+      !nextTitle ||
+      !nextSubtitle ||
+      prevSubtitle.fieldName !== 'subtitle' ||
+      nextTitle.fieldName !== 'title' ||
+      nextSubtitle.fieldName !== 'subtitle'
+    ) {
+      return;
+    }
+
+    const beforeTitle = normalizeDiffText(prevTitle.text);
+    const beforeSubtitle = normalizeDiffText(prevSubtitle.text);
+    const afterTitle = normalizeDiffText(nextTitle.text);
+    const afterSubtitle = normalizeDiffText(nextSubtitle.text);
+
+    if (
+      beforeTitle &&
+      beforeSubtitle &&
+      beforeTitle === afterSubtitle &&
+      beforeSubtitle === afterTitle
+    ) {
+      suppressed.add(titleKey);
+      suppressed.add(`${prevTitle.groupKey}/subtitle`);
+    }
+  });
+
+  return suppressed;
+}
+
 export function computeResumeDiff(
   before: ResumeData,
   after: ResumeData,
@@ -324,9 +380,17 @@ export function computeResumeDiff(
   const beforeMap = flattenResume(before);
   const afterMap = flattenResume(after);
   const keys = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+  const suppressedSwapKeys = collectLegacyExperienceTitleSubtitleSwaps(
+    beforeMap,
+    afterMap,
+  );
   const changes: ResumeDiffChange[] = [];
 
   for (const key of keys) {
+    if (suppressedSwapKeys.has(key)) {
+      continue;
+    }
+
     const prev = beforeMap.get(key);
     const next = afterMap.get(key);
 

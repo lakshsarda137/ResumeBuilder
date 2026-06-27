@@ -23,24 +23,26 @@ export function JdNotesPanel({
         Hover or click a note to highlight the match on your resume. Not included
         in PDF export.
       </p>
-      {notes.map((note) => {
-        const isActive = activeNoteId === note.id;
-        const isPinned = pinnedNoteId === note.id;
+      <div className="jd-notes-panel-list">
+        {notes.map((note) => {
+          const isActive = activeNoteId === note.id;
+          const isPinned = pinnedNoteId === note.id;
 
-        return (
-          <button
-            key={note.id}
-            type="button"
-            className={`jd-note-card${isActive ? ' jd-note-card--active' : ''}${isPinned ? ' jd-note-card--pinned' : ''}`}
-            onMouseEnter={() => onNoteHover(note.id)}
-            onMouseLeave={() => onNoteHover(null)}
-            onClick={() => onNoteClick(note.id)}
-          >
-            <span className="jd-note-label">{note.label}</span>
-            <p className="jd-note-text">{note.comment}</p>
-          </button>
-        );
-      })}
+          return (
+            <button
+              key={note.id}
+              type="button"
+              className={`jd-note-card${isActive ? ' jd-note-card--active' : ''}${isPinned ? ' jd-note-card--pinned' : ''}`}
+              onMouseEnter={() => onNoteHover(note.id)}
+              onMouseLeave={() => onNoteHover(null)}
+              onClick={() => onNoteClick(note.id)}
+            >
+              <span className="jd-note-label">{note.label}</span>
+              <p className="jd-note-text">{note.comment}</p>
+            </button>
+          );
+        })}
+      </div>
     </aside>
   );
 }

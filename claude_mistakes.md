@@ -387,3 +387,108 @@ Correct fix:
 Lesson:
 - For ordered lists, drag handles are a better default than large arrow buttons in dense settings UIs.
 - If a setting is useful after generation, apply it in the renderer/export path, not only in prompt text.
+
+---
+
+## Session: ChatGPT Background Response Detection Regression Attempts (2026-06-27)
+
+### Ground truth before v1.5.20 follow-up
+At the start of this debugging pass, the original ChatGPT issue was **not fixed**. Prompt pasting, PDF attachment, and submit worked in the background, matching the original baseline behavior. The remaining failure was response detection: ChatGPT could generate the response correctly, but the extension/app did not reliably detect or return it until the user manually switched to the ChatGPT tab. Once the ChatGPT tab was focused, the already-finished response was picked up quickly.
+
+This points to hidden/background-tab throttling or provider-page rendering/lifecycle behavior upstream of the React app. The app-side receiver is not the root cause.
+
+### Constraint that must not be violated
+Do **not** activate, focus, or redirect the user to the ChatGPT tab as a normal workaround. The user has explicitly blacklisted this UX multiple times. The README also documents that provider sends should stay in the background.
+
+### Bad workaround I shipped
+I implemented a provider-tab "wake" that activated ChatGPT briefly, then later made it stay active while polling. This directly violated the user's documented UX constraint. The user called this out, correctly. It was removed.
+
+### Failed audio keepalive attempt
+I tried to use WebAudio to make Chrome treat the ChatGPT tab as audible. This failed because Chrome blocked `AudioContext` startup/resume under autoplay policy:
+
+```text
+The AudioContext was not allowed to start. It must be resumed (or created) after a user gesture on the page.
+```
+
+Worse, I awaited the blocked/resume path before calling the real send flow. That temporarily regressed the baseline: PDF attachment and prompt send stopped happening. This was a preventable architecture mistake. Any future keepalive experiment must be best-effort and must never block attach/paste/submit.
+
+### WebRTC keepalive is only an experiment
+A local in-page WebRTC data-channel keepalive was added as a non-blocking experiment because active real-time communication can sometimes reduce background timer throttling. It does not require audio or user gesture. But it is **not proven to fix the bug**, and the user has confirmed the bug still exists after the attempted fixes. Do not document or describe it as a solution unless diagnostics show it actually changes behavior.
+
+Relevant debug events:
+- `content_keepalive_rtc_started`
+- `content_keepalive_rtc_failed`
+- `content_keepalive_rtc_stopped`
+- `content_wait_sample`
+- `backup_poll_sample`
+
+### Correct next debugging posture
+Stop guessing. The next attempt should first collect diagnostics from the hidden ChatGPT tab while it is failing:
+- whether `content_wait_sample` continues firing while hidden,
+- whether `backup_poll_sample` continues firing via alarms,
+- whether `CAPTURE_NOW` snapshots show the completed response in `pageSamples` / selector counts,
+- whether ChatGPT's DOM contains the answer before focus or only materializes it after focus,
+- whether WebRTC keepalive starts and whether it changes timer/sample cadence.
+
+### Follow-up implemented in v1.5.20
+ChatGPT response detection now has a content-script `MutationObserver` that tries capture immediately on assistant DOM changes. Complete parseable ChatGPT JSON returns immediately instead of waiting for a timer-based stability window, which was the likely hidden-tab throttle point. This still must not activate, focus, or redirect the user to the ChatGPT tab; if capture fails again, use the observer/debug events to determine whether the completed answer exists in the hidden DOM before focus.
+
+### Follow-up implemented in v1.5.21
+The v1.5.20 observer was not enough. Diagnostics showed the hidden ChatGPT tab kept running content and backup polling, but the full JSON did not materialize in the hidden DOM; the visible response jumped only after the user focused ChatGPT. v1.5.21 therefore adds a ChatGPT-only Chrome DevTools Protocol wake from the background worker:
+- attach with `chrome.debugger`,
+- send `Emulation.setFocusEmulationEnabled({ enabled: true })`,
+- send `Page.setWebLifecycleState({ state: 'active' })`,
+- keep the debugger attached until capture succeeds, fails, or times out,
+- detach and report `cdp_wake_stopped`.
+
+This still must not activate, focus, or redirect the user to ChatGPT. Do not use `chrome.tabs.update(... active: true ...)`, `chrome.windows.update(... focused: true ...)`, or CDP `Page.bringToFront`.
+
+Result: confirmed successful. ChatGPT now completes/materializes the response in the background and the extension captures it without switching the user to the provider tab.
+
+Lesson:
+- When hidden-tab diagnostics show extension timers, content scripts, and backup polling are alive but the provider DOM itself lacks the completed response, the bug is provider-page lifecycle/materialization, not just extension response detection.
+- CDP focus/lifecycle emulation is acceptable for this one-user local extension because the user owns the browser and accepts the `debugger` permission.
+- The hard UX boundary still stands: emulate focus if needed, but never activate/focus/redirect to the provider tab.
+
+---
+
+## Session: Gemini PDF Upload Replacement With Markdown Fallback (2026-06-27)
+
+### What diagnostics proved
+Gemini PDF upload failed before prompt paste, submit, or response capture. The content script found the correct `Upload & tools` button, but every pointer, keyboard, and legacy click attempt left `aria-expanded="false"`, no menu surface appeared, no `input[type="file"]` was created, and drag/drop was not acknowledged.
+
+The ChatGPT CDP wake was tested on Gemini as a narrow experiment. Chrome accepted both commands:
+- `Emulation.setFocusEmulationEnabled({ enabled: true })`
+- `Page.setWebLifecycleState({ state: 'active' })`
+
+After CDP, Gemini reported `document.hidden === false`, `visibilityState === "visible"`, and `document.hasFocus() === true`, but the upload menu still did not open. Therefore the Gemini failure is not just hidden-tab lifecycle throttling. It likely requires a trusted/foreground user activation or a web-app path that synthetic events cannot satisfy.
+
+### Correct fix
+Gemini PDF flows now use a provider-specific fallback:
+- locally call `/api/pdf/markdown`,
+- append the extracted markdown/text to the original prompt,
+- send Gemini a normal text prompt via `SEND_PROMPT`,
+- keep CDP wake alive for Gemini text-send/capture anti-throttling.
+
+Claude and ChatGPT must keep the real PDF attachment flow. Do not generalize the Gemini markdown fallback to providers whose upload path works, and do not reintroduce foreground tab activation as the normal Gemini workaround.
+
+---
+
+## Session: Diff Viewer Company-First Renderer Migration (2026-06-27)
+
+### Problem
+The resume renderer migrated experience entries to company-first display: `entry.title` is now the employer/company/org, and `entry.subtitle` is the job title/role. Older baselines used the opposite shape. The diff viewer compared the scalar fields literally, so it showed false changes such as:
+
+```text
+SWE Intern / Axestrack
+Axestrack / SWE Intern
+```
+
+even though the content only moved to match the new renderer schema.
+
+### Correct fix
+`resumeDiff.ts` now marks flattened scalar entry fields with `fieldName`, `groupKey`, and `sectionType`, then suppresses pure legacy title/subtitle swaps for same-id experience entries. Real changes still show: dates, locations, bullets, AI notes, non-experience title/subtitle edits, and title/subtitle edits that are not an exact normalized swap.
+
+Lesson:
+- Diff against semantic content, not renderer-era field placement.
+- Renderer migrations need compatibility logic in comparison tools, otherwise historical baselines look falsely modified.

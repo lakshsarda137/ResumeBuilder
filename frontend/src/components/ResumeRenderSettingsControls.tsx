@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import {
   RESUME_RENDER_TEMPLATES,
   mergeResumeRenderSettings,
@@ -45,6 +45,7 @@ type NumericSettingKey =
   | 'headingFontSize'
   | 'bodyFontSize'
   | 'bulletFontSize'
+  | 'bulletIndent'
   | 'lineHeight'
   | 'pagePaddingTop'
   | 'pagePaddingRight'
@@ -89,6 +90,7 @@ const NUMBER_FIELDS: Array<{
   { key: 'headingFontSize', label: 'Heading size (pt)', min: 8, max: 16, step: 0.5, help: 'How big section titles like "Experience" are.' },
   { key: 'bodyFontSize', label: 'Body size (pt)', min: 8, max: 14, step: 0.25, help: 'How big the main text is.' },
   { key: 'bulletFontSize', label: 'Bullet size (pt)', min: 8, max: 14, step: 0.25, help: 'How big the text inside each bullet point is.' },
+  { key: 'bulletIndent', label: 'Bullet indent (pt)', min: 5, max: 16, step: 0.5, help: 'Space from the bullet marker to the start of the bullet text.' },
   { key: 'lineHeight', label: 'Line height', min: 1, max: 1.6, step: 0.01, help: 'Space between lines of text. Bigger means more breathing room.' },
   { key: 'pagePaddingTop', label: 'Top margin (in)', min: 0.35, max: 0.8, step: 0.01, help: 'Empty space above the resume content.' },
   { key: 'pagePaddingRight', label: 'Right margin (in)', min: 0.4, max: 0.8, step: 0.01, help: 'Empty space on the right side of the page.' },
@@ -116,37 +118,17 @@ const TOGGLE_FIELDS: Array<{ key: BooleanSettingKey; label: string; help: string
   { key: 'skillLabelBold', label: 'Skill labels bold', help: 'Makes skill category labels like "Languages:" bold.' },
 ];
 
-function numericDraftsFromSettings(settings: ResumeRenderSettings) {
-  return Object.fromEntries(
-    NUMBER_FIELDS.map((field) => [field.key, String(settings[field.key])]),
-  ) as Record<NumericSettingKey, string>;
-}
-
 export function ResumeRenderSettingsControls({
   settings,
   onChange,
   tone = 'dark',
   compact = false,
 }: ResumeRenderSettingsControlsProps) {
-  const [numericDrafts, setNumericDrafts] = useState(() =>
-    numericDraftsFromSettings(settings),
-  );
+  const [numericDrafts, setNumericDrafts] = useState<
+    Partial<Record<NumericSettingKey, string>>
+  >({});
   const [focusedNumberField, setFocusedNumberField] =
     useState<NumericSettingKey | null>(null);
-
-  useEffect(() => {
-    const nextDrafts = numericDraftsFromSettings(settings);
-    setNumericDrafts((current) => {
-      if (!focusedNumberField) {
-        return nextDrafts;
-      }
-
-      return {
-        ...nextDrafts,
-        [focusedNumberField]: current[focusedNumberField],
-      };
-    });
-  }, [focusedNumberField, settings]);
 
   const update = (patch: Partial<ResumeRenderSettings>) => {
     onChange(mergeResumeRenderSettings({ ...settings, ...patch }));
@@ -180,10 +162,11 @@ export function ResumeRenderSettingsControls({
 
   const syncNumberDraft = (field: NumericSettingKey) => {
     setFocusedNumberField(null);
-    setNumericDrafts((current) => ({
-      ...current,
-      [field]: String(settings[field]),
-    }));
+    setNumericDrafts((current) => {
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
   };
 
   return (
@@ -268,7 +251,11 @@ export function ResumeRenderSettingsControls({
               min={field.min}
               max={field.max}
               step={field.step}
-              value={numericDrafts[field.key]}
+              value={
+                focusedNumberField === field.key
+                  ? numericDrafts[field.key] ?? String(settings[field.key])
+                  : String(settings[field.key])
+              }
               onFocus={() => setFocusedNumberField(field.key)}
               onChange={(event) =>
                 updateNumberDraft(

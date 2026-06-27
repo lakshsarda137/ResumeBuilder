@@ -2,7 +2,9 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const path = require('path');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const net = require('net');
+const { pathToFileURL } = require('url');
+const { spawn, spawnSync } = require('child_process');
 
 const DATA_DIR = path.join(os.homedir(), '.resume-builder');
 const DB_PATH = path.join(DATA_DIR, 'data.db');
@@ -96,7 +98,250 @@ function nowId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function findChromeExecutable() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    'google-chrome-stable',
+    'google-chrome',
+    'chromium',
+    'chromium-browser',
+    'microsoft-edge',
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (path.isAbsolute(candidate)) {
+      if (fs.existsSync(candidate)) return candidate;
+      continue;
+    }
+
+    const result = spawnSync(candidate, ['--version'], {
+      encoding: 'utf8',
+      stdio: 'ignore',
+    });
+    if (!result.error && result.status === 0) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function safePdfFilename(filename) {
+  const safe = String(filename || 'resume.pdf')
+    .replace(/[/\\?%*:|"<>]/g, '_')
+    .trim();
+  const base = safe.replace(/^\.pdf$/i, '').trim() || 'resume';
+  return base.toLowerCase().endsWith('.pdf') ? base : `${base}.pdf`;
+}
+
+function getFreePort() {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.unref();
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      server.close(() => resolve(port));
+    });
+  });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForChrome(port, chromeProcess, stderrLines) {
+  const deadline = Date.now() + 15_000;
+
+  while (Date.now() < deadline) {
+    if (chromeProcess.exitCode !== null) {
+      throw new Error(
+        stderrLines.join('').trim() || `Chrome exited with code ${chromeProcess.exitCode}.`,
+      );
+    }
+
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+      if (response.ok) return;
+    } catch {
+      // Chrome is still starting.
+    }
+
+    await sleep(100);
+  }
+
+  throw new Error('Timed out while starting the local Chrome PDF renderer.');
+}
+
+function openWebSocket(url) {
+  return new Promise((resolve, reject) => {
+    if (typeof WebSocket !== 'function') {
+      reject(new Error('This Node.js runtime does not provide WebSocket for PDF rendering.'));
+      return;
+    }
+
+    const ws = new WebSocket(url);
+    ws.addEventListener('open', () => resolve(ws), { once: true });
+    ws.addEventListener('error', () => reject(new Error('Could not connect to Chrome PDF renderer.')), {
+      once: true,
+    });
+  });
+}
+
+function sendCdp(ws, method, params = {}, timeoutMs = 15_000) {
+  if (!ws.__resumeBuilderCdpId) ws.__resumeBuilderCdpId = 0;
+  ws.__resumeBuilderCdpId += 1;
+  const id = ws.__resumeBuilderCdpId;
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.removeEventListener('message', onMessage);
+      reject(new Error(`Timed out while running Chrome PDF command: ${method}.`));
+    }, timeoutMs);
+
+    function onMessage(event) {
+      const raw = typeof event.data === 'string' ? event.data : event.data.toString();
+      const message = JSON.parse(raw);
+      if (message.id !== id) return;
+
+      clearTimeout(timer);
+      ws.removeEventListener('message', onMessage);
+      if (message.error) {
+        reject(new Error(message.error.message || `Chrome PDF command failed: ${method}.`));
+      } else {
+        resolve(message.result);
+      }
+    }
+
+    ws.addEventListener('message', onMessage);
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+}
+
+async function printHtmlWithChrome(chrome, htmlPath, userDataDir) {
+  const port = await getFreePort();
+  const stderrLines = [];
+  const chromeProcess = spawn(
+    chrome,
+    [
+      '--headless=new',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--no-first-run',
+      '--no-default-browser-check',
+      `--user-data-dir=${userDataDir}`,
+      `--remote-debugging-port=${port}`,
+      'about:blank',
+    ],
+    {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    },
+  );
+
+  chromeProcess.stderr.on('data', (chunk) => {
+    stderrLines.push(chunk.toString());
+  });
+
+  let ws;
+  try {
+    await waitForChrome(port, chromeProcess, stderrLines);
+
+    const fileUrl = pathToFileURL(htmlPath).href;
+    const targetResponse = await fetch(
+      `http://127.0.0.1:${port}/json/new?${encodeURIComponent(fileUrl)}`,
+      { method: 'PUT' },
+    );
+    if (!targetResponse.ok) {
+      throw new Error(`Chrome refused to open the resume page (${targetResponse.status}).`);
+    }
+
+    const target = await targetResponse.json();
+    if (!target.webSocketDebuggerUrl) {
+      throw new Error('Chrome did not return a PDF render target.');
+    }
+
+    ws = await openWebSocket(target.webSocketDebuggerUrl);
+    await sendCdp(ws, 'Page.enable');
+    await sendCdp(
+      ws,
+      'Runtime.evaluate',
+      {
+        awaitPromise: true,
+        expression:
+          '(async () => { await document.fonts.ready; await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))); return document.readyState; })()',
+      },
+      20_000,
+    );
+
+    const result = await sendCdp(
+      ws,
+      'Page.printToPDF',
+      {
+        printBackground: true,
+        preferCSSPageSize: true,
+        paperWidth: 8.5,
+        paperHeight: 11,
+        marginTop: 0,
+        marginRight: 0,
+        marginBottom: 0,
+        marginLeft: 0,
+      },
+      30_000,
+    );
+
+    return Buffer.from(result.data, 'base64');
+  } finally {
+    if (ws) ws.close();
+    if (chromeProcess.exitCode === null) {
+      chromeProcess.kill('SIGTERM');
+    }
+  }
+}
+
 /* ── PDF EXTRACTION ─────────────────────────────────────────────────────── */
+
+app.post('/api/resume/pdf', async (req, res) => {
+  const { html, filename } = req.body ?? {};
+  if (!html || typeof html !== 'string') {
+    return res.status(400).json({ error: 'html required' });
+  }
+  if (!html.includes('resume-page')) {
+    return res.status(400).json({ error: 'Resume page markup required.' });
+  }
+
+  const chrome = findChromeExecutable();
+  if (!chrome) {
+    return res.status(503).json({
+      error: 'No local Chrome/Chromium executable was found for PDF rendering. Set CHROME_PATH or install Chrome.',
+    });
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resume-render-'));
+  const htmlPath = path.join(tempDir, 'resume.html');
+  const userDataDir = path.join(tempDir, 'chrome-profile');
+
+  try {
+    fs.writeFileSync(htmlPath, html, 'utf8');
+
+    const pdf = await printHtmlWithChrome(chrome, htmlPath, userDataDir);
+    if (pdf.subarray(0, 4).toString('utf8') !== '%PDF') {
+      return res.status(500).json({ error: 'Chrome generated an invalid PDF.' });
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safePdfFilename(filename)}"`);
+    return res.send(pdf);
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'PDF rendering failed.' });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 app.post('/api/pdf/markdown', (req, res) => {
   const { base64, filename } = req.body ?? {};

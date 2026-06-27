@@ -21,7 +21,7 @@ If you only want the UI (no API features): `npm run dev:ui`
 2. **Load unpacked** → select `extension/`
 3. **Refresh** the Resume Builder tab after every extension reload (`Cmd+R`)
 
-Extension version is in `extension/manifest.json` (currently **1.5.16**).
+Extension version is in `extension/manifest.json` (currently **1.5.23**).
 
 ---
 
@@ -283,7 +283,7 @@ The optimize path upload panel is **centered**. The generate button has no decor
 
 ### Diff viewer (`resumeDiff.ts` + `ResumeDiffView.tsx`)
 
-Compares before/after resumes by **stable ids** (`section.id`, `entry.id`, `skill.id`) — **not** array position. Bullet-level changes are matched semantically within each entry so deleted/reordered bullets show as removals/additions instead of being hidden by index shifts. Reordering Projects above Experience must **not** show false "replaced" bullets.
+Compares before/after resumes by **stable ids** (`section.id`, `entry.id`, `skill.id`) — **not** array position. Bullet-level changes are matched semantically within each entry so deleted/reordered bullets show as removals/additions instead of being hidden by index shifts. Reordering Projects above Experience must **not** show false "replaced" bullets. The diff also suppresses the legacy experience schema flip where older baselines stored role in `entry.title` and company in `entry.subtitle`, while the current renderer stores company in `entry.title` and role in `entry.subtitle`; that pure title/subtitle swap is not a content change.
 
 Each change card shows:
 - **Changed** — red strikethrough "was on resume" + green "now on resume"
@@ -405,6 +405,8 @@ Duplicate extension `sent` events during a single model wait must **not** skip m
 
 `content-llm.js` reports progress every **1s** while waiting for model activity. `useAiBridge` coalesces repeated `waiting` events; the active milestone label appears in the status line under the step circles. Waiting labels distinguish "model is generating" from "provider tab is in the background and generation has not visibly started yet"; the latter is a stale-status/throttling hint, not a response-capture failure.
 
+ChatGPT background capture uses Chrome DevTools Protocol focus emulation during active captures, plus an event-driven `MutationObserver` path and immediate return of complete parseable JSON. The CDP path uses `Emulation.setFocusEmulationEnabled` and `Page.setWebLifecycleState`, and must not use tab activation or `Page.bringToFront`. This is the confirmed fix for the hidden-tab ChatGPT response materialization bug: it lets ChatGPT finish/render the response while the provider tab stays backgrounded. Diagnostics from `cdp_wake_started`, `content_wait_sample`, `content_capture_chatgpt_observer_parseable`, and `backup_poll_sample` are the next source of truth. Do **not** reintroduce provider-tab activation/focus as a workaround; that UX is explicitly disallowed.
+
 ### Bridge protocol
 
 | Layer | Mechanism |
@@ -428,17 +430,19 @@ Message types (background):
 ### LLM response capture (`content-llm.js`)
 
 1. Snapshot baseline assistant text before submit
-2. Poll every 350ms for up to 360s
+2. Watch assistant DOM mutations and use a timer wake only as a backup for providers that need it
 3. Detect streaming via stop button or `[data-is-streaming="true"]`
 4. **Only return when JSON is complete** — prefers complete `---JSON-START---` / `---JSON-END---` payloads and otherwise waits for a closed ` ```json ` fence
-5. **ChatGPT** — prefers `<pre><code>` content from latest assistant turn
-6. **Gemini** — two-step upload: open `+` menu → "Upload files" → assign PDF to file input
+5. **ChatGPT** — prefers `<pre><code>` content from latest assistant turn and returns immediately once the payload is complete/parseable
+6. **Gemini** — PDF sends are converted locally through `/api/pdf/markdown` and sent as a text prompt; Claude/ChatGPT still use real PDF attachments
 
 Submit verification must not trust the pre-submit composer node after click/keyboard/form submit. Claude can accept the prompt, clear or replace the live composer, and continue generating while a stale DOM reference still contains the old prompt. `verifyMessageSubmitted()` re-queries the live composer, polls for streaming/rendered-prompt/composer-cleared evidence, and checks for late parseable responses before surfacing a send-button-disabled error.
 
 Optimize-PDF capture is stricter than generic resume capture: when the submitted prompt requests the `baseline`/`optimized` wrapper, both `content-llm.js` and the background backup poller reject plain nested resume objects even if they are otherwise valid `ResumeData`. This prevents the app from receiving a section-level or optimized-only object and showing a false "missing wrapper" error after Claude generated the correct delimited wrapper.
 
-**Fragile area:** LLM DOM changes frequently. Selectors in `PROVIDER_SELECTORS` and upload-button logic will need updates when providers ship new UI. Gemini PDF upload currently cannot be made reliable in a hidden/background tab: diagnostics showed the native "Upload & tools" button was found, but pointer/keyboard/click activation left `aria-expanded=false`, no menu surface, no file input, and drag/drop was ignored. Do not offer background Gemini PDF upload unless the user explicitly accepts activating/focusing the Gemini tab.
+**Fragile area:** LLM DOM changes frequently. Selectors in `PROVIDER_SELECTORS` and upload-button logic will need updates when providers ship new UI. Gemini PDF upload currently cannot be made reliable in a hidden/background tab: diagnostics showed the native "Upload & tools" button was found, CDP focus/lifecycle emulation succeeded, but pointer/keyboard/click activation still left `aria-expanded=false`, no menu surface, no file input, and drag/drop was ignored. Gemini PDF flows therefore use local `/api/pdf/markdown` extraction and send the extracted text as a prompt. Do not reintroduce background Gemini PDF upload unless the user explicitly accepts activating/focusing the Gemini tab.
+
+ChatGPT background response capture was changed in v1.5.20 to avoid the hidden-tab stability-timer dependency: the content script observes assistant DOM mutations and returns complete parseable JSON immediately. Diagnostics then showed ChatGPT did not materialize the full JSON while hidden, so v1.5.21 added a CDP wake that emulates focus/lifecycle during capture without activating the tab. This CDP wake has been confirmed to fix ChatGPT background response capture, and Gemini text sends keep the same wake for anti-throttling after local PDF-to-markdown extraction. MV3 alarms/storage backup polling and `CAPTURE_NOW` fallback scraping still exist. Earlier attempts to focus the provider tab or use WebAudio were rejected/failed: focusing violates the UX requirement, and WebAudio was blocked by Chrome autoplay policy and temporarily regressed prompt/PDF send by blocking the capture flow.
 
 ---
 
@@ -535,10 +539,12 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | API calls return HTML 404 | Express server not running | `npm run dev` (not `dev:ui`) |
 | Image-only / ATS-blank PDF | Canvas/html2pdf raster export flattened the page into one image | Use the text-PDF writer in `pdf.ts`; verify extractable text > 0 and page image objects = 0 |
 | 2-page PDF | Editor controls in document flow | Controls are `position:absolute`; no `min-height:11in` on page |
-| Gemini file upload failed | Two-step menu flow | Update `attachFileToGemini()` selectors |
+| Gemini file upload failed | Hidden-tab Gemini upload menu requires behavior that synthetic events/CDP focus emulation do not satisfy | Use the Gemini-only local `/api/pdf/markdown` text fallback; keep Claude/ChatGPT on PDF attachment flow |
 | "LLM returned invalid JSON" | Response captured before fence closed | Wait for full reply; retry or send improvement |
 | "Send button stayed disabled" after provider generated anyway | Submit verifier read a stale pre-submit composer node | Re-query live composer, poll for streaming/rendered prompt, and accept late parseable response evidence in `content-llm.js` |
 | Stale "Waiting for response" while provider is backgrounded | Provider has not visibly started generation in the hidden tab, or the UI throttled until the provider tab was viewed | Surface the background-tab waiting label; only treat as detection failure if generation finishes and capture still fails |
+| ChatGPT response appears in the provider tab but app does not receive it until the user switches to ChatGPT | Hidden ChatGPT did not materialize the full JSON DOM until focus, even though extension/content/backup polling kept running | Fixed in v1.5.21: attach CDP during ChatGPT capture and send focus/lifecycle emulation commands without activating the tab. Keep background-only UX. Do not activate/focus ChatGPT or use `Page.bringToFront`. Use diagnostics from `cdp_wake_started`, `content_wait_sample`, `content_capture_chatgpt_observer_parseable`, `backup_poll_sample`, and `content_keepalive_rtc_*` if it regresses |
+| Diff viewer shows company/title swaps as changes after company-first renderer migration | Older baselines stored role in `entry.title` and company in `entry.subtitle`; current renderer uses company-first `entry.title` and role in `entry.subtitle` | `resumeDiff.ts` suppresses pure legacy title/subtitle swaps for same-id experience entries while still showing real title, company, date, location, bullet, and note edits |
 | Repository edits not sent to LLM | Wizard used cached source arrays loaded before the user saved edits | Repository generation refetches repo, ongoing, and education immediately before building the prompt |
 | Repo edit hidden by matching Ongoing item | Source dedupe preferred ongoing over repo for same identity | Repo and ongoing sources keep `kind` in their identity key, so both remain visible/sendable |
 | Numeric Settings input jumps while typing | Controlled input saved through clamping/rounding on every keystroke | Keep a typed draft for each number input and sanitize on valid values/blur |

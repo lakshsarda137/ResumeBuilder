@@ -21,10 +21,56 @@ chrome.runtime.onInstalled.addListener(() => {
       }
     }
   });
+  pruneCaptureState().catch(() => {});
 });
 
 chrome.runtime.onStartup?.addListener(() => {
   reportDebug('background_started', { backupPoller: true }).catch(() => {});
+  resumePendingBackupCaptures('startup').catch((error) => {
+    reportDebug('backup_poll_resume_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    }).catch(() => {});
+  });
+});
+
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  const key = backupCaptureKeyFromAlarmName(alarm.name);
+  if (!key) {
+    return;
+  }
+
+  runBackupCaptureTick(key, 'alarm').catch((error) => {
+    getPendingBackupCapture(key)
+      .then((state) =>
+        reportDebug(
+          'backup_poll_alarm_tick_crashed',
+          { error: error instanceof Error ? error.message : String(error) },
+          state?.appTabId ?? null,
+          state?.appRequestId ?? null,
+        ),
+      )
+      .catch(() => {});
+  });
+});
+
+chrome.debugger?.onDetach?.addListener((source, reason) => {
+  const detachedStates = [...cdpWakeByKey.values()].filter(
+    (state) => state.tabId === source.tabId,
+  );
+  for (const state of detachedStates) {
+    cdpWakeByKey.delete(state.key);
+    reportDebug(
+      'cdp_wake_detached',
+      {
+        tabId: state.tabId,
+        provider: state.provider,
+        reason,
+        elapsedMs: Date.now() - state.startedAt,
+      },
+      state.appTabId,
+      state.appRequestId,
+    ).catch(() => {});
+  }
 });
 
 function sleep(ms) {
@@ -32,9 +78,39 @@ function sleep(ms) {
 }
 
 const completedCaptureRequests = new Set();
+const backupCaptureTimers = new Map();
+const backupCaptureTicksInFlight = new Set();
+const cdpWakeByKey = new Map();
+const BACKUP_CAPTURE_TIMEOUT_MS = 570000;
+const BACKUP_CAPTURE_TIMER_MS = 2000;
+const BACKUP_CAPTURE_ALARM_DELAY_MINUTES = 0.5;
+const BACKUP_CAPTURE_PENDING_PREFIX = 'llm_capture_pending_';
+const BACKUP_CAPTURE_COMPLETED_PREFIX = 'llm_capture_completed_';
+const BACKUP_CAPTURE_ALARM_PREFIX = 'llm-capture-';
+const CDP_PROTOCOL_VERSION = '1.3';
+const CDP_WAKE_PROVIDERS = new Set(['chatgpt', 'gemini']);
 
 function requestKey(appTabId, requestId) {
   return `${appTabId ?? 'no-tab'}:${requestId ?? 'no-request'}`;
+}
+
+function pendingCaptureStorageKey(key) {
+  return `${BACKUP_CAPTURE_PENDING_PREFIX}${key}`;
+}
+
+function completedCaptureStorageKey(key) {
+  return `${BACKUP_CAPTURE_COMPLETED_PREFIX}${key}`;
+}
+
+function backupCaptureAlarmName(key) {
+  return `${BACKUP_CAPTURE_ALARM_PREFIX}${key}`;
+}
+
+function backupCaptureKeyFromAlarmName(name) {
+  if (!name?.startsWith(BACKUP_CAPTURE_ALARM_PREFIX)) {
+    return '';
+  }
+  return name.slice(BACKUP_CAPTURE_ALARM_PREFIX.length);
 }
 
 async function reportDebug(event, detail = {}, appTabId = null, requestId = null) {
@@ -58,6 +134,116 @@ async function reportDebug(event, detail = {}, appTabId = null, requestId = null
         .sendMessage(tab.id, { type: 'AI_DEBUG', entry })
         .catch(() => {});
     }
+  }
+}
+
+async function getPendingBackupCapture(key) {
+  const storageKey = pendingCaptureStorageKey(key);
+  const item = await chrome.storage.local.get(storageKey);
+  return item[storageKey] ?? null;
+}
+
+async function savePendingBackupCapture(state) {
+  await chrome.storage.local.set({
+    [pendingCaptureStorageKey(state.key)]: state,
+  });
+}
+
+async function clearPendingBackupCapture(key) {
+  const timerId = backupCaptureTimers.get(key);
+  if (timerId != null) {
+    clearTimeout(timerId);
+    backupCaptureTimers.delete(key);
+  }
+
+  await Promise.allSettled([
+    chrome.storage.local.remove(pendingCaptureStorageKey(key)),
+    chrome.alarms?.clear(backupCaptureAlarmName(key)) ?? Promise.resolve(),
+  ]);
+  await stopProviderCdpWake(key, 'pending_capture_cleared');
+}
+
+async function isCaptureCompletedByKey(key) {
+  if (completedCaptureRequests.has(key)) {
+    return true;
+  }
+
+  const storageKey = completedCaptureStorageKey(key);
+  const item = await chrome.storage.local.get(storageKey);
+  if (item[storageKey]) {
+    completedCaptureRequests.add(key);
+    return true;
+  }
+
+  return false;
+}
+
+async function markCaptureCompleted(appTabId, requestId) {
+  const key = requestKey(appTabId, requestId);
+  completedCaptureRequests.add(key);
+  await Promise.allSettled([
+    chrome.storage.local.set({
+      [completedCaptureStorageKey(key)]: Date.now(),
+    }),
+    clearPendingBackupCapture(key),
+  ]);
+}
+
+async function pruneCaptureState() {
+  const allItems = await chrome.storage.local.get(null);
+  const now = Date.now();
+  const staleKeys = [];
+
+  for (const [key, value] of Object.entries(allItems)) {
+    if (
+      key.startsWith(BACKUP_CAPTURE_PENDING_PREFIX) &&
+      value?.startedAt &&
+      now - value.startedAt > BACKUP_CAPTURE_TIMEOUT_MS + 300000
+    ) {
+      staleKeys.push(key);
+    }
+
+    if (
+      key.startsWith(BACKUP_CAPTURE_COMPLETED_PREFIX) &&
+      typeof value === 'number' &&
+      now - value > 3600000
+    ) {
+      staleKeys.push(key);
+    }
+  }
+
+  if (staleKeys.length > 0) {
+    await chrome.storage.local.remove(staleKeys);
+  }
+}
+
+async function resumePendingBackupCaptures(reason = 'resume') {
+  await pruneCaptureState();
+
+  const allItems = await chrome.storage.local.get(null);
+  const pendingStates = Object.entries(allItems)
+    .filter(([key]) => key.startsWith(BACKUP_CAPTURE_PENDING_PREFIX))
+    .map(([, value]) => value)
+    .filter((state) => state?.key);
+
+  for (const state of pendingStates) {
+    await reportDebug(
+      'backup_poll_resumed',
+      {
+        elapsedMs: Date.now() - state.startedAt,
+        provider: state.provider,
+        tabId: state.tabId,
+        reason,
+      },
+      state.appTabId,
+      state.appRequestId,
+    );
+    await startProviderCdpWake(state.tabId, {
+      provider: state.provider,
+      appTabId: state.appTabId,
+      appRequestId: state.appRequestId,
+    });
+    await scheduleBackupCaptureWake(state.key);
   }
 }
 
@@ -91,12 +277,186 @@ async function reportProgress(step, detail) {
   }
 }
 
+function debuggerTarget(tabId) {
+  return { tabId };
+}
+
+function chromeDebuggerAttach(target) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.attach(target, CDP_PROTOCOL_VERSION, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function chromeDebuggerDetach(target) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.detach(target, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+function chromeDebuggerSendCommand(target, method, params = {}) {
+  return new Promise((resolve, reject) => {
+    chrome.debugger.sendCommand(target, method, params, (result) => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(error.message));
+        return;
+      }
+      resolve(result);
+    });
+  });
+}
+
+async function startProviderCdpWake(tabId, message) {
+  if (
+    !CDP_WAKE_PROVIDERS.has(message.provider) ||
+    !message.appRequestId ||
+    message.appTabId == null
+  ) {
+    return;
+  }
+
+  const key = requestKey(message.appTabId, message.appRequestId);
+  if (cdpWakeByKey.has(key)) {
+    return;
+  }
+
+  if (!chrome.debugger?.attach) {
+    await reportDebug(
+      'cdp_wake_unavailable',
+      { provider: message.provider, tabId },
+      message.appTabId,
+      message.appRequestId,
+    );
+    return;
+  }
+
+  const target = debuggerTarget(tabId);
+  const state = {
+    key,
+    tabId,
+    target,
+    provider: message.provider,
+    appTabId: message.appTabId,
+    appRequestId: message.appRequestId,
+    attached: false,
+    startedAt: Date.now(),
+  };
+
+  try {
+    await chromeDebuggerAttach(target);
+    state.attached = true;
+    cdpWakeByKey.set(key, state);
+
+    const commands = [
+      {
+        method: 'Emulation.setFocusEmulationEnabled',
+        params: { enabled: true },
+      },
+      {
+        method: 'Page.setWebLifecycleState',
+        params: { state: 'active' },
+      },
+    ];
+    const results = [];
+
+    for (const command of commands) {
+      try {
+        await chromeDebuggerSendCommand(target, command.method, command.params);
+        results.push({ method: command.method, ok: true });
+      } catch (error) {
+        results.push({
+          method: command.method,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    await reportDebug(
+      'cdp_wake_started',
+      {
+        provider: message.provider,
+        tabId,
+        experimental: message.provider === 'gemini',
+        commands: results,
+        note: 'No tab activation or Page.bringToFront was used.',
+      },
+      message.appTabId,
+      message.appRequestId,
+    );
+  } catch (error) {
+    cdpWakeByKey.delete(key);
+    await reportDebug(
+      'cdp_wake_failed',
+      {
+        provider: message.provider,
+        tabId,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      message.appTabId,
+      message.appRequestId,
+    );
+  }
+}
+
+async function stopProviderCdpWake(key, reason = 'stop') {
+  const state = cdpWakeByKey.get(key);
+  if (!state) {
+    return;
+  }
+
+  cdpWakeByKey.delete(key);
+
+  try {
+    if (state.attached) {
+      await chromeDebuggerDetach(state.target);
+    }
+    await reportDebug(
+      'cdp_wake_stopped',
+      {
+        provider: state.provider,
+        tabId: state.tabId,
+        reason,
+        elapsedMs: Date.now() - state.startedAt,
+      },
+      state.appTabId,
+      state.appRequestId,
+    );
+  } catch (error) {
+    await reportDebug(
+      'cdp_wake_stop_failed',
+      {
+        provider: state.provider,
+        tabId: state.tabId,
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      state.appTabId,
+      state.appRequestId,
+    );
+  }
+}
+
 async function relayResponseToApp(appTabId, requestId, response) {
   if (appTabId == null || !requestId) {
     return;
   }
 
-  completedCaptureRequests.add(requestKey(appTabId, requestId));
+  await markCaptureCompleted(appTabId, requestId);
   await reportDebug(
     'relay_response_to_app',
     {
@@ -190,12 +550,27 @@ async function sendToLlmTab(tabId, message) {
 
 async function startLlmCapture(tabId, message) {
   await ensureLlmBridge(tabId);
-  const response = await chrome.tabs.sendMessage(tabId, {
-    ...message,
-    asyncCapture: true,
-  });
+  await startProviderCdpWake(tabId, message);
+
+  let response;
+  try {
+    response = await chrome.tabs.sendMessage(tabId, {
+      ...message,
+      asyncCapture: true,
+    });
+  } catch (error) {
+    await stopProviderCdpWake(
+      requestKey(message.appTabId, message.appRequestId),
+      'content_message_failed',
+    );
+    throw error;
+  }
 
   if (!response?.ok) {
+    await stopProviderCdpWake(
+      requestKey(message.appTabId, message.appRequestId),
+      'content_request_rejected',
+    );
     throw new Error(response?.error ?? 'Provider page did not accept the request.');
   }
 
@@ -507,6 +882,8 @@ function extractDelimitedPayloadFromPage(promptText = '') {
   function jsonObjectCandidates(text) {
     const candidates = [];
     const anchors = [
+      '"baseline"',
+      '"optimized"',
       '"source_label"',
       '"profile"',
       '"entries"',
@@ -582,7 +959,40 @@ function extractDelimitedPayloadFromPage(promptText = '') {
     };
   }
 
-  const textSources = [
+  const captureSelectors = [
+    '[data-message-author-role="assistant"]',
+    '[data-testid="conversation-turn-assistant"]',
+    'article[data-testid^="conversation-turn-"]',
+    'pre code',
+    'code',
+    '.markdown',
+    '[data-testid*="code" i]',
+    '[class*="code" i]',
+    '[class*="markdown" i]',
+    'div.font-claude-message',
+    'div.standard-markdown',
+    '.font-claude-message',
+  ];
+
+  const selectorTextSources = [];
+  for (const selector of captureSelectors) {
+    document.querySelectorAll(selector).forEach((node, index) => {
+      if (node instanceof HTMLElement && node.innerText?.trim()) {
+        selectorTextSources.push({
+          name: `${selector}[${index}].innerText`,
+          text: node.innerText,
+        });
+      }
+      if (node.textContent?.trim()) {
+        selectorTextSources.push({
+          name: `${selector}[${index}].textContent`,
+          text: node.textContent,
+        });
+      }
+    });
+  }
+
+  const pageTextSources = [
     { name: 'body.innerText', text: document.body?.innerText ?? '' },
     { name: 'body.textContent', text: document.body?.textContent ?? '' },
     {
@@ -593,17 +1003,22 @@ function extractDelimitedPayloadFromPage(promptText = '') {
       name: 'documentElement.textContent',
       text: document.documentElement?.textContent ?? '',
     },
-  ].filter((source) => source.text.trim());
+  ];
+
+  const seenTexts = new Set();
+  const textSources = [...selectorTextSources, ...pageTextSources]
+    .filter((source) => source.text.trim())
+    .filter((source) => {
+      const key = source.text.trim();
+      if (seenTexts.has(key)) {
+        return false;
+      }
+      seenTexts.add(key);
+      return true;
+    });
 
   const selectorCounts = {};
-  for (const selector of [
-    '[data-testid="conversation-turn-assistant"]',
-    'div.font-claude-message',
-    'div.standard-markdown',
-    '.font-claude-message',
-    'pre code',
-    'code',
-  ]) {
+  for (const selector of captureSelectors) {
     selectorCounts[selector] = document.querySelectorAll(selector).length;
   }
 
@@ -646,45 +1061,202 @@ function extractDelimitedPayloadFromPage(promptText = '') {
 async function startBackupCapturePoll(tabId, message) {
   const { appTabId, appRequestId, provider, sessionId } = message;
   const key = requestKey(appTabId, appRequestId);
-  const started = Date.now();
-  const timeoutMs = 570000;
-  let lastDebugAt = 0;
+  const state = {
+    key,
+    tabId,
+    appTabId,
+    appRequestId,
+    provider,
+    sessionId: sessionId ?? null,
+    prompt: message.prompt ?? '',
+    startedAt: Date.now(),
+    timeoutMs: BACKUP_CAPTURE_TIMEOUT_MS,
+    lastDebugAt: 0,
+    attemptCount: 0,
+  };
 
+  chrome.tabs.update(tabId, { autoDiscardable: false }).catch(() => {});
+
+  await savePendingBackupCapture(state);
   await reportDebug(
     'backup_poll_started',
-    { provider, tabId, timeoutMs },
+    {
+      provider,
+      tabId,
+      timeoutMs: state.timeoutMs,
+      timerMs: BACKUP_CAPTURE_TIMER_MS,
+      alarmDelayMinutes: BACKUP_CAPTURE_ALARM_DELAY_MINUTES,
+    },
     appTabId,
     appRequestId,
   );
 
-  while (Date.now() - started < timeoutMs) {
-    if (completedCaptureRequests.has(key)) {
-      await reportDebug(
-        'backup_poll_stopped_already_completed',
-        { elapsedMs: Date.now() - started },
-        appTabId,
-        appRequestId,
-      );
-      return;
-    }
+  await runBackupCaptureTick(key, 'start');
+}
 
-    let result;
-    try {
+function scheduleBackupCaptureTimer(key) {
+  const existingTimerId = backupCaptureTimers.get(key);
+  if (existingTimerId != null) {
+    clearTimeout(existingTimerId);
+  }
+
+  const timerId = setTimeout(() => {
+    backupCaptureTimers.delete(key);
+    runBackupCaptureTick(key, 'timer').catch((error) => {
+      const statePromise = getPendingBackupCapture(key);
+      statePromise
+        .then((state) =>
+          reportDebug(
+            'backup_poll_timer_tick_crashed',
+            { error: error instanceof Error ? error.message : String(error) },
+            state?.appTabId ?? null,
+            state?.appRequestId ?? null,
+          ),
+        )
+        .catch(() => {});
+    });
+  }, BACKUP_CAPTURE_TIMER_MS);
+
+  backupCaptureTimers.set(key, timerId);
+}
+
+async function scheduleBackupCaptureWake(key) {
+  scheduleBackupCaptureTimer(key);
+  if (!chrome.alarms?.create) {
+    return;
+  }
+
+  try {
+    await chrome.alarms.create(backupCaptureAlarmName(key), {
+      delayInMinutes: BACKUP_CAPTURE_ALARM_DELAY_MINUTES,
+    });
+  } catch (error) {
+    const state = await getPendingBackupCapture(key);
+    await reportDebug(
+      'backup_poll_alarm_schedule_error',
+      { error: error instanceof Error ? error.message : String(error) },
+      state?.appTabId ?? null,
+      state?.appRequestId ?? null,
+    );
+  }
+}
+
+async function attemptBackupCapture(state, reason) {
+  const { appTabId, appRequestId, provider, tabId, prompt } = state;
+  let result;
+  let contentSnapshot = null;
+
+  try {
+    const contentResult = await chrome.tabs.sendMessage(tabId, {
+      type: 'CAPTURE_NOW',
+      provider,
+      prompt: prompt ?? '',
+    });
+    contentSnapshot = contentResult?.snapshot ?? null;
+    if (contentResult?.ok && contentResult.rawResponse) {
+      result = {
+        ok: true,
+        rawResponse: contentResult.rawResponse,
+        source: 'content-script CAPTURE_NOW',
+        samples: contentSnapshot?.pageSamples ?? [],
+        selectorCounts: contentSnapshot?.selectorCounts ?? {},
+        title: contentResult.chatTitle,
+        url: contentResult.chatUrl,
+      };
+    }
+  } catch (error) {
+    await reportDebug(
+      'backup_poll_content_capture_error',
+      { error: error instanceof Error ? error.message : String(error), reason },
+      appTabId,
+      appRequestId,
+    );
+  }
+
+  try {
+    if (!result?.ok) {
       const [injection] = await chrome.scripting.executeScript({
         target: { tabId },
         func: extractDelimitedPayloadFromPage,
-        args: [message.prompt ?? ''],
+        args: [prompt ?? ''],
       });
       result = injection?.result;
-    } catch (error) {
+    }
+  } catch (error) {
+    await reportDebug(
+      'backup_poll_injection_error',
+      { error: error instanceof Error ? error.message : String(error), reason },
+      appTabId,
+      appRequestId,
+    );
+    return { result: null, contentSnapshot, injectionError: error };
+  }
+
+  return { result, contentSnapshot, injectionError: null };
+}
+
+async function runBackupCaptureTick(key, reason = 'manual') {
+  if (backupCaptureTicksInFlight.has(key)) {
+    return;
+  }
+
+  backupCaptureTicksInFlight.add(key);
+  try {
+    let state = await getPendingBackupCapture(key);
+    if (!state) {
+      return;
+    }
+
+    const {
+      appTabId,
+      appRequestId,
+      provider,
+      sessionId,
+      tabId,
+      startedAt,
+      timeoutMs,
+    } = state;
+
+    if (await isCaptureCompletedByKey(key)) {
       await reportDebug(
-        'backup_poll_injection_error',
-        { error: error instanceof Error ? error.message : String(error) },
+        'backup_poll_stopped_already_completed',
+        { elapsedMs: Date.now() - startedAt, reason },
         appTabId,
         appRequestId,
       );
-      await sleep(3000);
-      continue;
+      await clearPendingBackupCapture(key);
+      return;
+    }
+
+    if (Date.now() - startedAt >= timeoutMs) {
+      await reportDebug(
+        'backup_poll_timeout',
+        { elapsedMs: Date.now() - startedAt, reason },
+        appTabId,
+        appRequestId,
+      );
+      await relayResponseToApp(appTabId, appRequestId, {
+        ok: false,
+        error:
+          'Timed out waiting for delimited JSON in the provider tab. Diagnostics were captured in the import panel.',
+      });
+      return;
+    }
+
+    await startProviderCdpWake(tabId, {
+      provider,
+      appTabId,
+      appRequestId,
+    });
+
+    let { result, contentSnapshot, injectionError } = await attemptBackupCapture(
+      state,
+      reason,
+    );
+
+    if (injectionError) {
+      await scheduleBackupCaptureWake(key);
+      return;
     }
 
     if (result?.ok && result.rawResponse) {
@@ -707,6 +1279,8 @@ async function startBackupCapturePoll(tabId, message) {
           rawLength: result.rawResponse.length,
           samples: result.samples,
           selectorCounts: result.selectorCounts,
+          elapsedMs: Date.now() - startedAt,
+          reason,
         },
         appTabId,
         appRequestId,
@@ -719,35 +1293,31 @@ async function startBackupCapturePoll(tabId, message) {
       return;
     }
 
-    if (Date.now() - lastDebugAt >= 10000) {
+    state = {
+      ...state,
+      attemptCount: (state.attemptCount ?? 0) + 1,
+    };
+
+    if (Date.now() - (state.lastDebugAt ?? 0) >= 10000) {
       await reportDebug(
         'backup_poll_sample',
         {
-          elapsedMs: Date.now() - started,
-          samples: result?.samples ?? [],
-          selectorCounts: result?.selectorCounts ?? {},
+          elapsedMs: Date.now() - startedAt,
+          attemptCount: state.attemptCount,
+          reason,
+          samples: result?.samples ?? contentSnapshot?.pageSamples ?? [],
+          selectorCounts: result?.selectorCounts ?? contentSnapshot?.selectorCounts ?? {},
         },
         appTabId,
         appRequestId,
       );
-      lastDebugAt = Date.now();
+      state.lastDebugAt = Date.now();
     }
 
-    await sleep(2000);
-  }
-
-  if (!completedCaptureRequests.has(key)) {
-    await reportDebug(
-      'backup_poll_timeout',
-      { elapsedMs: Date.now() - started },
-      appTabId,
-      appRequestId,
-    );
-    await relayResponseToApp(appTabId, appRequestId, {
-      ok: false,
-      error:
-        'Timed out waiting for delimited JSON in the provider tab. Diagnostics were captured in the import panel.',
-    });
+    await savePendingBackupCapture(state);
+    await scheduleBackupCaptureWake(key);
+  } finally {
+    backupCaptureTicksInFlight.delete(key);
   }
 }
 
@@ -1042,7 +1612,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           message.appRequestId,
         );
 
-        if (completedCaptureRequests.has(key)) {
+        if (await isCaptureCompletedByKey(key)) {
           await reportDebug(
             'content_capture_result_ignored_duplicate',
             { ok: captureResponse.ok === true },

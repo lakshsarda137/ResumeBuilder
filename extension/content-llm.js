@@ -23,6 +23,138 @@ function reportDebug(event, detail = {}, context = {}) {
     .catch(() => {});
 }
 
+const CAPTURE_KEEPALIVE_RTC_PING_MS = 15000;
+let activeCaptureKeepaliveRtc = null;
+
+function waitForRtcIceGathering(peer) {
+  if (peer.iceGatheringState === 'complete') {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const timeoutId = setTimeout(done, 1200);
+
+    function done() {
+      clearTimeout(timeoutId);
+      peer.removeEventListener('icegatheringstatechange', onChange);
+      resolve();
+    }
+
+    function onChange() {
+      if (peer.iceGatheringState === 'complete') {
+        done();
+      }
+    }
+
+    peer.addEventListener('icegatheringstatechange', onChange);
+  });
+}
+
+async function startCaptureKeepaliveRtc(provider, context = {}) {
+  if (provider !== 'chatgpt' || typeof RTCPeerConnection !== 'function') {
+    return null;
+  }
+
+  stopCaptureKeepaliveRtc(activeCaptureKeepaliveRtc, context);
+
+  try {
+    const localPeer = new RTCPeerConnection({ iceServers: [] });
+    const remotePeer = new RTCPeerConnection({ iceServers: [] });
+    const channel = localPeer.createDataChannel('resume-builder-keepalive');
+    let remoteChannel = null;
+
+    localPeer.onicecandidate = (event) => {
+      if (event.candidate) {
+        remotePeer.addIceCandidate(event.candidate).catch(() => {});
+      }
+    };
+    remotePeer.onicecandidate = (event) => {
+      if (event.candidate) {
+        localPeer.addIceCandidate(event.candidate).catch(() => {});
+      }
+    };
+    remotePeer.ondatachannel = (event) => {
+      remoteChannel = event.channel;
+      remoteChannel.onmessage = () => {};
+    };
+
+    const offer = await localPeer.createOffer();
+    await localPeer.setLocalDescription(offer);
+    await remotePeer.setRemoteDescription(offer);
+    const answer = await remotePeer.createAnswer();
+    await remotePeer.setLocalDescription(answer);
+    await localPeer.setRemoteDescription(answer);
+    await Promise.all([
+      waitForRtcIceGathering(localPeer),
+      waitForRtcIceGathering(remotePeer),
+    ]);
+
+    const token = {
+      provider,
+      startedAt: Date.now(),
+      localPeer,
+      remotePeer,
+      channel,
+      getRemoteChannel: () => remoteChannel,
+      pingTimer: null,
+    };
+    token.pingTimer = setInterval(() => {
+      if (channel.readyState === 'open') {
+        channel.send(String(Date.now()));
+      }
+    }, CAPTURE_KEEPALIVE_RTC_PING_MS);
+    activeCaptureKeepaliveRtc = token;
+
+    reportDebug(
+      'content_keepalive_rtc_started',
+      {
+        provider,
+        hidden: document.hidden,
+        localConnectionState: localPeer.connectionState,
+        channelState: channel.readyState,
+      },
+      context,
+    );
+
+    return token;
+  } catch (error) {
+    reportDebug(
+      'content_keepalive_rtc_failed',
+      {
+        provider,
+        hidden: document.hidden,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      context,
+    );
+    return null;
+  }
+}
+
+function stopCaptureKeepaliveRtc(token, context = {}) {
+  if (!token || activeCaptureKeepaliveRtc !== token) {
+    return;
+  }
+
+  activeCaptureKeepaliveRtc = null;
+  if (token.pingTimer != null) {
+    clearInterval(token.pingTimer);
+  }
+  token.channel.close();
+  token.getRemoteChannel()?.close();
+  token.localPeer.close();
+  token.remotePeer.close();
+
+  reportDebug(
+    'content_keepalive_rtc_stopped',
+    {
+      provider: token.provider,
+      elapsedMs: Date.now() - token.startedAt,
+    },
+    context,
+  );
+}
+
 function getChatMetadata(provider) {
   const titleSelectors = [
     'title',
@@ -718,6 +850,28 @@ function getLatestAssistantText(provider) {
   return texts[texts.length - 1];
 }
 
+function getParseableLatestAssistantResponseText(
+  provider,
+  baselineText = '',
+  promptText = '',
+) {
+  const latest = getLatestAssistantText(provider);
+  if (
+    !latest ||
+    latest === baselineText ||
+    !hasMeaningfulChange(latest, baselineText)
+  ) {
+    return '';
+  }
+
+  const delimited = extractDelimitedJson(latest, promptText);
+  if (delimited && hasMeaningfulChange(delimited, baselineText)) {
+    return delimited;
+  }
+
+  return canParseResumeJson(latest, promptText) ? latest : '';
+}
+
 function getCandidateResponseTexts(provider) {
   const candidates = [...getAssistantTexts(provider)];
   const selectors = [
@@ -964,6 +1118,37 @@ function getFullPageText() {
   return getPageTextCandidates().join('\n\n');
 }
 
+function getActiveElementSnapshot() {
+  const active = document.activeElement;
+  return active instanceof HTMLElement
+    ? {
+        tag: active.tagName.toLowerCase(),
+        id: active.id || '',
+        role: active.getAttribute('role') ?? '',
+        ariaLabel: active.getAttribute('aria-label') ?? '',
+        className: String(active.className ?? '').slice(0, 180),
+      }
+    : null;
+}
+
+function getPageRuntimeSnapshot() {
+  return {
+    hidden: document.hidden,
+    visibilityState: document.visibilityState,
+    hasFocus:
+      typeof document.hasFocus === 'function' ? document.hasFocus() : null,
+    readyState: document.readyState,
+    url: location.href,
+    title: document.title,
+    viewport: {
+      width: window.innerWidth,
+      height: window.innerHeight,
+      devicePixelRatio: window.devicePixelRatio,
+    },
+    activeElement: getActiveElementSnapshot(),
+  };
+}
+
 function extractDelimitedJsonFromPage(promptText = '') {
   for (const text of getPageTextCandidates()) {
     const candidate = extractDelimitedJson(text, promptText);
@@ -994,14 +1179,141 @@ function getCaptureSnapshot(provider) {
 
   const assistantTexts = getAssistantTexts(provider);
   return {
-    hidden: document.hidden,
+    ...getPageRuntimeSnapshot(),
     url: location.href,
     title: document.title,
     streaming: isMessageStreaming(provider),
     assistantTextCount: assistantTexts.length,
     latestAssistantLength: assistantTexts[assistantTexts.length - 1]?.length ?? 0,
+    latestAssistantHasJsonStart:
+      assistantTexts[assistantTexts.length - 1]?.includes('---JSON-START---') ?? false,
+    latestAssistantHasJsonEnd:
+      assistantTexts[assistantTexts.length - 1]?.includes('---JSON-END---') ?? false,
+    geminiUploadSummary:
+      provider === 'gemini' ? getGeminiUploadSummary() : null,
     pageSamples,
     selectorCounts,
+  };
+}
+
+function waitForCaptureWake(delayMs) {
+  return new Promise((resolve) => {
+    let settled = false;
+    let observer = null;
+    let timeoutId = null;
+
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (observer) {
+        observer.disconnect();
+      }
+      if (timeoutId != null) {
+        clearTimeout(timeoutId);
+      }
+      document.removeEventListener('visibilitychange', finish);
+      resolve();
+    };
+
+    const root = document.body || document.documentElement;
+    if (root && typeof MutationObserver !== 'undefined') {
+      observer = new MutationObserver(finish);
+      observer.observe(root, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+    }
+
+    document.addEventListener('visibilitychange', finish);
+    timeoutId = setTimeout(finish, delayMs);
+  });
+}
+
+function createChatGptResponseCaptureObserver(
+  provider,
+  baselineText,
+  promptText,
+  debugContext = {},
+) {
+  if (provider !== 'chatgpt' || typeof MutationObserver === 'undefined') {
+    return null;
+  }
+
+  const root = document.body || document.documentElement;
+  if (!root) {
+    return null;
+  }
+
+  let observer = null;
+  let settled = false;
+  let captured = '';
+  let resolveCaptured = () => {};
+  const promise = new Promise((resolve) => {
+    resolveCaptured = resolve;
+  });
+
+  const finish = (rawResponse, source) => {
+    if (settled || !rawResponse) {
+      return;
+    }
+
+    settled = true;
+    captured = rawResponse;
+    if (observer) {
+      observer.disconnect();
+    }
+
+    reportDebug(
+      'content_capture_chatgpt_observer_parseable',
+      {
+        source,
+        hidden: document.hidden,
+        rawLength: rawResponse.length,
+        snapshot: getCaptureSnapshot(provider),
+      },
+      debugContext,
+    );
+    resolveCaptured(rawResponse);
+  };
+
+  const tryCapture = (source) => {
+    if (settled) {
+      return;
+    }
+
+    const rawResponse = getParseableLatestAssistantResponseText(
+      provider,
+      baselineText,
+      promptText,
+    );
+    if (rawResponse && hasMeaningfulChange(rawResponse, baselineText)) {
+      finish(rawResponse, source);
+    }
+  };
+
+  observer = new MutationObserver(() => {
+    tryCapture('mutation');
+  });
+  observer.observe(root, {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  });
+
+  queueMicrotask(() => tryCapture('initial'));
+
+  return {
+    promise,
+    getCaptured: () => captured,
+    disconnect: () => {
+      if (!settled && observer) {
+        observer.disconnect();
+      }
+      settled = true;
+    },
   };
 }
 
@@ -1017,6 +1329,18 @@ async function waitForAssistantResponse(
   let lastDebugAt = 0;
   let stableCandidate = '';
   let stableCandidateSince = 0;
+  const chatGptObserver = createChatGptResponseCaptureObserver(
+    provider,
+    baselineText,
+    promptText,
+    debugContext,
+  );
+  const observerPromise = chatGptObserver?.promise ?? new Promise(() => {});
+
+  async function waitForCaptureSignal(delayMs) {
+    await Promise.race([waitForCaptureWake(delayMs), observerPromise]);
+    return chatGptObserver?.getCaptured() ?? '';
+  }
 
   reportDebug(
     'content_wait_started',
@@ -1029,137 +1353,226 @@ async function waitForAssistantResponse(
     debugContext,
   );
 
-  while (Date.now() - started < timeoutMs) {
-    const elapsedSeconds = Math.round((Date.now() - started) / 1000);
-    const streaming = isMessageStreaming(provider);
-
-    if (Date.now() - lastProgressAt >= 1000) {
-      reportProgress('waiting', streaming
-        ? `Model is generating… (${elapsedSeconds}s)`
-        : document.hidden
-          ? `Provider tab is in the background — waiting for generation to start… (${elapsedSeconds}s)`
-          : `Waiting for model to start generating… (${elapsedSeconds}s)`);
-      lastProgressAt = Date.now();
-    }
-
-    if (Date.now() - lastDebugAt >= 10000) {
-      reportDebug(
-        'content_wait_sample',
-        {
-          elapsedMs: Date.now() - started,
-          snapshot: getCaptureSnapshot(provider),
-        },
-        debugContext,
-      );
-      lastDebugAt = Date.now();
-    }
-
-    // If Claude has rendered the requested delimited payload anywhere in the
-    // page text, capture it immediately. This avoids depending on assistant DOM
-    // selectors or streaming flags, both of which have changed under us.
-    const pageDelimited = extractDelimitedJsonFromPage(promptText);
-    if (pageDelimited && hasMeaningfulChange(pageDelimited, baselineText)) {
-      reportDebug(
-        'content_capture_page_delimited',
-        {
-          elapsedMs: Date.now() - started,
-          rawLength: pageDelimited.length,
-          snapshot: getCaptureSnapshot(provider),
-        },
-        debugContext,
-      );
-      return pageDelimited;
-    }
-
-    const assistantTexts = getAssistantTexts(provider);
-    const assistantHasSentinel = assistantTexts.some(
-      (text) =>
-        text !== baselineText &&
-        hasMeaningfulChange(text, baselineText) &&
-        hasSentinel(text),
-    );
-
-    // Primary: sentinel string in an assistant response. The user prompt also
-    // contains the sentinel instructions, so page-wide sentinel checks are too
-    // eager and can race before the answer exists.
-    if (assistantHasSentinel) {
-      // Wait for streaming to fully stop — sentinel can appear mid-stream on
-      // providers like Gemini that render tokens in real time.
-      for (let i = 0; i < 40; i++) {
-        if (!isMessageStreaming(provider)) break;
-        await sleep(300);
+  try {
+    while (Date.now() - started < timeoutMs) {
+      const observedAtLoopStart = chatGptObserver?.getCaptured();
+      if (observedAtLoopStart) {
+        return observedAtLoopStart;
       }
-      await sleep(400);
 
-      // Best path: explicit delimiters — unambiguous regardless of DOM or page text order.
-      const finalPage = getFullPageText();
-      const delimited = extractDelimitedJson(finalPage, promptText);
-      if (delimited) {
-        reportDebug(
-          'content_capture_sentinel_delimited',
-          { elapsedMs: Date.now() - started, rawLength: delimited.length },
-          debugContext,
+      const elapsedSeconds = Math.round((Date.now() - started) / 1000);
+      const streaming = isMessageStreaming(provider);
+
+      if (Date.now() - lastProgressAt >= 1000) {
+        reportProgress(
+          'waiting',
+          streaming
+            ? `Model is generating… (${elapsedSeconds}s)`
+            : document.hidden
+              ? `Provider tab is in the background — waiting for generation to start… (${elapsedSeconds}s)`
+              : `Waiting for model to start generating… (${elapsedSeconds}s)`,
         );
-        return delimited;
+        lastProgressAt = Date.now();
       }
 
-      // Fallback: try DOM elements (works for Claude/ChatGPT).
-      const domResult = getParseableResponseText(provider, baselineText, promptText);
-      if (domResult) {
+      if (Date.now() - lastDebugAt >= 10000) {
         reportDebug(
-          'content_capture_dom_parseable',
-          { elapsedMs: Date.now() - started, rawLength: domResult.length },
-          debugContext,
-        );
-        return domResult;
-      }
-
-      // Last resort: anchor-based extraction from page text.
-      const responseJson = extractResponseJsonFromPageText(finalPage);
-      if (responseJson) {
-        reportDebug(
-          'content_capture_anchor_json',
-          { elapsedMs: Date.now() - started, rawLength: responseJson.length },
-          debugContext,
-        );
-        return responseJson;
-      }
-
-      reportDebug(
-        'content_capture_final_page_fallback',
-        { elapsedMs: Date.now() - started, rawLength: finalPage.length },
-        debugContext,
-      );
-      return finalPage;
-    }
-
-    const parseableCandidate = getParseableResponseText(
-      provider,
-      baselineText,
-      promptText,
-    );
-    if (parseableCandidate) {
-      if (parseableCandidate !== stableCandidate) {
-        stableCandidate = parseableCandidate;
-        stableCandidateSince = Date.now();
-      } else if (!streaming && Date.now() - stableCandidateSince >= 2200) {
-        reportDebug(
-          'content_capture_stable_parseable',
+          'content_wait_sample',
           {
             elapsedMs: Date.now() - started,
-            rawLength: parseableCandidate.length,
-            streaming,
+            snapshot: getCaptureSnapshot(provider),
           },
           debugContext,
         );
-        return parseableCandidate;
+        lastDebugAt = Date.now();
       }
-    } else {
-      stableCandidate = '';
-      stableCandidateSince = 0;
-    }
 
-    await sleep(350);
+      // If the provider has rendered the requested delimited payload anywhere in the
+      // page text, capture it immediately. This avoids depending on assistant DOM
+      // selectors or streaming flags, both of which have changed under us.
+      const pageDelimited = extractDelimitedJsonFromPage(promptText);
+      if (pageDelimited && hasMeaningfulChange(pageDelimited, baselineText)) {
+        reportDebug(
+          'content_capture_page_delimited',
+          {
+            elapsedMs: Date.now() - started,
+            rawLength: pageDelimited.length,
+            snapshot: getCaptureSnapshot(provider),
+          },
+          debugContext,
+        );
+        return pageDelimited;
+      }
+
+      const assistantTexts = getAssistantTexts(provider);
+      const assistantHasSentinel = assistantTexts.some(
+        (text) =>
+          text !== baselineText &&
+          hasMeaningfulChange(text, baselineText) &&
+          hasSentinel(text),
+      );
+
+      // Primary: sentinel string in an assistant response. The user prompt also
+      // contains the sentinel instructions, so page-wide sentinel checks are too
+      // eager and can race before the answer exists.
+      if (assistantHasSentinel) {
+        const immediatePage = getFullPageText();
+        const immediateDelimited = extractDelimitedJson(immediatePage, promptText);
+        if (immediateDelimited) {
+          reportDebug(
+            'content_capture_sentinel_delimited_immediate',
+            {
+              elapsedMs: Date.now() - started,
+              rawLength: immediateDelimited.length,
+              hidden: document.hidden,
+            },
+            debugContext,
+          );
+          return immediateDelimited;
+        }
+
+        if (provider === 'chatgpt') {
+          const immediateDomResult = getParseableLatestAssistantResponseText(
+            provider,
+            baselineText,
+            promptText,
+          );
+          if (immediateDomResult) {
+            reportDebug(
+              'content_capture_chatgpt_sentinel_parseable_immediate',
+              {
+                elapsedMs: Date.now() - started,
+                rawLength: immediateDomResult.length,
+                hidden: document.hidden,
+              },
+              debugContext,
+            );
+            return immediateDomResult;
+          }
+        }
+
+        // Wait for streaming to fully stop — sentinel can appear mid-stream on
+        // providers like Gemini that render tokens in real time.
+        for (let i = 0; i < 40; i++) {
+          if (!isMessageStreaming(provider)) break;
+          const observedDuringStreamingWait = await waitForCaptureSignal(300);
+          if (observedDuringStreamingWait) {
+            return observedDuringStreamingWait;
+          }
+        }
+
+        const observedAfterStreamingWait = await waitForCaptureSignal(400);
+        if (observedAfterStreamingWait) {
+          return observedAfterStreamingWait;
+        }
+
+        // Best path: explicit delimiters — unambiguous regardless of DOM or page text order.
+        const finalPage = getFullPageText();
+        const delimited = extractDelimitedJson(finalPage, promptText);
+        if (delimited) {
+          reportDebug(
+            'content_capture_sentinel_delimited',
+            { elapsedMs: Date.now() - started, rawLength: delimited.length },
+            debugContext,
+          );
+          return delimited;
+        }
+
+        // Fallback: try DOM elements (works for Claude/ChatGPT).
+        const domResult = getParseableResponseText(
+          provider,
+          baselineText,
+          promptText,
+        );
+        if (domResult) {
+          reportDebug(
+            'content_capture_dom_parseable',
+            { elapsedMs: Date.now() - started, rawLength: domResult.length },
+            debugContext,
+          );
+          return domResult;
+        }
+
+        // Last resort: anchor-based extraction from page text.
+        const responseJson = extractResponseJsonFromPageText(finalPage);
+        if (responseJson) {
+          reportDebug(
+            'content_capture_anchor_json',
+            { elapsedMs: Date.now() - started, rawLength: responseJson.length },
+            debugContext,
+          );
+          return responseJson;
+        }
+
+        reportDebug(
+          'content_capture_final_page_fallback',
+          { elapsedMs: Date.now() - started, rawLength: finalPage.length },
+          debugContext,
+        );
+        return finalPage;
+      }
+
+      const parseableCandidate =
+        provider === 'chatgpt'
+          ? getParseableLatestAssistantResponseText(
+              provider,
+              baselineText,
+              promptText,
+            )
+          : getParseableResponseText(provider, baselineText, promptText);
+      if (parseableCandidate) {
+        if (provider === 'chatgpt') {
+          reportDebug(
+            'content_capture_chatgpt_parseable_immediate',
+            {
+              elapsedMs: Date.now() - started,
+              rawLength: parseableCandidate.length,
+              streaming,
+              hidden: document.hidden,
+            },
+            debugContext,
+          );
+          return parseableCandidate;
+        }
+
+        if (parseableCandidate !== stableCandidate) {
+          stableCandidate = parseableCandidate;
+          stableCandidateSince = Date.now();
+        } else if (!streaming && Date.now() - stableCandidateSince >= 2200) {
+          reportDebug(
+            'content_capture_stable_parseable',
+            {
+              elapsedMs: Date.now() - started,
+              rawLength: parseableCandidate.length,
+              streaming,
+            },
+            debugContext,
+          );
+          return parseableCandidate;
+        }
+      } else {
+        stableCandidate = '';
+        stableCandidateSince = 0;
+      }
+
+      const observedAfterWake = await waitForCaptureSignal(
+        document.hidden ? 1200 : 350,
+      );
+      if (observedAfterWake) {
+        reportDebug(
+          'content_capture_chatgpt_observer_returned',
+          {
+            elapsedMs: Date.now() - started,
+            rawLength: observedAfterWake.length,
+            hidden: document.hidden,
+          },
+          debugContext,
+        );
+        return observedAfterWake;
+      }
+    }
+  } finally {
+    chatGptObserver?.disconnect();
   }
 
   const fallback =
@@ -1403,6 +1816,111 @@ function getGeminiUploadSnapshot() {
     uploadRelated,
     buttons,
   };
+}
+
+function getGeminiUploadSummary() {
+  const fileInputs = [...querySelectorAllDeep('input[type="file"]')].map(
+    (node, index) => ({
+      index,
+      accept: node.getAttribute('accept') ?? '',
+      multiple: node.hasAttribute('multiple'),
+      visible: node instanceof HTMLElement ? isVisible(node) : false,
+      filesLength:
+        node instanceof HTMLInputElement && node.files ? node.files.length : null,
+      className: String(node.className ?? '').slice(0, 120),
+    }),
+  );
+
+  const uploadRelated = querySelectorAllDeep(
+    [
+      'button',
+      'gem-icon-button',
+      '[role="button"]',
+      '[role="menuitem"]',
+      '[role="option"]',
+      'a',
+      'mat-icon',
+    ].join(','),
+  )
+    .filter((node) => node instanceof HTMLElement)
+    .map((node, index) => {
+      const haystack = [
+        node.textContent,
+        node.getAttribute('aria-label'),
+        node.getAttribute('arialabel'),
+        node.getAttribute('title'),
+        node.getAttribute('role'),
+        node.getAttribute('data-testid'),
+        String(node.className ?? ''),
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      if (!/upload|file|attach|tool|add|plus|\+|drive|photo|image/.test(haystack)) {
+        return null;
+      }
+
+      return {
+        index,
+        tag: node.tagName.toLowerCase(),
+        text: node.textContent?.trim().slice(0, 80) ?? '',
+        ariaLabel:
+          node.getAttribute('aria-label') ??
+          node.getAttribute('arialabel') ??
+          '',
+        role: node.getAttribute('role') ?? '',
+        visible: isVisible(node),
+        disabled: isDisabledForClick(node),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 12);
+
+  const composer = getComposerElement('gemini');
+  return {
+    runtime: getPageRuntimeSnapshot(),
+    counts: {
+      fileInputs: fileInputs.length,
+      uploadRelated: uploadRelated.length,
+      openShadowRoots: Math.max(0, getDeepSearchRoots().length - 1),
+    },
+    fileInputs,
+    uploadRelated,
+    composer: composer
+      ? {
+          tag: composer.tagName.toLowerCase(),
+          textLength: getComposerText('gemini', composer).length,
+          ariaLabel: composer.getAttribute('aria-label') ?? '',
+          className: String(composer.className ?? '').slice(0, 120),
+        }
+      : null,
+  };
+}
+
+function reportGeminiStage(stage, detail = {}, debugContext = {}) {
+  try {
+    reportDebug(
+      'gemini_stage',
+      {
+        stage,
+        ...detail,
+        uploadSummary: getGeminiUploadSummary(),
+        sendButtons: getSendButtonSnapshot('gemini'),
+        capture: getCaptureSnapshot('gemini'),
+      },
+      debugContext,
+    );
+  } catch (error) {
+    reportDebug(
+      'gemini_stage_failed',
+      {
+        stage,
+        error: error instanceof Error ? error.message : String(error),
+        runtime: getPageRuntimeSnapshot(),
+      },
+      debugContext,
+    );
+  }
 }
 
 function findAnyGeminiFileInput() {
@@ -2441,6 +2959,9 @@ async function sendAndCaptureResponse({
     attempts: 24,
     delayMs: 500,
   });
+  if (provider === 'gemini') {
+    reportGeminiStage('composer_wait_complete', {}, debugContext);
+  }
 
   if (provider === 'gemini') {
     await waitForElement(
@@ -2452,6 +2973,7 @@ async function sendAndCaptureResponse({
         ]),
       { attempts: 12, delayMs: 600 },
     );
+    reportGeminiStage('gemini_rich_textarea_wait_complete', {}, debugContext);
   }
 
   const baselineText = getBaselineText(provider);
@@ -2468,35 +2990,106 @@ async function sendAndCaptureResponse({
     reportProgress('attaching_pdf', 'Attaching source file…');
     const bytes = Uint8Array.from(atob(pdfBase64), (char) => char.charCodeAt(0));
     const file = new File([bytes], filename, { type: mimeTypeForFilename(filename) });
-    await attachFile(file, provider, debugContext);
+    if (provider === 'gemini') {
+      reportGeminiStage(
+        'before_attach',
+        {
+          filename,
+          bytes: bytes.length,
+          mimeType: file.type,
+        },
+        debugContext,
+      );
+    }
+    try {
+      await attachFile(file, provider, debugContext);
+    } catch (error) {
+      if (provider === 'gemini') {
+        reportGeminiStage(
+          'attach_failed',
+          {
+            filename,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          debugContext,
+        );
+      }
+      throw error;
+    }
     await sleep(1500);
     reportProgress('pdf_attached', 'Source file attached');
     reportDebug('content_pdf_attached', { filename, bytes: bytes.length }, debugContext);
+    if (provider === 'gemini') {
+      reportGeminiStage('after_attach', { filename, bytes: bytes.length }, debugContext);
+    }
   } else {
     reportProgress('improvement_sent', 'Sending improvement prompt…');
   }
 
   reportProgress('pasting_prompt', 'Pasting edit instruction…');
+  if (provider === 'gemini') {
+    reportGeminiStage('before_prompt_paste', {}, debugContext);
+  }
   const composer = await setPrompt(prompt, provider);
   await waitForPromptInsertion(provider, prompt, composer);
   await sleep(document.hidden ? 1200 : 400);
   reportProgress('prompt_ready', 'Edit instruction ready');
+  if (provider === 'gemini') {
+    reportGeminiStage(
+      'after_prompt_ready',
+      {
+        composerTextLength: getComposerText(provider, composer).length,
+        promptLength: prompt.length,
+        promptReadbackMatches: composerHasPrompt(provider, prompt, composer),
+      },
+      debugContext,
+    );
+  }
 
   reportProgress('sending', `Sending to ${provider}…`);
-  await submitMessage(provider, prompt.length, composer, debugContext, prompt, baselineText);
+  if (provider === 'gemini') {
+    reportGeminiStage('before_submit', {}, debugContext);
+  }
+  try {
+    await submitMessage(provider, prompt.length, composer, debugContext, prompt, baselineText);
+  } catch (error) {
+    if (provider === 'gemini') {
+      reportGeminiStage(
+        'submit_failed',
+        { error: error instanceof Error ? error.message : String(error) },
+        debugContext,
+      );
+    }
+    throw error;
+  }
   reportProgress('sent', 'Prompt sent — generating response…');
   reportProgress('waiting', document.hidden
     ? 'Provider tab is in the background — waiting for generation to start…'
     : 'Waiting for model to start generating…');
   reportDebug('content_prompt_submitted', getCaptureSnapshot(provider), debugContext);
+  if (provider === 'gemini') {
+    reportGeminiStage('after_submit', {}, debugContext);
+  }
 
-  const rawResponse = await waitForAssistantResponse(
-    provider,
-    baselineText,
-    360000,
-    debugContext,
-    prompt,
-  );
+  let rawResponse;
+  try {
+    rawResponse = await waitForAssistantResponse(
+      provider,
+      baselineText,
+      360000,
+      debugContext,
+      prompt,
+    );
+  } catch (error) {
+    if (provider === 'gemini') {
+      reportGeminiStage(
+        'response_wait_failed',
+        { error: error instanceof Error ? error.message : String(error) },
+        debugContext,
+      );
+    }
+    throw error;
+  }
   const metadata = getChatMetadata(provider);
   reportProgress('response_detected', 'Response detected');
   reportDebug(
@@ -2504,6 +3097,13 @@ async function sendAndCaptureResponse({
     { rawLength: rawResponse.length, chatUrl: metadata.chatUrl },
     debugContext,
   );
+  if (provider === 'gemini') {
+    reportGeminiStage(
+      'response_captured',
+      { rawLength: rawResponse.length, chatUrl: metadata.chatUrl },
+      debugContext,
+    );
+  }
 
   return {
     ok: true,
@@ -2513,7 +3113,35 @@ async function sendAndCaptureResponse({
   };
 }
 
-if (!globalThis.__resumeBuilderLlmBridge) {
+async function sendAndCaptureResponseWithKeepalive(message) {
+  const debugContext = {
+    appRequestId: message.appRequestId,
+    appTabId: message.appTabId,
+  };
+  let keepalive = null;
+  let captureFinished = false;
+
+  startCaptureKeepaliveRtc(message.provider, debugContext)
+    .then((token) => {
+      keepalive = token;
+      if (captureFinished) {
+        stopCaptureKeepaliveRtc(keepalive, debugContext);
+      }
+    })
+    .catch(() => {});
+
+  try {
+    return await sendAndCaptureResponse(message);
+  } finally {
+    captureFinished = true;
+    stopCaptureKeepaliveRtc(keepalive, debugContext);
+  }
+}
+
+const RESUME_BUILDER_LLM_BRIDGE_VERSION = '1.5.23';
+
+if (globalThis.__resumeBuilderLlmBridgeVersion !== RESUME_BUILDER_LLM_BRIDGE_VERSION) {
+  globalThis.__resumeBuilderLlmBridgeVersion = RESUME_BUILDER_LLM_BRIDGE_VERSION;
   globalThis.__resumeBuilderLlmBridge = true;
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -2522,12 +3150,31 @@ if (!globalThis.__resumeBuilderLlmBridge) {
       return true;
     }
 
+    if (message.type === 'CAPTURE_NOW') {
+      const provider = message.provider ?? 'chatgpt';
+      const promptText = message.prompt ?? '';
+      const baselineText = message.baselineText ?? '';
+      const rawResponse =
+        getParseableResponseText(provider, baselineText, promptText) ||
+        extractDelimitedJsonFromPage(promptText);
+      const metadata = getChatMetadata(provider);
+
+      sendResponse({
+        ok: Boolean(rawResponse),
+        rawResponse,
+        chatTitle: metadata.chatTitle,
+        chatUrl: metadata.chatUrl,
+        snapshot: getCaptureSnapshot(provider),
+      });
+      return true;
+    }
+
     if (message.type !== 'INJECT_PDF') {
       return false;
     }
 
     if (message.asyncCapture) {
-      sendAndCaptureResponse(message)
+      sendAndCaptureResponseWithKeepalive(message)
         .then((response) =>
           chrome.runtime.sendMessage({
             type: 'LLM_CAPTURE_RESULT',

@@ -30,8 +30,9 @@ export const RESUME_BUILD_TEMPLATES: ResumeBuildStyleProfile[] = [
     ],
     formattingRules: [
       'Use clean section headings similar to Jake Gutierrez-style resumes.',
+      'For experience entries, place the employer/company/org name on the first line with the date; place the job title/role first in the subtitle line below.',
       'Use bold for organization/project names and role titles when helpful.',
-      'Use italics for subtitles such as degree, company context, role context, and date/location secondary lines.',
+      'Use italics for subtitles such as degree, role context, and date/location secondary lines.',
       'Do not bold arbitrary buzzwords by default.',
       'Never place a tech stack beside the entry title/name. If tools matter, keep concise tools in the subtitle line below the title or weave them into bullets/skills.',
       'If using inline emphasis in JSON strings, use only <strong>, <em>, or <span style="font-weight:...;font-style:..."> for heading/keyword conventions; do not output Markdown, <mark>, colors, or background highlights.',
@@ -57,6 +58,7 @@ export const RESUME_BUILD_TEMPLATES: ResumeBuildStyleProfile[] = [
     ],
     formattingRules: [
       'Use very compact titles and subtitles.',
+      'For experience entries, the first-line title is the employer/company/org, with the job title/role in the subtitle line below.',
       'Use semicolon-separated skill categories where possible.',
       'Bold only major entry names and skill labels.',
       'Avoid inline keyword bolding unless custom instructions request it.',
@@ -84,6 +86,7 @@ export const RESUME_BUILD_TEMPLATES: ResumeBuildStyleProfile[] = [
     ],
     formattingRules: [
       'List concise tools in subtitles for experiences/projects only when the source supports them; the subtitle must stay on the line below the title.',
+      'For experience entries, put the employer/company/org on the first line with the date, then put the job title/role first in the subtitle below.',
       'Keep tool lists short: 4-7 technologies, no padding.',
       'Never place a tech stack beside the entry title/name.',
       'Allow the LLM to bold the most important 1-3 technical keywords per section if useful.',

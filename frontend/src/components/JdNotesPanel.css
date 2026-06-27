@@ -8,10 +8,16 @@
 
 .jd-notes-panel {
   width: 280px;
+  height: min(11in, calc(100vh - 120px));
   flex-shrink: 0;
   margin-left: 28px;
   padding-top: 12px;
   font-family: system-ui, -apple-system, sans-serif;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 12px;
+  overflow: hidden;
 }
 
 .jd-notes-panel-heading {
@@ -28,6 +34,15 @@
   font-size: 11px;
   color: #64748b;
   line-height: 1.35;
+  flex-shrink: 0;
+}
+
+.jd-notes-panel-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  scrollbar-gutter: stable;
 }
 
 .jd-note-card {
@@ -45,6 +60,10 @@
     background 0.15s ease,
     border-color 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+.jd-note-card:last-child {
+  margin-bottom: 0;
 }
 
 .jd-note-card:hover,

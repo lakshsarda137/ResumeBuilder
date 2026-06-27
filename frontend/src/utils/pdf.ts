@@ -328,41 +328,6 @@ function addTextNodeRuns(
   const strokeWidth = textStrokeWidthFor(style, scale);
   const strokeColor = textStrokeColorFor(style);
 
-  if (style.textAlign === 'justify') {
-    for (const match of text.matchAll(/\S+/g)) {
-      const word = applyTextTransform(match[0], style.textTransform);
-      const start = match.index ?? 0;
-      const range = document.createRange();
-      range.setStart(node, start);
-      range.setEnd(node, start + match[0].length);
-
-      for (const rect of Array.from(range.getClientRects())) {
-        if (rect.width <= 0 || rect.height <= 0) continue;
-
-        const x = (rect.left - pageRect.left) * scale;
-        const y = PDF_HEIGHT_PT - (rect.bottom - pageRect.top) * scale + size * 0.18;
-
-        if (x < -1 || x > PDF_WIDTH_PT + 1 || y < -1 || y > PDF_HEIGHT_PT + 1) {
-          continue;
-        }
-
-        runs.push({
-          text: word,
-          x,
-          y,
-          size,
-          font,
-          width: rect.width * scale,
-          charSpacing,
-          color,
-          strokeWidth,
-          strokeColor,
-        });
-      }
-    }
-    return;
-  }
-
   const lineGroups: Array<{
     top: number;
     bottom: number;
@@ -372,12 +337,12 @@ function addTextNodeRuns(
     end: number;
   }> = [];
 
-  for (const match of text.matchAll(/\S+/g)) {
-    const start = match.index ?? 0;
-    const end = start + match[0].length;
+  for (let index = 0; index < text.length; index += 1) {
+    if (!text[index].trim()) continue;
+
     const range = document.createRange();
-    range.setStart(node, start);
-    range.setEnd(node, end);
+    range.setStart(node, index);
+    range.setEnd(node, index + 1);
 
     for (const rect of Array.from(range.getClientRects())) {
       if (rect.width <= 0 || rect.height <= 0) continue;
@@ -391,19 +356,21 @@ function addTextNodeRuns(
       if (group) {
         group.left = Math.min(group.left, rect.left);
         group.right = Math.max(group.right, rect.right);
-        group.start = Math.min(group.start, start);
-        group.end = Math.max(group.end, end);
+        group.start = Math.min(group.start, index);
+        group.end = Math.max(group.end, index + 1);
       } else {
         lineGroups.push({
           top: rect.top,
           bottom: rect.bottom,
           left: rect.left,
           right: rect.right,
-          start,
-          end,
+          start: index,
+          end: index + 1,
         });
       }
     }
+
+    range.detach();
   }
 
   for (const group of lineGroups) {
@@ -674,6 +641,151 @@ export async function inspectResumePageFit(elementId: string): Promise<ResumePag
   return measurePageFit(getResumePage(wrapper));
 }
 
+function collectDocumentCss() {
+  const chunks: string[] = [];
+
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      chunks.push(
+        Array.from(sheet.cssRules)
+          .map((rule) => rule.cssText)
+          .join('\n'),
+      );
+    } catch {
+      // Same-origin app styles are readable; cross-origin sheets are not required
+      // for the resume template and would make export brittle.
+    }
+  }
+
+  return chunks.join('\n');
+}
+
+function htmlTitleForFilename(filename: string) {
+  return (filename.trim() || 'resume.pdf')
+    .replace(/\.pdf$/i, '')
+    .replace(/[<>]/g, '')
+    .trim() || 'resume';
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function buildPrintHtml(wrapper: HTMLElement, filename: string) {
+  const clone = wrapper.cloneNode(true) as HTMLElement;
+  clone.removeAttribute('id');
+  clone.querySelectorAll('.resume-control').forEach((control) => control.remove());
+
+  const title = htmlTitleForFilename(filename);
+  const css = `
+${collectDocumentCss()}
+@page {
+  size: Letter;
+  margin: 0;
+}
+html,
+body {
+  width: 8.5in;
+  min-height: 11in;
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+}
+body {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.resume-page-wrapper {
+  margin: 0 !important;
+  position: static !important;
+  transform: none !important;
+}
+.resume-page {
+  width: 8.5in !important;
+  min-height: 11in;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+`;
+
+  return [
+    '<!doctype html>',
+    '<html>',
+    '<head>',
+    '<meta charset="utf-8">',
+    `<title>${escapeHtml(title)}</title>`,
+    `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>`,
+    '</head>',
+    '<body>',
+    clone.outerHTML,
+    '</body>',
+    '</html>',
+  ].join('');
+}
+
+async function buildBrowserRenderedPdfBlob(
+  wrapper: HTMLElement,
+  filename: string,
+) {
+  let response: Response;
+  try {
+    response = await fetch('/api/resume/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        html: buildPrintHtml(wrapper, filename),
+        filename,
+      }),
+    });
+  } catch (err) {
+    throw new Error(
+      err instanceof TypeError
+        ? 'Local PDF renderer is unavailable. Start the full app with `npm run dev` so the API server is running, then try Download PDF again.'
+        : err instanceof Error
+          ? err.message
+          : 'Local PDF renderer is unavailable.',
+      { cause: err },
+    );
+  }
+
+  if (!response.ok) {
+    let detail =
+      response.status === 404
+        ? 'Local PDF renderer route was not found. Restart the API server so it picks up the latest backend code, then try Download PDF again.'
+        : 'Failed to render PDF with the local browser engine.';
+    try {
+      const contentType = response.headers.get('content-type') ?? '';
+      if (contentType.includes('application/json')) {
+        const body = await response.json();
+        if (typeof body.error === 'string') {
+          detail = body.error;
+        }
+      } else {
+        const text = await response.text();
+        if (text.trim()) {
+          detail = text.trim();
+        }
+      }
+    } catch {
+      // Keep the generic renderer error if the response body is unreadable.
+    }
+    throw new Error(detail);
+  }
+
+  const blob = await response.blob();
+  if (blob.type !== 'application/pdf') {
+    throw new Error(
+      'Local PDF renderer returned a non-PDF response. Make sure the full app is running with `npm run dev`, then try Download PDF again.',
+    );
+  }
+
+  return blob;
+}
+
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -690,36 +802,47 @@ async function renderPdf(
   filename: string,
   mode: 'save' | 'blob',
 ): Promise<Blob | void> {
-  const state = beginCapture(elementId);
+  const wrapper = getExportWrapper(elementId);
 
-  try {
-    await waitForLayout();
-    const page = getResumePage(state.wrapper);
-    const fit = measurePageFit(page);
-    if (fit.status === 'over') {
-      const overflowInches = fit.overflowPt / 72;
-      throw new Error(
-        `Resume is over one page by ${overflowInches.toFixed(2)} in. Tighten content or reduce type size before exporting so the PDF is not truncated.`,
-      );
-    }
-
-    const blob = buildTextPdfBlob(page);
-
-    if (mode === 'blob') {
-      return blob;
-    }
-
-    downloadBlob(blob, filename);
-  } finally {
-    endCapture(state);
+  await waitForLayout();
+  const page = getResumePage(wrapper);
+  const fit = measurePageFit(page);
+  if (fit.status === 'over') {
+    const overflowInches = fit.overflowPt / 72;
+    throw new Error(
+      `Resume is over one page by ${overflowInches.toFixed(2)} in. Tighten content or reduce type size before exporting so the PDF is not truncated.`,
+    );
   }
+
+  let blob: Blob;
+  try {
+    blob = await buildBrowserRenderedPdfBlob(wrapper, filename);
+  } catch (err) {
+    if (mode === 'save') {
+      throw err;
+    }
+
+    const state = beginCapture(elementId);
+    try {
+      await waitForLayout();
+      const page = getResumePage(state.wrapper);
+      blob = buildTextPdfBlob(page);
+    } finally {
+      endCapture(state);
+    }
+  }
+
+  if (mode === 'blob') {
+    return blob;
+  }
+
+  downloadBlob(blob, filename);
 }
 
 export async function generateResumePdfBlob(
   elementId: string,
   filename: string,
 ): Promise<Blob> {
-  void filename;
   const blob = await renderPdf(elementId, filename, 'blob');
   return blob as Blob;
 }

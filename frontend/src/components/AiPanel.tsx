@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Bot, Check, Clipboard, Link2, Send, Loader2, Plug } from 'lucide-react';
+import { Bot, Check, Clipboard, Eye, Link2, Send, Loader2, Plug, X } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { ResumeData } from '../types/resume';
 import type { BridgeDebugEvent } from '../hooks/useAiBridge';
@@ -27,6 +27,7 @@ import {
 } from '../utils/tokenEstimate';
 import { AiResultModal } from './AiResultModal';
 import './AiPanel.css';
+import './ResumeBuilderWizard.css';
 
 interface AiPanelProps {
   resumeFilename: string;
@@ -69,6 +70,11 @@ interface AiPanelProps {
   pushPipeline: (step: string, detail?: string) => void;
   startPipeline: (variant: PipelineVariant) => void;
   debugEvents?: BridgeDebugEvent[];
+}
+
+interface PromptPreviewState {
+  title: string;
+  text: string;
 }
 
 function formatDebugDetail(detail: unknown): string {
@@ -124,6 +130,9 @@ export function AiPanel({
   const [rawResponse, setRawResponse] = useState('');
   const [activeSession, setActiveSession] = useState<AiChatSession | null>(null);
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
+  const [promptPreview, setPromptPreview] = useState<PromptPreviewState | null>(null);
+  const [previewingPrompt, setPreviewingPrompt] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
 
   const isBusy = connecting || sending || refining || previewData !== null;
 
@@ -197,6 +206,54 @@ export function AiPanel({
     },
     [baselineData, pushPipeline],
   );
+
+  const handlePreviewPrompt = useCallback(() => {
+    setPreviewingPrompt(true);
+    setPromptCopied(false);
+    setError(null);
+
+    try {
+      setPromptPreview({
+        title: 'Edit Prompt Preview',
+        text: buildAiPrompt(aiUserPrompt, resumeData),
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to build prompt preview.');
+    } finally {
+      setPreviewingPrompt(false);
+    }
+  }, [aiUserPrompt, resumeData]);
+
+  const copyPromptPreview = useCallback(async () => {
+    if (!promptPreview?.text) {
+      return;
+    }
+
+    const fallbackCopy = () => {
+      const textarea = document.createElement('textarea');
+      textarea.value = promptPreview.text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    };
+
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(promptPreview.text);
+      } catch {
+        fallbackCopy();
+      }
+    } else {
+      fallbackCopy();
+    }
+
+    setPromptCopied(true);
+    window.setTimeout(() => setPromptCopied(false), 1600);
+  }, [promptPreview?.text]);
 
   const handleConnect = useCallback(async () => {
     setConnecting(true);
@@ -410,9 +467,23 @@ export function AiPanel({
 
           <button
             type="button"
+            className="ai-panel-btn ai-panel-btn--secondary"
+            onClick={handlePreviewPrompt}
+            disabled={sending || connecting || refining || disabled || previewingPrompt}
+          >
+            {previewingPrompt ? (
+              <Loader2 size={14} className="spin" />
+            ) : (
+              <Eye size={14} />
+            )}
+            {previewingPrompt ? 'Preparing…' : 'Preview prompt'}
+          </button>
+
+          <button
+            type="button"
             className="ai-panel-btn ai-panel-btn--primary"
             onClick={handleSendPdf}
-            disabled={sending || connecting || refining || disabled}
+            disabled={sending || connecting || refining || disabled || previewingPrompt}
           >
             {sending ? (
               <Loader2 size={14} className="spin" />
@@ -510,6 +581,57 @@ export function AiPanel({
         onDiscard={handleDiscard}
         onRefine={handleRefine}
       />
+
+      {promptPreview && (
+        <div
+          className="rb-prompt-preview-overlay"
+          role="presentation"
+          onClick={() => setPromptPreview(null)}
+        >
+          <div
+            className="rb-prompt-preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ai-prompt-preview-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="rb-prompt-preview-header">
+              <h2 id="ai-prompt-preview-title">{promptPreview.title}</h2>
+              <button
+                type="button"
+                className="rb-prompt-preview-icon-btn"
+                onClick={() => setPromptPreview(null)}
+                aria-label="Close prompt preview"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <textarea
+              className="rb-prompt-preview-textarea"
+              value={promptPreview.text}
+              readOnly
+              spellCheck={false}
+            />
+            <div className="rb-prompt-preview-actions">
+              <button
+                type="button"
+                className="rb-wizard-btn rb-wizard-btn--secondary"
+                onClick={() => void copyPromptPreview()}
+              >
+                <Clipboard size={14} />
+                {promptCopied ? 'Copied' : 'Copy prompt'}
+              </button>
+              <button
+                type="button"
+                className="rb-wizard-btn rb-wizard-btn--primary"
+                onClick={() => setPromptPreview(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

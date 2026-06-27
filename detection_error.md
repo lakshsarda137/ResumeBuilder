@@ -16,7 +16,9 @@ Do not blame prompt sending.
 
 The PDF prompt is sent. Claude generates the response. The issue is response completion/capture detection.
 
-Do not replace PDF import with local markdown extraction unless the user explicitly asks for that architecture. Repository resume import is supposed to send the PDF attachment to the selected web LLM provider.
+Do not replace PDF import with local markdown extraction unless the user explicitly asks for that architecture. Repository resume import is supposed to send the PDF attachment to providers whose hidden-tab upload path works.
+
+Gemini is now the explicit exception: diagnostics showed Gemini's hidden-tab upload menu does not open even with CDP focus/lifecycle emulation, so Gemini PDF flows locally extract `/api/pdf/markdown` and send the extracted text prompt. Claude and ChatGPT should keep the real PDF attachment path.
 
 ## Bad Fix Attempt
 
@@ -30,7 +32,7 @@ Why it was wrong:
 - Replacing the PDF attachment flow with markdown changed product behavior instead of fixing detection.
 - It risked breaking fidelity and user expectations for resume PDF imports.
 
-This markdown/text-prompt change was reverted. Resume repository import should use `sendPdfAndWait` and attach the actual PDF.
+This markdown/text-prompt change was reverted for Claude/ChatGPT. Resume repository import should use `sendPdfAndWait`; `sendPdfAndWait` now applies the Gemini-only markdown fallback internally.
 
 ## Changes Already Tried
 
@@ -71,12 +73,12 @@ These are now supplemented by backup polling in the background script and strict
 Do not:
 - claim the prompt was not sent,
 - blame Claude for not generating,
-- switch PDF import to markdown extraction,
+- switch Claude/ChatGPT PDF import to markdown extraction,
 - make broad architecture changes unrelated to detection,
 - tell the user to reload as if that is the fix without evidence.
 
 Do:
-- keep the PDF attachment flow intact,
+- keep the PDF attachment flow intact for Claude/ChatGPT,
 - focus on response completion/capture detection,
 - add targeted instrumentation if needed,
 - verify on the actual Claude PDF import path.

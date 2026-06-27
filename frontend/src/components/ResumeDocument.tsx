@@ -160,6 +160,7 @@ export function ResumeDocument({
         '--resume-heading-size': `${effectiveSettings.headingFontSize}pt`,
         '--resume-body-size': `${effectiveSettings.bodyFontSize}pt`,
         '--resume-bullet-size': `${effectiveSettings.bulletFontSize}pt`,
+        '--resume-bullet-indent': `${effectiveSettings.bulletIndent}pt`,
         '--resume-text-color': grayscaleFromIntensity(effectiveSettings.textIntensity),
         '--resume-rule-color': grayscaleFromIntensity(effectiveSettings.ruleIntensity),
         '--resume-body-weight': effectiveSettings.bodyTextWeight,
@@ -328,19 +329,29 @@ export function ResumeDocument({
   };
 
   const addEntry = (sectionId: string) => {
-    const newEntry: ResumeEntry = {
-      id: generateId(),
-      title: 'Organization Name',
-      location: 'City, ST',
-      date: 'Month Year – Present',
-      subtitle: 'Role | Technologies',
-      bullets: [makeBullet('Describe your impact here.')],
-    };
     updateSection(
       sectionId,
       (section) => ({
         ...section,
-        entries: [...section.entries, newEntry],
+        entries: [
+          ...section.entries,
+          {
+            id: generateId(),
+            title:
+              section.type === 'experience'
+                ? 'Company Name'
+                : section.type === 'projects'
+                  ? 'Project Name'
+                  : 'Organization Name',
+            location: section.type === 'experience' ? '' : 'City, ST',
+            date: 'Month Year – Present',
+            subtitle:
+              section.type === 'experience'
+                ? 'Job Title | Technologies'
+                : 'Role | Technologies',
+            bullets: [makeBullet('Describe your impact here.')],
+          },
+        ],
       }),
       true,
     );
@@ -567,11 +578,25 @@ export function ResumeDocument({
                             title: v,
                           }))
                         }
-                        placeholder="Title"
+                        placeholder={section.type === 'experience' ? 'Company' : 'Title'}
                         editing={editing}
                       />
                     </span>
-                    {entry.location ? (
+                    {section.type === 'experience' ? (
+                      <EditableText
+                        tag="span"
+                        className="resume-entry-date"
+                        value={entry.date}
+                        onChange={(v) =>
+                          updateEntry(section.id, entry.id, (e) => ({
+                            ...e,
+                            date: v,
+                          }))
+                        }
+                        placeholder="Date range"
+                        editing={editing}
+                      />
+                    ) : entry.location ? (
                       <EditableText
                         tag="span"
                         className="resume-entry-location"
@@ -613,10 +638,30 @@ export function ResumeDocument({
                           subtitle: v,
                         }))
                       }
-                      placeholder="Role | Technologies"
+                      placeholder={
+                        section.type === 'experience'
+                          ? 'Job Title | Technologies'
+                          : 'Role | Technologies'
+                      }
                       editing={editing}
                     />
-                    {entry.location ? (
+                    {section.type === 'experience' ? (
+                      entry.location ? (
+                        <EditableText
+                          tag="span"
+                          className="resume-entry-location"
+                          value={entry.location}
+                          onChange={(v) =>
+                            updateEntry(section.id, entry.id, (e) => ({
+                              ...e,
+                              location: v,
+                            }))
+                          }
+                          placeholder="Location"
+                          editing={editing}
+                        />
+                      ) : null
+                    ) : entry.location ? (
                       <EditableText
                         tag="span"
                         className="resume-entry-date"

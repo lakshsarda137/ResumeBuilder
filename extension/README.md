@@ -1,6 +1,6 @@
 # Resume Builder AI Bridge
 
-This extension lets Resume Builder send your PDF to **your existing logged-in web session** on Claude, ChatGPT, or Gemini.
+This extension lets Resume Builder send your PDF to **your existing logged-in web session** on Claude or ChatGPT. For Gemini, Resume Builder extracts the PDF locally to markdown and sends that text because Gemini's hidden-tab upload menu does not create a file input reliably.
 
 No API keys. It automates the chat website you already use in the browser.
 
@@ -35,5 +35,6 @@ The bridge loads `page-bridge.js` from the extension (not inline script) so it w
 - The extension only runs when you start an AI send/import action.
 - Your login cookies stay in the browser — nothing is sent to a third-party API.
 - Repository imports use explicit JSON delimiters, background backup polling, and app-visible diagnostics so response capture failures can be debugged without asking the user to paste console output.
-- Waiting status distinguishes a background provider tab that has not visibly started generating from a model that is already streaming. If a provider throttles hidden tabs, opening the provider tab can still wake generation; completed responses are then captured automatically.
+- Waiting status distinguishes a background provider tab that has not visibly started generating from a model that is already streaming. ChatGPT capture uses CDP focus emulation, assistant DOM mutation events, and immediate complete-JSON detection so normal sends do not require activating or focusing the provider tab. The v1.5.21 CDP wake is the confirmed fix for ChatGPT hidden-tab response materialization. Gemini keeps the CDP wake for background text-send/capture throttling, but PDF input uses local markdown extraction instead of Gemini's hidden-tab upload menu.
+- The extension requests Chrome's `debugger` permission for CDP focus/lifecycle emulation. It must not call tab activation APIs or CDP `Page.bringToFront`.
 - After changing extension files, reload the unpacked extension and refresh the Resume Builder tab.

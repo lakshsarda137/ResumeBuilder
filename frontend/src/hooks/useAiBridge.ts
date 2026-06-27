@@ -32,6 +32,69 @@ function createRequestId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+async function extractPdfMarkdown({
+  pdfBase64,
+  filename,
+}: {
+  pdfBase64: string;
+  filename: string;
+}) {
+  const res = await fetch('/api/pdf/markdown', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ base64: pdfBase64, filename }),
+  });
+
+  const body = (await res.json().catch(() => ({}))) as {
+    markdown?: string;
+    engine?: string;
+    error?: string;
+  };
+
+  if (!res.ok || !body.markdown?.trim()) {
+    throw new Error(body.error ?? 'Failed to extract PDF text for Gemini.');
+  }
+
+  return {
+    markdown: body.markdown,
+    engine: body.engine ?? 'local PDF markdown extractor',
+  };
+}
+
+function buildGeminiMarkdownPdfPrompt({
+  prompt,
+  filename,
+  markdown,
+  engine,
+}: {
+  prompt: string;
+  filename: string;
+  markdown: string;
+  engine: string;
+}) {
+  const trimmedMarkdown = markdown.trim();
+  const maxMarkdownChars = 80_000;
+  const wasTruncated = trimmedMarkdown.length > maxMarkdownChars;
+  const markdownForPrompt = wasTruncated
+    ? trimmedMarkdown.slice(0, maxMarkdownChars)
+    : trimmedMarkdown;
+
+  return `${prompt}
+
+GEMINI-SPECIFIC INPUT NOTE:
+The original PDF could not be attached through Gemini's hidden-tab web upload UI, so Resume Builder extracted the PDF locally and pasted the markdown/text below instead.
+Where the instructions above say "attached PDF", use this extracted markdown as the source PDF content. Preserve the original PDF facts faithfully; do not invent content that is missing from the extracted text.
+
+SOURCE PDF: ${filename}
+LOCAL EXTRACTION ENGINE: ${engine}
+${wasTruncated ? 'NOTE: The extracted markdown was truncated to fit the prompt budget. Use only the visible extracted content below.' : ''}
+
+EXTRACTED PDF MARKDOWN:
+\`\`\`markdown
+${markdownForPrompt}
+\`\`\``;
+}
+
 function isBridgeMarkedReady() {
   return document.documentElement.getAttribute('data-resume-bridge') === 'ready';
 }
@@ -262,6 +325,36 @@ export function useAiBridge() {
       filename: string;
       forceNewChat?: boolean;
     }) => {
+      if (provider === 'gemini') {
+        pushPipeline('reading_pdf', `Extracting ${filename} locally for Gemini…`);
+        const extracted = await extractPdfMarkdown({ pdfBase64, filename });
+        const geminiPrompt = buildGeminiMarkdownPdfPrompt({
+          prompt,
+          filename,
+          markdown: extracted.markdown,
+          engine: extracted.engine,
+        });
+        pushPipeline('importing_pdf', 'Sending extracted PDF text to Gemini…');
+        const response = await sendBridgeMessage({
+          type: 'SEND_PROMPT',
+          provider,
+          prompt: geminiPrompt,
+          forceNewChat,
+        });
+
+        if (!response.ok) {
+          throw new Error(response.error ?? 'Failed to send extracted PDF text to Gemini.');
+        }
+
+        if (!response.rawResponse?.trim()) {
+          throw new Error(
+            'No response captured from Gemini. Wait for the reply in the provider tab, then try again.',
+          );
+        }
+
+        return response;
+      }
+
       const response = await sendBridgeMessage({
         type: 'SEND_PDF',
         provider,
@@ -283,7 +376,7 @@ export function useAiBridge() {
 
       return response;
     },
-    [sendBridgeMessage],
+    [pushPipeline, sendBridgeMessage],
   );
 
   const sendImprovementAndWait = useCallback(
