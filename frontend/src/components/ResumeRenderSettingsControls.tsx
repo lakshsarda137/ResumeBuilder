@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import {
   RESUME_RENDER_TEMPLATES,
   mergeResumeRenderSettings,
@@ -6,6 +6,30 @@ import {
   type ResumeRenderSettings,
 } from '../utils/resumeSettings';
 import './ResumeRenderSettingsControls.css';
+
+function InfoDot({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const tipId = useId();
+  return (
+    <button
+      type="button"
+      className="info-dot"
+      aria-label={`Info: ${text}`}
+      aria-describedby={open ? tipId : undefined}
+      onClick={() => setOpen((value) => !value)}
+      onBlur={() => setOpen(false)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      i
+      {open ? (
+        <span className="info-dot__tip" id={tipId} role="tooltip">
+          {text}
+        </span>
+      ) : null}
+    </button>
+  );
+}
 
 const FONT_OPTIONS = [
   'Times New Roman',
@@ -59,36 +83,37 @@ const NUMBER_FIELDS: Array<{
   min: number;
   max: number;
   step: number;
+  help: string;
 }> = [
-  { key: 'nameFontSize', label: 'Name size (pt)', min: 16, max: 32, step: 0.5 },
-  { key: 'headingFontSize', label: 'Heading size (pt)', min: 8, max: 16, step: 0.5 },
-  { key: 'bodyFontSize', label: 'Body size (pt)', min: 8, max: 14, step: 0.25 },
-  { key: 'bulletFontSize', label: 'Bullet size (pt)', min: 8, max: 14, step: 0.25 },
-  { key: 'lineHeight', label: 'Line height', min: 1, max: 1.6, step: 0.01 },
-  { key: 'pagePaddingTop', label: 'Top margin (in)', min: 0.35, max: 0.8, step: 0.01 },
-  { key: 'pagePaddingRight', label: 'Right margin (in)', min: 0.4, max: 0.8, step: 0.01 },
-  { key: 'pagePaddingBottom', label: 'Bottom margin (in)', min: 0.35, max: 0.8, step: 0.01 },
-  { key: 'pagePaddingLeft', label: 'Left margin (in)', min: 0.4, max: 0.8, step: 0.01 },
-  { key: 'sectionSpacing', label: 'Before section gap (pt)', min: 3, max: 10, step: 0.5 },
-  { key: 'sectionHeaderSpacing', label: 'Title gap (pt)', min: 1, max: 6, step: 0.5 },
-  { key: 'entrySpacing', label: 'Entry gap (pt)', min: 1, max: 8, step: 0.5 },
-  { key: 'textIntensity', label: 'Text intensity (%)', min: 65, max: 100, step: 1 },
-  { key: 'ruleIntensity', label: 'Rule intensity (%)', min: 45, max: 100, step: 1 },
-  { key: 'bodyTextWeight', label: 'Body weight (CSS)', min: 300, max: 500, step: 25 },
-  { key: 'boldTextWeight', label: 'Bold weight (CSS)', min: 500, max: 800, step: 25 },
-  { key: 'strongTextWeight', label: 'Strong weight (CSS)', min: 500, max: 800, step: 25 },
+  { key: 'nameFontSize', label: 'Name size (pt)', min: 16, max: 32, step: 0.5, help: 'How big your name looks at the very top.' },
+  { key: 'headingFontSize', label: 'Heading size (pt)', min: 8, max: 16, step: 0.5, help: 'How big section titles like "Experience" are.' },
+  { key: 'bodyFontSize', label: 'Body size (pt)', min: 8, max: 14, step: 0.25, help: 'How big the main text is.' },
+  { key: 'bulletFontSize', label: 'Bullet size (pt)', min: 8, max: 14, step: 0.25, help: 'How big the text inside each bullet point is.' },
+  { key: 'lineHeight', label: 'Line height', min: 1, max: 1.6, step: 0.01, help: 'Space between lines of text. Bigger means more breathing room.' },
+  { key: 'pagePaddingTop', label: 'Top margin (in)', min: 0.35, max: 0.8, step: 0.01, help: 'Empty space above the resume content.' },
+  { key: 'pagePaddingRight', label: 'Right margin (in)', min: 0.4, max: 0.8, step: 0.01, help: 'Empty space on the right side of the page.' },
+  { key: 'pagePaddingBottom', label: 'Bottom margin (in)', min: 0.35, max: 0.8, step: 0.01, help: 'Empty space below the resume content.' },
+  { key: 'pagePaddingLeft', label: 'Left margin (in)', min: 0.4, max: 0.8, step: 0.01, help: 'Empty space on the left side of the page.' },
+  { key: 'sectionSpacing', label: 'Before section gap (pt)', min: 3, max: 10, step: 0.5, help: 'Space above each section title.' },
+  { key: 'sectionHeaderSpacing', label: 'Title gap (pt)', min: 1, max: 6, step: 0.5, help: 'Space between a section title and the content under it.' },
+  { key: 'entrySpacing', label: 'Entry gap (pt)', min: 1, max: 8, step: 0.5, help: 'Space between two entries, like two jobs.' },
+  { key: 'textIntensity', label: 'Text intensity (%)', min: 65, max: 100, step: 1, help: 'How dark the text is. 100 is pure black; lower is lighter gray.' },
+  { key: 'ruleIntensity', label: 'Rule intensity (%)', min: 45, max: 100, step: 1, help: 'How dark the horizontal lines under section titles are.' },
+  { key: 'bodyTextWeight', label: 'Body weight (CSS)', min: 300, max: 500, step: 25, help: 'Thickness of normal text. Most fonts only have normal and bold, so this may look unchanged.' },
+  { key: 'boldTextWeight', label: 'Bold weight (CSS)', min: 500, max: 800, step: 25, help: 'Thickness of bold structure: headings, titles, dates, and skill labels.' },
+  { key: 'strongTextWeight', label: 'Strong weight (CSS)', min: 500, max: 800, step: 25, help: 'Thickness of bold words inside bullets, like a bolded number or keyword.' },
 ];
 
-const TOGGLE_FIELDS: Array<{ key: BooleanSettingKey; label: string }> = [
-  { key: 'sectionHeadingBold', label: 'Heading bold' },
-  { key: 'sectionHeadingItalic', label: 'Heading italic' },
-  { key: 'sectionHeadingUppercase', label: 'Heading uppercase' },
-  { key: 'entryTitleBold', label: 'Entry titles bold' },
-  { key: 'entryTitleItalic', label: 'Entry titles italic' },
-  { key: 'subtitleItalic', label: 'Subtitles italic' },
-  { key: 'dateBold', label: 'Dates bold' },
-  { key: 'dateItalic', label: 'Dates italic' },
-  { key: 'skillLabelBold', label: 'Skill labels bold' },
+const TOGGLE_FIELDS: Array<{ key: BooleanSettingKey; label: string; help: string }> = [
+  { key: 'sectionHeadingBold', label: 'Heading bold', help: 'Makes section titles bold.' },
+  { key: 'sectionHeadingItalic', label: 'Heading italic', help: 'Makes section titles slanted (italic).' },
+  { key: 'sectionHeadingUppercase', label: 'Heading uppercase', help: 'Makes section titles ALL CAPS.' },
+  { key: 'entryTitleBold', label: 'Entry titles bold', help: 'Makes job or entry titles bold.' },
+  { key: 'entryTitleItalic', label: 'Entry titles italic', help: 'Makes job or entry titles slanted (italic).' },
+  { key: 'subtitleItalic', label: 'Subtitles italic', help: 'Makes the role/tech line under a title slanted.' },
+  { key: 'dateBold', label: 'Dates bold', help: 'Makes date ranges bold.' },
+  { key: 'dateItalic', label: 'Dates italic', help: 'Makes date ranges slanted (italic).' },
+  { key: 'skillLabelBold', label: 'Skill labels bold', help: 'Makes skill category labels like "Languages:" bold.' },
 ];
 
 function numericDraftsFromSettings(settings: ResumeRenderSettings) {
@@ -166,7 +191,10 @@ export function ResumeRenderSettingsControls({
       className={`resume-settings-controls resume-settings-controls--${tone}${compact ? ' resume-settings-controls--compact' : ''}`}
     >
       <section className="resume-settings-controls__group resume-settings-controls__group--template">
-        <span className="resume-settings-controls__label">Template</span>
+        <span className="resume-settings-controls__label">
+          Template
+          <InfoDot text="The overall look. Classic is a clean plain resume. Keyword emphasis bolds important keywords inside bullets." />
+        </span>
         <div className="resume-settings-controls__template-row">
           {RESUME_RENDER_TEMPLATES.map((template) => (
             <button
@@ -184,7 +212,7 @@ export function ResumeRenderSettingsControls({
 
       <section className="resume-settings-controls__group resume-settings-controls__group--fonts resume-settings-controls__grid">
         <label className="resume-settings-controls__field">
-          <span>Body font</span>
+          <span>Body font <InfoDot text="Font used for the main text in bullets and skills." /></span>
           <select
             value={settings.bodyFontFamily}
             onChange={(event) => update({ bodyFontFamily: event.target.value })}
@@ -197,7 +225,7 @@ export function ResumeRenderSettingsControls({
           </select>
         </label>
         <label className="resume-settings-controls__field">
-          <span>Name font</span>
+          <span>Name font <InfoDot text="Font used for your name at the top." /></span>
           <select
             value={settings.nameFontFamily}
             onChange={(event) => update({ nameFontFamily: event.target.value })}
@@ -210,7 +238,7 @@ export function ResumeRenderSettingsControls({
           </select>
         </label>
         <label className="resume-settings-controls__field">
-          <span>Heading font</span>
+          <span>Heading font <InfoDot text="Font used for section titles like Experience and Education." /></span>
           <select
             value={settings.headingFontFamily}
             onChange={(event) => update({ headingFontFamily: event.target.value })}
@@ -223,7 +251,7 @@ export function ResumeRenderSettingsControls({
           </select>
         </label>
         <label className="resume-settings-controls__field resume-settings-controls__field--wide">
-          <span>Keyword terms</span>
+          <span>Keyword terms <InfoDot text="Words that get automatically bolded inside bullets. Only used in the Keyword emphasis template." /></span>
           <input
             value={settings.keywordTerms.join(', ')}
             onChange={(event) => update({ keywordTerms: parseCommaList(event.target.value) })}
@@ -234,7 +262,7 @@ export function ResumeRenderSettingsControls({
       <section className="resume-settings-controls__group resume-settings-controls__group--numbers resume-settings-controls__grid">
         {NUMBER_FIELDS.map((field) => (
           <label key={field.key} className="resume-settings-controls__field">
-            <span>{field.label}</span>
+            <span>{field.label} <InfoDot text={field.help} /></span>
             <input
               type="number"
               min={field.min}
@@ -257,7 +285,10 @@ export function ResumeRenderSettingsControls({
       </section>
 
       <section className="resume-settings-controls__group resume-settings-controls__group--toggles resume-settings-controls__toggles">
-        <span className="resume-settings-controls__label">Text style</span>
+        <span className="resume-settings-controls__label">
+          Text style
+          <InfoDot text="On/off switches for bold, italic, and uppercase on different parts of the resume." />
+        </span>
         {TOGGLE_FIELDS.map((field) => (
           <label key={field.key}>
             <input
@@ -265,7 +296,7 @@ export function ResumeRenderSettingsControls({
               checked={settings[field.key]}
               onChange={(event) => update({ [field.key]: event.target.checked })}
             />
-            <span>{field.label}</span>
+            <span>{field.label} <InfoDot text={field.help} /></span>
           </label>
         ))}
       </section>

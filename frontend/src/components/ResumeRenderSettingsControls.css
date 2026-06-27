@@ -13,14 +13,75 @@
 }
 
 .resume-settings-controls__label,
-.resume-settings-controls__field span {
-  display: block;
+.resume-settings-controls__field > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   margin-bottom: 7px;
   color: var(--resume-settings-muted);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.resume-settings-controls__toggles label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.info-dot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 1px solid var(--resume-settings-border-strong);
+  border-radius: 50%;
+  background: var(--resume-settings-input);
+  color: var(--resume-settings-muted);
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: none;
+  cursor: help;
+  padding: 0;
+}
+
+.info-dot:hover,
+.info-dot:focus-visible {
+  border-color: var(--resume-settings-accent);
+  color: var(--resume-settings-accent);
+  outline: none;
+}
+
+.info-dot__tip {
+  display: block;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: 200px;
+  padding: 7px 9px;
+  border: 1px solid var(--resume-settings-border-strong);
+  border-radius: 6px;
+  background: var(--resume-settings-surface);
+  color: var(--resume-settings-text);
+  font-size: 11px;
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1.35;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  pointer-events: none;
 }
 
 .resume-settings-controls__template-row {

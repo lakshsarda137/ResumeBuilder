@@ -315,6 +315,8 @@ The Settings page includes a scaled live resume preview using the same `ResumeDo
 
 All controlled number inputs keep a temporary typed draft so clearing and replacing a number does not immediately snap to clamped values while the user is mid-edit. This applies to Settings, wizard pre-generation typography fields, generated-result modal controls, and the editor Style panel. Sanitized values are still saved back through `mergeResumeRenderSettings` when the draft is valid and synced back on blur/reset.
 
+Every parameter in the Settings page and editor Style panel (template, fonts, keyword terms, every numeric field, and every bold/italic/uppercase toggle) has a small italic `i` info dot next to its label. Hover or click the dot to see a plain-language explanation of what that control does. The tooltip is rendered only while open (hover or click), closes on mouse-leave/blur, and is announced to screen readers via `role="tooltip"` and `aria-describedby`.
+
 ### Format toolbar (`FormatToolbar.tsx`)
 
 Sits **directly above the resume page** (8.5in wide, offset by the 130px left control rail) — not in the top app header.
@@ -348,11 +350,11 @@ PDF export must create a real text PDF. Do not reintroduce `html2pdf`, `html2can
 2. Before writing, the wrapper is made visible at the 8.5in page width so DOM layout measurements are stable
 3. `pdf.ts` measures the rendered page against an 8.5x11 page; if content exceeds one page, export is blocked instead of silently clipping text
 4. `pdf.ts` walks rendered text nodes and section-rule elements, then writes PDF text operators and vector lines directly
-5. Standard PDF fonts (`Times`/`Helvetica`, with italic variants and synthetic stroke reinforcement for weight) preserve selectable text without embedding a page image
+5. Standard PDF fonts (`Times`/`Helvetica`, with regular, bold, italic, and bold-italic variants selected from the rendered `font-weight` and `font-style`) preserve selectable text without embedding a page image
 6. `generateResumePdfBlob()` for AI send and `exportResumeToPdf()` for download share the same text-PDF path
 7. Verification for any generated resume PDF: extractable characters should be nonzero, embedded page images should be zero, ATS/parser tools should not see a blank resume, and visual spacing/weight must be checked on the downloaded PDF itself
 
-Current caveat: the editor preview and downloaded PDF are still not pixel-identical for typography weight. The browser preview renders browser fonts such as Times New Roman; the custom PDF writer uses built-in PDF fonts and synthetic stroke reinforcement. The user's weight/intensity choices are represented in both paths, but the two paths can still look like different weight spectra. True visual parity likely requires embedding/subsetting the same font used in preview or moving to a browser/print PDF path that preserves selectable text and page-fit guarantees.
+Current caveat: the editor preview and downloaded PDF now render weight through the same mechanism — both resolve `font-weight` to a real font face (Times-Roman vs Times-Bold, italic variants likewise). The previous synthetic `-webkit-text-stroke` weight reinforcement was removed because it was invisible on screen but visible at vector resolution in the PDF, which made weight changes appear in the download but not the preview. Remaining limitation: built-in PDF fonts only ship regular and bold weights, so intermediate CSS weight values (e.g. a body weight of 500) collapse to the nearest available face in both preview and download. True fine-grained weight parity requires embedding/subsetting a variable font, or moving to a browser/print PDF path that preserves selectable text and page-fit guarantees.
 
 ---
 
@@ -545,8 +547,9 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | Fit success message covers Web AI panel | Toolbar status was positioned as an absolute toast under a wrapping toolbar | Keep status messages in toolbar flow and ellipsize long text |
 | Optimized resume diff shows additions but hides removals | Missing faithful baseline, or bullet deletions/reorders were compared by raw index/id instead of semantic match | Optimize-PDF responses must include both `baseline` and `optimized`; bullet diffs match within each entry and show unmatched baseline bullets as removed |
 | "Technical Skills" heading has a massive gap in downloaded PDF | The text-PDF writer emitted each non-justified word as a separate absolute-positioned text object | PDF export now groups normal line text into contiguous chunks; verify downloaded PDF headings, not just browser preview |
-| Downloaded PDF font is too dark/heavy | PDF text weight/color previously had no user-facing tuning and collapsed weights through built-in PDF bold faces | Text/rule intensity and CSS weight controls now exist; `pdf.ts` reads rendered color/stroke data |
-| Preview and downloaded PDF weight do not look the same | Browser preview uses browser fonts; selectable text-PDF export uses built-in PDF fonts plus synthetic stroke reinforcement | Choices are represented, but visual parity is still open; true fix likely requires font embedding/subsetting or a different selectable browser-PDF path |
+| Downloaded PDF font is too dark/heavy | PDF text weight was faked with a synthetic `-webkit-text-stroke` that was invisible on screen but visible at vector resolution in the PDF, and `pdf.ts` ignored `font-weight` so bold text was rendered as stroked regular text | `pdf.ts` now honors `font-weight` and selects the real bold/bold-italic PDF font faces; the synthetic text-stroke was removed from preview and export so both render weight via real fonts |
+| Preview and downloaded PDF weight do not look the same | Preview resolved `font-weight` to real browser fonts while the PDF writer ignored `font-weight` and faked weight with a synthetic stroke (sub-pixel on screen, visible in the PDF) | Both paths now resolve `font-weight` to the same real font faces; intermediate weights still collapse to the nearest available face until a variable font is embedded |
+| All settings info tooltips open at once and cover the inputs | `ResumeRenderSettingsControls.css` used a descendant selector `.resume-settings-controls__field span` that matched the tooltip `<span>` nested inside each field and forced `display: flex`, overriding the `[hidden]` attribute's `display: none` so every tooltip was always visible | Selector narrowed to `.resume-settings-controls__field > span` (direct child only); the tooltip is conditionally rendered only while open and carries an explicit `display: block` |
 | Purple/blue editor panel returned | `AiPanel.css` had its own hardcoded slate/purple colors outside the toolbar CSS | Keep `AiPanel.css`, `ResumeEditor.css`, and `FormatToolbar.css` on the neutral/warm palette; verify on an actual editor session |
 | Top toolbar controls overlap | Fixed grid columns let toolbar center/right groups collide at wide-but-crowded widths | Toolbar uses wrapping flex layout with constrained select width; verify with a saved session and JD notes visible |
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
@@ -596,7 +599,7 @@ npm run lint      # ESLint
 
 - `ResumeDocument.css` / canvas layout in `ResumeEditor.css` — toolbar is 8.5in wide above page; test PDF export after
 - `resumeFitModerator.ts` — deterministic layout-only small-overflow fitting; keep it conservative and re-measure after applying
-- PDF typography parity — controls exist for darkness/weight/intensity, but preview and downloaded PDF still differ visually because they use different font/rendering paths
+- PDF typography parity — preview and downloaded PDF now resolve `font-weight` to the same real font faces; remaining gap is intermediate weights (e.g. 500), which collapse to the nearest available face until a variable font is embedded
 - `scripts/estimate-resume-line-budget.mjs` — heuristic line-budget estimator for prompt/layout tuning; renderer measurement remains source of truth
 - `FormatToolbar.tsx` / `formatSelection.ts` — selection must be preserved for dropdowns
 - `JdNotesPanel` highlight uses `data-jd-anchor` on `ResumeDocument` — keep ids in sync with `jdNotes.ts`

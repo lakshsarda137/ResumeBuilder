@@ -158,7 +158,14 @@ function isVisibleElement(element: Element) {
 
 function fontStyleKeyFor(style: CSSStyleDeclaration): FontStyleKey {
   const isItalic = style.fontStyle === 'italic' || style.fontStyle === 'oblique';
+  const weight = Number.parseFloat(style.fontWeight);
+  // Treat 600+ as bold so the PDF picks the real bold font face (Times-Bold,
+  // Helvetica-Bold, etc.) instead of faking weight with a synthetic stroke.
+  // This mirrors how the browser preview resolves font-weight to a real face.
+  const isBold = Number.isFinite(weight) ? weight >= 600 : false;
 
+  if (isBold && isItalic) return 'boldItalic';
+  if (isBold) return 'bold';
   if (isItalic) return 'italic';
   return 'regular';
 }

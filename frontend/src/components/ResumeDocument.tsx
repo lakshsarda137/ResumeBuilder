@@ -81,16 +81,6 @@ function grayscaleFromIntensity(intensity: number) {
   return `rgb(${channel}, ${channel}, ${channel})`;
 }
 
-function strokeWidthFromWeight(
-  weight: number,
-  baseline: number,
-  range: number,
-  maxStrokePx: number,
-) {
-  const ratio = Math.max(0, Math.min(1, (weight - baseline) / range));
-  return `${(ratio * maxStrokePx).toFixed(3)}px`;
-}
-
 export function ResumeDocument({
   data,
   onChange,
@@ -119,24 +109,6 @@ export function ResumeDocument({
         '--resume-body-weight': effectiveSettings.bodyTextWeight,
         '--resume-bold-weight': effectiveSettings.boldTextWeight,
         '--resume-strong-weight': effectiveSettings.strongTextWeight,
-        '--resume-body-stroke-width': strokeWidthFromWeight(
-          effectiveSettings.bodyTextWeight,
-          400,
-          100,
-          0.08,
-        ),
-        '--resume-bold-stroke-width': strokeWidthFromWeight(
-          effectiveSettings.boldTextWeight,
-          600,
-          200,
-          0.22,
-        ),
-        '--resume-strong-stroke-width': strokeWidthFromWeight(
-          effectiveSettings.strongTextWeight,
-          600,
-          200,
-          0.24,
-        ),
         '--resume-line-height': effectiveSettings.lineHeight,
         '--resume-page-padding-top': `${effectiveSettings.pagePaddingTop}in`,
         '--resume-page-padding-left': `${effectiveSettings.pagePaddingLeft}in`,

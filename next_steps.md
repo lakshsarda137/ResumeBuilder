@@ -75,16 +75,17 @@ Remaining possible work:
 
 Implemented now:
 - The PDF text exporter no longer emits normal headings as separate absolute-positioned words, so compound headings such as "Technical Skills" should not spread across the rule as if they were two headings.
-- Render settings now include text intensity, rule intensity, body weight, bold weight, and strong keyword weight controls.
+- Render settings include text intensity, rule intensity, body weight, bold weight, and strong keyword weight controls.
 - Settings, wizard pre-generation typography controls, the generated-result modal, and the editor Style panel expose typography controls after generation.
 - Shared render-settings controls use typed numeric drafts so clearing/replacing values does not snap immediately to clamped values.
-- PDF export reads rendered color and synthetic text-stroke data from the DOM so weight choices are at least represented in the text-PDF stream rather than being a completely fake UI control.
+- The PDF writer honors `font-weight` and selects the real bold/bold-italic PDF font faces (Times-Bold, Times-BoldItalic, Helvetica-Bold, Helvetica-BoldOblique) instead of faking weight with a synthetic stroke. The synthetic `-webkit-text-stroke` reinforcement was removed from both the preview and the export DOM so the two render weight through the identical real-font mechanism.
+- Every Settings/Style parameter has an `i` info dot (hover or click) with a plain-language explanation of what the control does. Tooltips render only while open and are scoped so they cannot be forced visible by broad descendant selectors.
 
 Known remaining issue:
-- Browser preview and downloaded PDF still do **not** look identical for weight. The browser preview renders real browser fonts such as Times New Roman, while the custom selectable-text PDF writer uses built-in PDF fonts and synthetic stroke reinforcement. User choices are now respected, but the preview and download still tell a different visual story.
+- Built-in PDF fonts only ship regular and bold weights. Intermediate CSS weight values (e.g. a body weight of 500) collapse to the nearest available face in both the preview and the downloaded PDF, so the body-weight slider (300-500) has no visible effect with Times/Helvetica. The bold-weight slider (500-800) still toggles regular vs bold at the 600 threshold in both paths.
 
 Future work:
-- Make preview and downloaded PDF visually match for typography, especially weight. Likely options: embed the same font used in browser preview, use a print/browser PDF path while preserving selectable text and one-page checks, or build a true font-subsetting pipeline for `pdf.ts`.
+- Embed/subset a variable font (or move to a browser/print PDF path that preserves selectable text and one-page checks) so intermediate weight values render distinctly in both preview and downloaded PDF.
 - Verify downloaded PDF output, not only the live browser preview, after every typography or PDF writer change.
 
 ## Prompt Preview Follow-Ups

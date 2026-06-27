@@ -20,8 +20,6 @@
   font-family: var(--resume-body-font, 'Times New Roman', Times, 'Liberation Serif', serif);
   font-size: var(--resume-body-size, 10.5pt);
   font-weight: var(--resume-body-weight, 400);
-  -webkit-text-stroke: var(--resume-body-stroke-width, 0) currentColor;
-  paint-order: stroke fill;
   line-height: var(--resume-line-height, 1.15);
   box-sizing: border-box;
   box-shadow: 0 2px 16px rgba(0, 0, 0, 0.12);
@@ -38,7 +36,6 @@
   font-family: var(--resume-name-font, 'Times New Roman', Times, 'Liberation Serif', serif);
   font-size: var(--resume-name-size, 22pt);
   font-weight: var(--resume-name-weight, 700);
-  -webkit-text-stroke: var(--resume-bold-stroke-width, 0) currentColor;
   margin: 0 0 2pt;
   letter-spacing: 0.3pt;
   line-height: 1.1;
@@ -82,7 +79,6 @@
   font-family: var(--resume-heading-font, 'Times New Roman', Times, 'Liberation Serif', serif);
   font-size: var(--resume-heading-size, 11pt);
   font-weight: var(--resume-section-title-weight, 700);
-  -webkit-text-stroke: var(--resume-bold-stroke-width, 0) currentColor;
   font-style: var(--resume-section-title-style, normal);
   text-transform: var(--resume-section-title-transform, uppercase);
   letter-spacing: 0.5pt;
@@ -106,7 +102,6 @@
 
 .resume-entry-title {
   font-weight: var(--resume-entry-title-weight, 700);
-  -webkit-text-stroke: var(--resume-bold-stroke-width, 0) currentColor;
   font-style: var(--resume-entry-title-style, italic);
 }
 
@@ -128,7 +123,6 @@
 
 .resume-entry-date {
   font-weight: var(--resume-date-weight, 700);
-  -webkit-text-stroke: var(--resume-bold-stroke-width, 0) currentColor;
   font-style: var(--resume-date-style, italic);
   white-space: nowrap;
   flex-shrink: 0;
@@ -158,7 +152,6 @@
   position: absolute;
   left: 0;
   font-weight: var(--resume-bold-weight, 700);
-  -webkit-text-stroke: var(--resume-bold-stroke-width, 0) currentColor;
   color: currentColor;
 }
 
@@ -175,12 +168,10 @@
 
 .resume-skill-label {
   font-weight: var(--resume-skill-label-weight, 700);
-  -webkit-text-stroke: var(--resume-bold-stroke-width, 0) currentColor;
 }
 
 .resume-skill-colon {
   font-weight: var(--resume-skill-label-weight, 700);
-  -webkit-text-stroke: var(--resume-bold-stroke-width, 0) currentColor;
 }
 
 .resume-skill-items {
@@ -189,7 +180,6 @@
 
 .resume-page strong {
   font-weight: var(--resume-strong-weight, 700);
-  -webkit-text-stroke: var(--resume-strong-stroke-width, 0) currentColor;
 }
 
 .resume-page--keyword strong {
