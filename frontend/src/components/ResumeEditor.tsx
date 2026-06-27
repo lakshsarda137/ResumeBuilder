@@ -46,18 +46,11 @@ import { FormatToolbar } from './FormatToolbar';
 import { PipelineStatus } from './PipelineStatus';
 import { ResumeBuilderWizard } from './ResumeBuilderWizard';
 import { ResumeDocument } from './ResumeDocument';
+import { ResumeRenderSettingsControls } from './ResumeRenderSettingsControls';
 import { SaveSessionModal } from './SaveSessionModal';
 import './ResumeEditor.css';
 
 const SHOW_JD_NOTES_KEY = 'resume-editor-show-jd-notes';
-const FONT_OPTIONS = [
-  'Times New Roman',
-  'Georgia',
-  'Cambria',
-  'Garamond',
-  'Arial',
-  'Inter',
-];
 
 function pageFitText(fit: ResumePageFit | null) {
   if (!fit) {
@@ -140,6 +133,14 @@ export function ResumeEditor() {
       setRenderSettings(mergeResumeRenderSettings({ ...renderSettings, ...patch }));
     },
     [renderSettings, setRenderSettings],
+  );
+
+  const replaceRenderSettings = useCallback(
+    (next: ResumeRenderSettings) => {
+      setFitModeratorNotice(null);
+      setRenderSettings(next);
+    },
+    [setRenderSettings],
   );
 
   const applySmallOverflowFit = useCallback(
@@ -511,8 +512,7 @@ export function ResumeEditor() {
             <select
               value={renderSettings.defaultTemplate}
               onChange={(event) =>
-                setRenderSettings({
-                  ...renderSettings,
+                updateRenderSettings({
                   defaultTemplate: event.target.value as ResumeRenderSettings['defaultTemplate'],
                 })
               }
@@ -637,163 +637,12 @@ export function ResumeEditor() {
 
       {stylePanelOpen ? (
         <section className="editor-style-panel" aria-label="Resume style settings">
-          <div className="editor-style-group editor-style-group--templates">
-            <span className="editor-style-label">Template</span>
-            <div className="editor-style-template-row">
-              {RESUME_RENDER_TEMPLATES.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  className={`editor-style-template${renderSettings.defaultTemplate === template.id ? ' editor-style-template--active' : ''}`}
-                  onClick={() => updateRenderSettings({ defaultTemplate: template.id })}
-                  title={template.summary}
-                >
-                  {template.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="editor-style-group editor-style-group--fonts">
-            <label className="editor-style-field">
-              <span>Body font</span>
-              <select
-                value={renderSettings.bodyFontFamily}
-                onChange={(event) =>
-                  updateRenderSettings({ bodyFontFamily: event.target.value })
-                }
-              >
-                {FONT_OPTIONS.map((font) => (
-                  <option key={font} value={font}>
-                    {font}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="editor-style-field">
-              <span>Name font</span>
-              <select
-                value={renderSettings.nameFontFamily}
-                onChange={(event) =>
-                  updateRenderSettings({ nameFontFamily: event.target.value })
-                }
-              >
-                {FONT_OPTIONS.map((font) => (
-                  <option key={font} value={font}>
-                    {font}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="editor-style-field">
-              <span>Section heading font</span>
-              <select
-                value={renderSettings.headingFontFamily}
-                onChange={(event) =>
-                  updateRenderSettings({ headingFontFamily: event.target.value })
-                }
-              >
-                {FONT_OPTIONS.map((font) => (
-                  <option key={font} value={font}>
-                    {font}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="editor-style-field editor-style-field--number">
-              <span>Name (pt)</span>
-              <input
-                type="number"
-                min={16}
-                max={32}
-                step={0.5}
-                value={renderSettings.nameFontSize}
-                onChange={(event) =>
-                  updateRenderSettings({ nameFontSize: Number(event.target.value) })
-                }
-              />
-            </label>
-            <label className="editor-style-field editor-style-field--number">
-              <span>Headings (pt)</span>
-              <input
-                type="number"
-                min={8}
-                max={16}
-                step={0.5}
-                value={renderSettings.headingFontSize}
-                onChange={(event) =>
-                  updateRenderSettings({ headingFontSize: Number(event.target.value) })
-                }
-              />
-            </label>
-            <label className="editor-style-field editor-style-field--number">
-              <span>Body (pt)</span>
-              <input
-                type="number"
-                min={8}
-                max={14}
-                step={0.25}
-                value={renderSettings.bodyFontSize}
-                onChange={(event) =>
-                  updateRenderSettings({ bodyFontSize: Number(event.target.value) })
-                }
-              />
-            </label>
-          </div>
-
-          <div className="editor-style-group editor-style-group--toggles">
-            <span className="editor-style-label">Text style</span>
-            <label>
-              <input
-                type="checkbox"
-                checked={renderSettings.sectionHeadingItalic}
-                onChange={(event) =>
-                  updateRenderSettings({ sectionHeadingItalic: event.target.checked })
-                }
-              />
-              Heading italic
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={renderSettings.sectionHeadingUppercase}
-                onChange={(event) =>
-                  updateRenderSettings({ sectionHeadingUppercase: event.target.checked })
-                }
-              />
-              Heading uppercase
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={renderSettings.entryTitleItalic}
-                onChange={(event) =>
-                  updateRenderSettings({ entryTitleItalic: event.target.checked })
-                }
-              />
-              Titles italic
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={renderSettings.subtitleItalic}
-                onChange={(event) =>
-                  updateRenderSettings({ subtitleItalic: event.target.checked })
-                }
-              />
-              Subtitles italic
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={renderSettings.dateItalic}
-                onChange={(event) =>
-                  updateRenderSettings({ dateItalic: event.target.checked })
-                }
-              />
-              Dates italic
-            </label>
-          </div>
+          <ResumeRenderSettingsControls
+            settings={renderSettings}
+            onChange={replaceRenderSettings}
+            tone="dark"
+            compact
+          />
         </section>
       ) : null}
 
@@ -808,6 +657,8 @@ export function ResumeEditor() {
           setData(next, true);
           requestAnimationFrame(() => scrollEditorToTop());
         }}
+        renderSettings={renderSettings}
+        onRenderSettingsChange={replaceRenderSettings}
         bridgeReady={bridgeReady}
         connectedProvider={connectedProvider}
         linkedSession={linkedSession}

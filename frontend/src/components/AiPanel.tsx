@@ -3,6 +3,7 @@ import { Bot, Check, Clipboard, Link2, Send, Loader2, Plug } from 'lucide-react'
 import type { AiChatSession } from '../types/aiSession';
 import type { ResumeData } from '../types/resume';
 import type { BridgeDebugEvent } from '../hooks/useAiBridge';
+import type { ResumeRenderSettings } from '../utils/resumeSettings';
 import {
   AI_PROVIDERS,
   getSavedProvider,
@@ -31,6 +32,8 @@ interface AiPanelProps {
   resumeFilename: string;
   resumeData: ResumeData;
   onApplyResume: (data: ResumeData) => void;
+  renderSettings?: ResumeRenderSettings;
+  onRenderSettingsChange?: (settings: ResumeRenderSettings) => void;
   bridgeReady: boolean;
   connectedProvider: AiProvider | null;
   disabled?: boolean;
@@ -87,6 +90,8 @@ export function AiPanel({
   resumeFilename,
   resumeData,
   onApplyResume,
+  renderSettings,
+  onRenderSettingsChange,
   bridgeReady,
   connectedProvider,
   disabled = false,
@@ -499,6 +504,8 @@ export function AiPanel({
         rawResponse={rawResponse}
         session={activeSession}
         refining={refining}
+        renderSettings={renderSettings}
+        onRenderSettingsChange={onRenderSettingsChange}
         onApply={handleApply}
         onDiscard={handleDiscard}
         onRefine={handleRefine}

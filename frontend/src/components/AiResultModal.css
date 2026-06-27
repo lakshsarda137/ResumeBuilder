@@ -99,31 +99,6 @@
   font-size: 14px;
 }
 
-.ai-result-template-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-}
-
-.ai-result-template-btn {
-  border: 0;
-  border-radius: 6px;
-  padding: 5px 9px;
-  background: transparent;
-  color: #475569;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.ai-result-template-btn--active {
-  background: #1e293b;
-  color: #fff;
-}
-
 .ai-result-preview-stack {
   --resume-page-width: 8.5in;
   --jd-panel-width: 308px;
@@ -157,6 +132,26 @@
   margin: 0 0 10px;
   font-size: 12px;
   color: #64748b;
+}
+
+.ai-result-format-settings {
+  margin-bottom: 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.ai-result-format-settings summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ai-result-format-settings .resume-settings-controls {
+  padding: 0 12px 12px;
 }
 
 .ai-result-changes-note {

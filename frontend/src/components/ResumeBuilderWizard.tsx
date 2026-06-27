@@ -182,11 +182,38 @@ interface PromptPreviewState {
   text: string;
 }
 
+type TypographyDraftKey =
+  | 'textIntensity'
+  | 'ruleIntensity'
+  | 'bodyTextWeight'
+  | 'boldTextWeight'
+  | 'strongTextWeight';
+
+const TYPOGRAPHY_FIELDS: Array<{
+  key: TypographyDraftKey;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+}> = [
+  { key: 'textIntensity', label: 'PDF text intensity (%)', min: 65, max: 100, step: 1 },
+  { key: 'ruleIntensity', label: 'PDF rule intensity (%)', min: 45, max: 100, step: 1 },
+  { key: 'bodyTextWeight', label: 'Body weight (CSS)', min: 300, max: 500, step: 25 },
+  { key: 'boldTextWeight', label: 'Bold weight (CSS)', min: 500, max: 800, step: 25 },
+  { key: 'strongTextWeight', label: 'Strong keyword weight (CSS)', min: 500, max: 800, step: 25 },
+];
+
 function bulletDraftsFromSettings(settings: ResumeRenderSettings) {
   return {
     min: String(settings.minBulletsPerExperience),
     max: String(settings.maxBulletsPerExperience),
   };
+}
+
+function typographyDraftsFromSettings(settings: ResumeRenderSettings) {
+  return Object.fromEntries(
+    TYPOGRAPHY_FIELDS.map((field) => [field.key, String(settings[field.key])]),
+  ) as Record<TypographyDraftKey, string>;
 }
 
 function clampInteger(value: number, min: number, max: number) {
@@ -280,6 +307,11 @@ export function ResumeBuilderWizard({
   const [bulletDrafts, setBulletDrafts] = useState(() =>
     bulletDraftsFromSettings(mergeResumeRenderSettings(renderSettings)),
   );
+  const [typographyDrafts, setTypographyDrafts] = useState(() =>
+    typographyDraftsFromSettings(mergeResumeRenderSettings(renderSettings)),
+  );
+  const [focusedTypographyField, setFocusedTypographyField] =
+    useState<TypographyDraftKey | null>(null);
 
   const [previewData, setPreviewData] = useState<ResumeData | null>(null);
   const [baselineData, setBaselineData] = useState<ResumeData | null>(null);
@@ -296,7 +328,17 @@ export function ResumeBuilderWizard({
     const next = mergeResumeRenderSettings(renderSettings);
     setDraftSettings(next);
     setBulletDrafts(bulletDraftsFromSettings(next));
-  }, [renderSettings]);
+    setTypographyDrafts((current) => {
+      const nextDrafts = typographyDraftsFromSettings(next);
+      if (!focusedTypographyField) {
+        return nextDrafts;
+      }
+      return {
+        ...nextDrafts,
+        [focusedTypographyField]: current[focusedTypographyField],
+      };
+    });
+  }, [focusedTypographyField, renderSettings]);
 
   const updateDraftSettings = useCallback(
     (patch: Partial<ResumeRenderSettings>) => {
@@ -358,6 +400,43 @@ export function ResumeBuilderWizard({
   const syncBulletDrafts = useCallback(() => {
     setBulletDrafts(bulletDraftsFromSettings(draftSettings));
   }, [draftSettings]);
+
+  const updateTypographyDraftSetting = useCallback(
+    (
+      field: TypographyDraftKey,
+      rawValue: string,
+      min: number,
+      max: number,
+    ) => {
+      setTypographyDrafts((current) => ({
+        ...current,
+        [field]: rawValue,
+      }));
+
+      if (!rawValue.trim()) {
+        return;
+      }
+
+      const numericValue = Number(rawValue);
+      if (!Number.isFinite(numericValue) || numericValue < min || numericValue > max) {
+        return;
+      }
+
+      updateDraftSettings({ [field]: numericValue });
+    },
+    [updateDraftSettings],
+  );
+
+  const syncTypographyDraft = useCallback(
+    (field: TypographyDraftKey) => {
+      setFocusedTypographyField(null);
+      setTypographyDrafts((current) => ({
+        ...current,
+        [field]: String(draftSettings[field]),
+      }));
+    },
+    [draftSettings],
+  );
 
   useEffect(() => {
     if (mode !== 'repository') {
@@ -807,6 +886,34 @@ export function ResumeBuilderWizard({
     setActiveSession(null);
   };
 
+  const renderTypographyControls = () => (
+    <>
+      {TYPOGRAPHY_FIELDS.map((field) => (
+        <label key={field.key} className="rb-wizard-label">
+          <span>{field.label}</span>
+          <input
+            type="number"
+            min={field.min}
+            max={field.max}
+            step={field.step}
+            className="rb-wizard-input"
+            value={typographyDrafts[field.key]}
+            onFocus={() => setFocusedTypographyField(field.key)}
+            onChange={(event) =>
+              updateTypographyDraftSetting(
+                field.key,
+                event.target.value,
+                field.min,
+                field.max,
+              )
+            }
+            onBlur={() => syncTypographyDraft(field.key)}
+          />
+        </label>
+      ))}
+    </>
+  );
+
   return (
     <div className="rb-wizard">
       <header className="rb-wizard-header">
@@ -888,6 +995,22 @@ export function ResumeBuilderWizard({
             We extract your resume, then optimize it for the job description with action
             verbs, metrics, and honest JD keyword alignment.
           </p>
+        </section>
+      )}
+
+      {mode === 'optimize' && (
+        <section className="rb-wizard-section rb-wizard-panel">
+          <h3>
+            <SlidersHorizontal size={15} />
+            PDF typography
+          </h3>
+          <p className="rb-wizard-note">
+            These render settings carry into the optimized preview and final downloaded
+            PDF.
+          </p>
+          <div className="rb-wizard-settings-grid">
+            {renderTypographyControls()}
+          </div>
         </section>
       )}
 
@@ -977,6 +1100,7 @@ export function ResumeBuilderWizard({
                   onBlur={syncBulletDrafts}
                 />
               </label>
+              {renderTypographyControls()}
             </div>
 
             <div className="rb-wizard-style-toggles">

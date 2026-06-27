@@ -70,6 +70,8 @@ ResumeBuilder/
 │   │   ├── ResumeBuilderWizard.css
 │   │   ├── ResumeDocument.tsx      # Resume template + inline editor
 │   │   ├── ResumeDocument.css
+│   │   ├── ResumeRenderSettingsControls.tsx # Shared full renderer controls
+│   │   ├── ResumeRenderSettingsControls.css
 │   │   ├── EditableText.tsx        # contentEditable wrapper (HTML for inline formatting)
 │   │   ├── FormatToolbar.tsx       # Bold/italic/font/size bar above resume page
 │   │   ├── ResumeWithJdNotes.tsx   # Resume + optional JD sidebar wrapper
@@ -144,7 +146,7 @@ ResumeBuilder/
 | `/education` | Done | Degrees, GPA, coursework, skills — separate from repository |
 | `/ongoing` | Done | Active tracking with dated reflections |
 | `/history` | Done | Saved editor sessions — open, delete, last updated (UTC) |
-| `/settings` | Done | Resume render defaults: template, fonts, sizes, heading/title/date style |
+| `/settings` | Done | Resume render defaults: template, fonts, sizes, spacing, weight/intensity, heading/title/date style |
 | `/knowledge` | Stub | Notes and reference docs (not yet built) |
 | `/privacy` | Done | Static explainer — all data is local |
 
@@ -158,7 +160,7 @@ ResumeBuilder/
 |-----|---------|
 | `resume-editor-data` | `ResumeData` JSON |
 | `resume-editor-show-jd-notes` | `"true"` / `"false"` — JD sidebar visibility in editor |
-| `resume-render-settings` | Resume template/style defaults, section/name fonts, and generation density hints such as min/max bullets per experience |
+| `resume-render-settings` | Resume template/style defaults, section/name fonts, typography weights/intensity, spacing, and generation density hints such as min/max bullets per experience |
 | `resume-builder-ai-provider` | Last selected provider |
 | `resume-builder-ai-sessions` | Array of `AiChatSession` (max 30) |
 
@@ -264,7 +266,7 @@ Opening `/resume` starts with a **wizard** (skip to editor anytime via **New bui
    - **Build from repository** — choose build settings/custom conventions, then select freewrite sources from Repository + Ongoing (manual checkboxes or age filters)
 3. **Preview prompt** — inspect/copy the exact prompt that will be sent before generation
 4. **Generate tailored resume** via Web AI (extension required)
-5. **AiResultModal** — id-scoped diff + preview with JD sidebar + post-generation renderer toggles + refine/apply
+5. **AiResultModal** — id-scoped diff + preview with JD sidebar + full post-generation renderer controls + refine/apply
 6. **Editor** — inline edits; persistent Style panel; **AiPanel** for further Send PDF / improvements in linked chat
 
 Path A sends a single PDF-attached prompt that extracts the faithful baseline and optimized resume in one response, preserving the before/after diff without a second chat send. Path B sends **freewrite source material** (repo `mode=freewrite`; ongoing reflections or compiled freewrite), saved **Education Info** records/meta, a content-selection profile from `resumeBuildStyle.ts`, and user render/style preferences from `resumeSettings.ts`. Token estimates are shown before generate. Repository builds and repository prompt preview both refresh `/api/repo`, `/api/ongoing`, and `/api/education` immediately before prompt construction so saved UI edits are not replaced by stale wizard state.
@@ -295,8 +297,8 @@ Each change card shows:
 - **Renderers**: `classic` and `keyword` live in `resumeSettings.ts`; both render the same `ResumeData`
 - **Template baseline**: LaTeX-style single column, US Letter (8.5×11in)
 - **WYSIWYG**: `EditableText` (`contentEditable`) on all fields; supports inline HTML (bold, italic, font, size)
-- **Post-apply style switching**: the editor toolbar's **Style** button opens a persistent style panel after generation/apply. Changing template, fonts, sizes, or italic/uppercase toggles updates the live preview and `#resume-export`.
-- **High-level style settings**: `ResumeRenderSettings` controls body/name/section-heading fonts, name/heading/body/bullet sizes, line height, page margins (top/right/bottom/left in inches), section/title-to-content/entry spacing (points), section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, min/max bullets per experience, and generation notes.
+- **Post-apply style switching**: the editor toolbar's **Style** button opens a persistent style panel after generation/apply. Changing template, fonts, sizes, spacing, margins, text/rule intensity, CSS weight values, keyword terms, or bold/italic/uppercase toggles updates the live preview and `#resume-export`.
+- **High-level style settings**: `ResumeRenderSettings` controls body/name/section-heading fonts, name/heading/body/bullet sizes, line height, page margins (top/right/bottom/left in inches), section/title-to-content/entry spacing (points), text intensity, rule intensity, body/bold/strong CSS weight, section heading bold/italic/uppercase, entry title bold/italic, subtitle italic, date bold/italic, skill-label bold, keyword terms, min/max bullets per experience, and generation notes.
 - **Removed template**: stack-beside-names is intentionally gone. Do not reintroduce a layout that places a detected tech stack beside the entry name.
 - **Editor toolbar layout**: the top toolbar is a wrapping flex layout. Controls must wrap to a new row before they overlap; do not use a fixed grid that lets center/right controls collide.
 - **Editor chrome color**: after the editor opens, the toolbar, Style panel, and Web AI panel use the neutral/warm app palette. Do not reintroduce purple/blue panel backgrounds or purple primary actions in the editor chrome.
@@ -309,9 +311,9 @@ Each change card shows:
 
 `/settings` edits global defaults persisted under `resume-render-settings`. These defaults seed the wizard, result preview, editor Style panel, History snapshots, and PDF export. Wizard build settings can override them for a single generation; applying the generated resume carries those selected render settings into the editor. Min/max bullets per experience are prompt constraints for repository generation; they do not replace the editor's local one-page fit check.
 
-The Settings page includes a scaled live resume preview using the same `ResumeDocument` renderer as export, so margin, font, line-height, spacing, bold/italic, and template changes are visible before generation. Numeric labels include units: font and spacing controls are points, margins are inches, and line height is a unitless multiplier.
+The Settings page includes a scaled live resume preview using the same `ResumeDocument` renderer as export, so margin, font, line-height, spacing, bold/italic, intensity, weight, and template changes are visible before generation. Numeric labels include units: font and spacing controls are points, margins are inches, intensity is percent, CSS weight is unitless, and line height is a unitless multiplier.
 
-All controlled number inputs keep a temporary typed draft so clearing and replacing a number does not immediately snap to clamped values while the user is mid-edit. Sanitized values are still saved back through `mergeResumeRenderSettings` when the draft is valid and synced back on blur/reset.
+All controlled number inputs keep a temporary typed draft so clearing and replacing a number does not immediately snap to clamped values while the user is mid-edit. This applies to Settings, wizard pre-generation typography fields, generated-result modal controls, and the editor Style panel. Sanitized values are still saved back through `mergeResumeRenderSettings` when the draft is valid and synced back on blur/reset.
 
 ### Format toolbar (`FormatToolbar.tsx`)
 
@@ -346,9 +348,11 @@ PDF export must create a real text PDF. Do not reintroduce `html2pdf`, `html2can
 2. Before writing, the wrapper is made visible at the 8.5in page width so DOM layout measurements are stable
 3. `pdf.ts` measures the rendered page against an 8.5x11 page; if content exceeds one page, export is blocked instead of silently clipping text
 4. `pdf.ts` walks rendered text nodes and section-rule elements, then writes PDF text operators and vector lines directly
-5. Standard PDF fonts (`Times`/`Helvetica`, with bold/italic variants) preserve selectable text without embedding a page image
+5. Standard PDF fonts (`Times`/`Helvetica`, with italic variants and synthetic stroke reinforcement for weight) preserve selectable text without embedding a page image
 6. `generateResumePdfBlob()` for AI send and `exportResumeToPdf()` for download share the same text-PDF path
 7. Verification for any generated resume PDF: extractable characters should be nonzero, embedded page images should be zero, ATS/parser tools should not see a blank resume, and visual spacing/weight must be checked on the downloaded PDF itself
+
+Current caveat: the editor preview and downloaded PDF are still not pixel-identical for typography weight. The browser preview renders browser fonts such as Times New Roman; the custom PDF writer uses built-in PDF fonts and synthetic stroke reinforcement. The user's weight/intensity choices are represented in both paths, but the two paths can still look like different weight spectra. True visual parity likely requires embedding/subsetting the same font used in preview or moving to a browser/print PDF path that preserves selectable text and page-fit guarantees.
 
 ---
 
@@ -540,8 +544,9 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | Resume is barely over one page | Small overflow can often be solved by layout, not content deletion | Editor can apply deterministic small-overflow fit tweaks up to 105% usage; larger overflow requires content edits/compression |
 | Fit success message covers Web AI panel | Toolbar status was positioned as an absolute toast under a wrapping toolbar | Keep status messages in toolbar flow and ellipsize long text |
 | Optimized resume diff shows additions but hides removals | Missing faithful baseline, or bullet deletions/reorders were compared by raw index/id instead of semantic match | Optimize-PDF responses must include both `baseline` and `optimized`; bullet diffs match within each entry and show unmatched baseline bullets as removed |
-| "Technical Skills" heading has a massive gap in downloaded PDF | Section heading / PDF text spacing can differ from the intended visual rhythm | Add heading word-spacing controls or renderer fix; verify the downloaded PDF, not just browser preview |
-| Downloaded PDF font is too dark/heavy | PDF text weight/color has no user-facing tuning yet | Add functionality to tweak PDF typography darkness/weight/intensity from the UI |
+| "Technical Skills" heading has a massive gap in downloaded PDF | The text-PDF writer emitted each non-justified word as a separate absolute-positioned text object | PDF export now groups normal line text into contiguous chunks; verify downloaded PDF headings, not just browser preview |
+| Downloaded PDF font is too dark/heavy | PDF text weight/color previously had no user-facing tuning and collapsed weights through built-in PDF bold faces | Text/rule intensity and CSS weight controls now exist; `pdf.ts` reads rendered color/stroke data |
+| Preview and downloaded PDF weight do not look the same | Browser preview uses browser fonts; selectable text-PDF export uses built-in PDF fonts plus synthetic stroke reinforcement | Choices are represented, but visual parity is still open; true fix likely requires font embedding/subsetting or a different selectable browser-PDF path |
 | Purple/blue editor panel returned | `AiPanel.css` had its own hardcoded slate/purple colors outside the toolbar CSS | Keep `AiPanel.css`, `ResumeEditor.css`, and `FormatToolbar.css` on the neutral/warm palette; verify on an actual editor session |
 | Top toolbar controls overlap | Fixed grid columns let toolbar center/right groups collide at wide-but-crowded widths | Toolbar uses wrapping flex layout with constrained select width; verify with a saved session and JD notes visible |
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
@@ -591,7 +596,7 @@ npm run lint      # ESLint
 
 - `ResumeDocument.css` / canvas layout in `ResumeEditor.css` — toolbar is 8.5in wide above page; test PDF export after
 - `resumeFitModerator.ts` — deterministic layout-only small-overflow fitting; keep it conservative and re-measure after applying
-- PDF typography controls — future work should let the user tune text darkness/weight and prevent huge compound-heading word gaps such as "Technical    Skills"
+- PDF typography parity — controls exist for darkness/weight/intensity, but preview and downloaded PDF still differ visually because they use different font/rendering paths
 - `scripts/estimate-resume-line-budget.mjs` — heuristic line-budget estimator for prompt/layout tuning; renderer measurement remains source of truth
 - `FormatToolbar.tsx` / `formatSelection.ts` — selection must be preserved for dropdowns
 - `JdNotesPanel` highlight uses `data-jd-anchor` on `ResumeDocument` — keep ids in sync with `jdNotes.ts`
@@ -638,7 +643,7 @@ npm run lint      # ESLint
 4. Wizard: optimize PDF with JD → one provider send returns baseline + optimized preview; step tracker advances correctly
 5. Wizard: Preview prompt → repository path refetches saved repo/ongoing/education and shows copied prompt text before generation
 6. Wizard: build from repository → freewrite sources only → preview modal with JD sidebar highlight
-7. Settings: tweak margins/font/spacing → live mini preview updates; clearing/retyping numeric values does not snap mid-edit
+7. Settings: tweak margins/font/spacing/weight/intensity → live mini preview updates; clearing/retyping numeric values does not snap mid-edit
 8. Editor: select text → font/size dropdowns apply; bold/italic work
 9. JD notes toggle → sidebar + hover/click highlight; hidden in PDF download
 10. Page fit over by <=105% → **Fit small overflow** applies deterministic layout tweaks and re-measures

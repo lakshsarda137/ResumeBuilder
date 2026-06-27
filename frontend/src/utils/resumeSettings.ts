@@ -20,6 +20,11 @@ export interface ResumeRenderSettings {
   headingFontSize: number;
   bodyFontSize: number;
   bulletFontSize: number;
+  bodyTextWeight: number;
+  boldTextWeight: number;
+  strongTextWeight: number;
+  textIntensity: number;
+  ruleIntensity: number;
   lineHeight: number;
   pagePaddingTop: number;
   pagePaddingLeft: number;
@@ -68,6 +73,11 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   headingFontSize: 11,
   bodyFontSize: 10.5,
   bulletFontSize: 10.5,
+  bodyTextWeight: 400,
+  boldTextWeight: 650,
+  strongTextWeight: 700,
+  textIntensity: 88,
+  ruleIntensity: 78,
   lineHeight: 1.15,
   pagePaddingTop: 0.5,
   pagePaddingLeft: 0.55,
@@ -171,6 +181,11 @@ export function mergeResumeRenderSettings(
     headingFontSize: asNumber(value?.headingFontSize, defaults.headingFontSize, 8, 16),
     bodyFontSize: asNumber(value?.bodyFontSize, defaults.bodyFontSize, 8, 14),
     bulletFontSize: asNumber(value?.bulletFontSize, defaults.bulletFontSize, 8, 14),
+    bodyTextWeight: asInteger(value?.bodyTextWeight, defaults.bodyTextWeight, 300, 500),
+    boldTextWeight: asInteger(value?.boldTextWeight, defaults.boldTextWeight, 500, 800),
+    strongTextWeight: asInteger(value?.strongTextWeight, defaults.strongTextWeight, 500, 800),
+    textIntensity: asInteger(value?.textIntensity, defaults.textIntensity, 65, 100),
+    ruleIntensity: asInteger(value?.ruleIntensity, defaults.ruleIntensity, 45, 100),
     lineHeight: asNumber(value?.lineHeight, defaults.lineHeight, 1, 1.6),
     pagePaddingTop: asNumber(value?.pagePaddingTop, defaults.pagePaddingTop, 0.35, 0.8),
     pagePaddingLeft: asNumber(
@@ -271,7 +286,7 @@ export function buildSettingsInstructions(settings: ResumeRenderSettings): strin
       : 'Do not bold arbitrary buzzwords.',
     'Hard layout constraint: never put a tech stack beside an entry name/title. If tools are useful, keep them in the subtitle line below the title or in bullets/skills.',
     'Education convention: keep the degree/major line clean. Put GPA and honors/awards together in their own compact bullet, e.g. "GPA: 3.96/4.00; President\'s Honor Roll (Fall 2025)". Put coursework in a separate "Relevant Coursework:" bullet only when useful.',
-    `Renderer style preferences: section headings ${settings.sectionHeadingUppercase ? 'uppercase' : 'title case'}, ${settings.sectionHeadingBold ? 'bold' : 'not bold'}, ${settings.sectionHeadingItalic ? 'italic' : 'not italic'}; entry titles ${settings.entryTitleBold ? 'bold' : 'not bold'}, ${settings.entryTitleItalic ? 'italic' : 'not italic'}; subtitles ${settings.subtitleItalic ? 'italic' : 'not italic'}; dates ${settings.dateBold ? 'bold' : 'not bold'}, ${settings.dateItalic ? 'italic' : 'not italic'}; skill labels ${settings.skillLabelBold ? 'bold' : 'not bold'}.`,
+    `Renderer style preferences: section headings ${settings.sectionHeadingUppercase ? 'uppercase' : 'title case'}, ${settings.sectionHeadingBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.sectionHeadingItalic ? 'italic' : 'not italic'}; entry titles ${settings.entryTitleBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.entryTitleItalic ? 'italic' : 'not italic'}; subtitles ${settings.subtitleItalic ? 'italic' : 'not italic'}; dates ${settings.dateBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.dateItalic ? 'italic' : 'not italic'}; skill labels ${settings.skillLabelBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}; overall PDF ink intensity ${settings.textIntensity}%.`,
     settings.specialInstructions.trim(),
   ]
     .filter(Boolean)

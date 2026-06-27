@@ -318,7 +318,47 @@ Correct fix:
 ### Downloaded PDF still has visual polish problems
 Latest screenshot of the downloaded PDF shows a very large gap between the words "Technical" and "Skills" in the section heading. The font also appears too dark/heavy, making the PDF feel uncanny rather than resume-polished.
 
+What was later implemented:
+- PDF export groups normal line text into contiguous chunks instead of emitting every word independently, addressing the huge compound-heading gap.
+- Renderer settings now include text intensity, rule intensity, body weight, bold weight, and strong keyword weight.
+- Typography controls are exposed before generation, in the generated-result modal, in the editor Style panel, and on the Settings page.
+- The text-PDF writer reads rendered color and text-stroke data from the DOM so exported PDFs no longer completely ignore those settings.
+
+Still unresolved:
+- The browser preview and downloaded PDF still do not look identical for weight because the browser preview uses browser fonts while `pdf.ts` uses built-in PDF fonts plus synthetic stroke reinforcement.
+- Future work should target visual parity between preview and downloaded PDF, likely through font embedding/subsetting or another selectable-text PDF path.
+
+---
+
+## Session: PDF Typography Controls / Same Draft Bug Repeated (2026-06-27)
+
+### The exact repeated mistake
+I reintroduced the controlled-number-input bug that this file and the README already warned against. The new shared typography controls used the sanitized settings value directly and called `mergeResumeRenderSettings` through `Number(event.target.value)` on every keystroke. Clearing a field could turn into `0`, trigger clamping, and make the input fight the user while they were trying to type.
+
+The same bug also existed in the wizard's one-off typography controls after adding PDF text/rule intensity and weight fields.
+
+Correct fix:
+- use typed draft strings for every numeric render setting input,
+- keep blank or partial drafts visible while the user is editing,
+- update sanitized settings only when the draft parses as a finite in-range number,
+- sync the draft back to the sanitized setting on blur,
+- do not wire any future numeric setting directly to `Number(event.target.value)` plus `mergeResumeRenderSettings`.
+
+### Missing unit / misleading weight control
+The weight controls were labeled as plain "Body weight", "Bold weight", and "Strong weight" without explaining the unit. CSS font weight is unitless, so labels now say `Body weight (CSS)`, `Bold weight (CSS)`, and `Strong keyword weight (CSS)`.
+
+More importantly, the first implementation implied that `500`, `650`, `700`, and `800` would all produce distinct downloaded PDF weights. That was false. The PDF writer used built-in Type1 fonts and collapsed weight into a regular/bold face choice, so many values could produce the same downloaded PDF.
+
+Corrected behavior:
+- browser preview uses CSS `font-weight` plus controlled `-webkit-text-stroke`,
+- PDF export no longer relies on the built-in bold face as the weight implementation,
+- PDF export reads computed text stroke width/color from the rendered DOM and writes it into the PDF text stream.
+
+### Remaining open issue
+Even after the control values are respected, preview and downloaded PDF still do not share the same exact visual weight spectrum. The preview uses browser font rendering; the custom text-PDF writer uses built-in PDF fonts and synthetic stroke. This is not solved by adding more controls.
+
 Future agent should:
-- add controls for PDF text darkness/weight or equivalent typography intensity,
-- fix or expose heading word spacing so "Technical Skills" renders as one normal heading,
-- judge the downloaded PDF artifact itself, not only the browser preview.
+- treat preview/download typography parity as an open product issue,
+- verify downloaded PDFs directly after typography changes,
+- avoid claiming the paths match until screenshots or extracted PDF rendering prove it,
+- consider font embedding/subsetting or a different selectable-text PDF pipeline if exact parity matters.

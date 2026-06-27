@@ -152,6 +152,11 @@ type NumericSettingKey =
   | 'headingFontSize'
   | 'bodyFontSize'
   | 'bulletFontSize'
+  | 'bodyTextWeight'
+  | 'boldTextWeight'
+  | 'strongTextWeight'
+  | 'textIntensity'
+  | 'ruleIntensity'
   | 'lineHeight'
   | 'pagePaddingLeft'
   | 'pagePaddingRight'
@@ -167,6 +172,11 @@ function numericDraftsFromSettings(settings: ResumeRenderSettings) {
     headingFontSize: String(settings.headingFontSize),
     bodyFontSize: String(settings.bodyFontSize),
     bulletFontSize: String(settings.bulletFontSize),
+    bodyTextWeight: String(settings.bodyTextWeight),
+    boldTextWeight: String(settings.boldTextWeight),
+    strongTextWeight: String(settings.strongTextWeight),
+    textIntensity: String(settings.textIntensity),
+    ruleIntensity: String(settings.ruleIntensity),
     lineHeight: String(settings.lineHeight),
     pagePaddingLeft: String(settings.pagePaddingLeft),
     pagePaddingRight: String(settings.pagePaddingRight),
@@ -559,6 +569,9 @@ export function SettingsPage() {
               <span>L {settings.pagePaddingLeft}in</span>
               <span>{settings.bodyFontSize}pt</span>
               <span>{settings.lineHeight}x</span>
+              <span>Ink {settings.textIntensity}%</span>
+              <span>Rule {settings.ruleIntensity}%</span>
+              <span>Bold {settings.boldTextWeight}</span>
             </div>
           </div>
           <div className="settings-preview-frame">
@@ -658,6 +671,41 @@ export function SettingsPage() {
             min: 8,
             max: 14,
             step: 0.25,
+          })}
+          {renderNumberField({
+            label: 'Text intensity (%)',
+            field: 'textIntensity',
+            min: 65,
+            max: 100,
+            step: 1,
+          })}
+          {renderNumberField({
+            label: 'Rule intensity (%)',
+            field: 'ruleIntensity',
+            min: 45,
+            max: 100,
+            step: 1,
+          })}
+          {renderNumberField({
+            label: 'Body weight (CSS)',
+            field: 'bodyTextWeight',
+            min: 300,
+            max: 500,
+            step: 25,
+          })}
+          {renderNumberField({
+            label: 'Bold weight (CSS)',
+            field: 'boldTextWeight',
+            min: 500,
+            max: 800,
+            step: 25,
+          })}
+          {renderNumberField({
+            label: 'Strong keyword weight (CSS)',
+            field: 'strongTextWeight',
+            min: 500,
+            max: 800,
+            step: 25,
           })}
           {renderNumberField({
             label: 'Line height (x)',

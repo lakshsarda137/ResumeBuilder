@@ -6,7 +6,6 @@ import { buildImprovementPrompt } from '../utils/aiPrompt';
 import { resumeHasJdNotes } from '../utils/jdNotes';
 import { computeResumeDiff } from '../utils/resumeDiff';
 import {
-  RESUME_RENDER_TEMPLATES,
   type ResumeRenderSettings,
 } from '../utils/resumeSettings';
 import {
@@ -15,6 +14,7 @@ import {
 } from '../utils/tokenEstimate';
 import { ResumeDiffView } from './ResumeDiffView';
 import { FormatToolbar } from './FormatToolbar';
+import { ResumeRenderSettingsControls } from './ResumeRenderSettingsControls';
 import { ResumeWithJdNotes } from './ResumeWithJdNotes';
 import './AiResultModal.css';
 
@@ -171,27 +171,18 @@ export function AiResultModal({
           <section className="ai-result-preview">
             <div className="ai-result-preview-heading">
               <h3>Preview</h3>
-              {renderSettings && onRenderSettingsChange ? (
-                <div className="ai-result-template-switch" aria-label="Resume template">
-                  {RESUME_RENDER_TEMPLATES.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      className={`ai-result-template-btn${renderSettings.defaultTemplate === template.id ? ' ai-result-template-btn--active' : ''}`}
-                      onClick={() =>
-                        onRenderSettingsChange({
-                          ...renderSettings,
-                          defaultTemplate: template.id,
-                        })
-                      }
-                      title={template.summary}
-                    >
-                      {template.name}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
             </div>
+            {renderSettings && onRenderSettingsChange ? (
+              <details className="ai-result-format-settings" open>
+                <summary>Formatting settings</summary>
+                <ResumeRenderSettingsControls
+                  settings={renderSettings}
+                  onChange={onRenderSettingsChange}
+                  tone="light"
+                  compact
+                />
+              </details>
+            ) : null}
             <div className="ai-result-preview-canvas">
               <div
                 className={`ai-result-preview-stack${showJdNotes && hasJdNotes ? ' ai-result-preview-stack--with-jd' : ''}`}

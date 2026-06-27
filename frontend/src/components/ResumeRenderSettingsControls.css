@@ -1,0 +1,167 @@
+.resume-settings-controls {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.resume-settings-controls__group {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--resume-settings-border);
+  border-radius: 8px;
+  background: var(--resume-settings-surface);
+}
+
+.resume-settings-controls__label,
+.resume-settings-controls__field span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--resume-settings-muted);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.resume-settings-controls__template-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px;
+}
+
+.resume-settings-controls__template {
+  min-width: 0;
+  border: 1px solid var(--resume-settings-border-strong);
+  border-radius: 7px;
+  background: var(--resume-settings-input);
+  color: var(--resume-settings-text);
+  padding: 7px 8px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.resume-settings-controls__template--active {
+  border-color: var(--resume-settings-accent);
+  background: var(--resume-settings-accent-dim);
+  color: var(--resume-settings-accent);
+}
+
+.resume-settings-controls__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(126px, 1fr));
+  gap: 8px;
+  align-items: end;
+}
+
+.resume-settings-controls__field {
+  min-width: 0;
+}
+
+.resume-settings-controls__field--wide {
+  grid-column: span 2;
+}
+
+.resume-settings-controls__field select,
+.resume-settings-controls__field input {
+  width: 100%;
+  height: 32px;
+  border: 1px solid var(--resume-settings-border-strong);
+  border-radius: 7px;
+  background: var(--resume-settings-input);
+  color: var(--resume-settings-text);
+  padding: 0 11px;
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.resume-settings-controls__field option {
+  background: var(--resume-settings-surface);
+  color: var(--resume-settings-text);
+}
+
+.resume-settings-controls__toggles {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.resume-settings-controls__toggles .resume-settings-controls__label {
+  width: 100%;
+  margin-bottom: 0;
+}
+
+.resume-settings-controls__toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--resume-settings-border-strong);
+  border-radius: 7px;
+  background: var(--resume-settings-input);
+  color: var(--resume-settings-text);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.resume-settings-controls__toggles input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--resume-settings-accent);
+}
+
+.resume-settings-controls--dark {
+  --resume-settings-surface: #1d1d1d;
+  --resume-settings-input: #242424;
+  --resume-settings-border: #2f2f2f;
+  --resume-settings-border-strong: #3a3a3a;
+  --resume-settings-text: #e2e8f0;
+  --resume-settings-muted: #94a3b8;
+  --resume-settings-accent: var(--accent, #e8d5b7);
+  --resume-settings-accent-dim: var(--accent-dim, rgba(232, 213, 183, 0.12));
+}
+
+.resume-settings-controls--light {
+  --resume-settings-surface: #ffffff;
+  --resume-settings-input: #f8fafc;
+  --resume-settings-border: #e2e8f0;
+  --resume-settings-border-strong: #cbd5e1;
+  --resume-settings-text: #334155;
+  --resume-settings-muted: #64748b;
+  --resume-settings-accent: #1e293b;
+  --resume-settings-accent-dim: #e2e8f0;
+}
+
+.resume-settings-controls--compact {
+  display: block;
+  max-height: 280px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.resume-settings-controls--compact .resume-settings-controls__group + .resume-settings-controls__group {
+  margin-top: 10px;
+}
+
+.resume-settings-controls--compact .resume-settings-controls__grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.resume-settings-controls--compact .resume-settings-controls__group--numbers {
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+}
+
+.resume-settings-controls--compact .resume-settings-controls__toggles {
+  align-items: flex-start;
+}
+
+@media (max-width: 760px) {
+  .resume-settings-controls__field--wide {
+    grid-column: auto;
+  }
+}

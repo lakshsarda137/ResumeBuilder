@@ -259,12 +259,7 @@
 }
 
 .editor-style-panel {
-  display: grid;
-  grid-template-columns:
-    minmax(220px, 0.85fr)
-    minmax(460px, 1.6fr)
-    minmax(320px, 1fr);
-  gap: 12px;
+  display: block;
   padding: 12px 24px;
   border-bottom: 1px solid #2a2a2a;
   background: #151515;

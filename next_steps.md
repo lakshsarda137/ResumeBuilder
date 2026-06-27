@@ -73,14 +73,19 @@ Remaining possible work:
 
 ## PDF Typography And Spacing Controls
 
-Known current PDF visual issue from the latest downloaded resume screenshot:
-- The "Technical Skills" heading rendered with a massive, very obvious gap between "Technical" and "Skills". It reads like two separate headings instead of one section title.
-- The downloaded PDF text is also way too dark/heavy; the overall type color/weight feels uncanny and harsher than a normal resume PDF.
+Implemented now:
+- The PDF text exporter no longer emits normal headings as separate absolute-positioned words, so compound headings such as "Technical Skills" should not spread across the rule as if they were two headings.
+- Render settings now include text intensity, rule intensity, body weight, bold weight, and strong keyword weight controls.
+- Settings, wizard pre-generation typography controls, the generated-result modal, and the editor Style panel expose typography controls after generation.
+- Shared render-settings controls use typed numeric drafts so clearing/replacing values does not snap immediately to clamped values.
+- PDF export reads rendered color and synthetic text-stroke data from the DOM so weight choices are at least represented in the text-PDF stream rather than being a completely fake UI control.
+
+Known remaining issue:
+- Browser preview and downloaded PDF still do **not** look identical for weight. The browser preview renders real browser fonts such as Times New Roman, while the custom selectable-text PDF writer uses built-in PDF fonts and synthetic stroke reinforcement. User choices are now respected, but the preview and download still tell a different visual story.
 
 Future work:
-- Add user-facing functionality to tweak PDF text darkness/weight or rendering intensity without editing code.
-- Add section-heading spacing/word-gap controls or a renderer fix so compound headings like "Technical Skills" cannot spread across the rule.
-- Verify downloaded PDF output, not only the live browser preview, after changing typography settings.
+- Make preview and downloaded PDF visually match for typography, especially weight. Likely options: embed the same font used in browser preview, use a print/browser PDF path while preserving selectable text and one-page checks, or build a true font-subsetting pipeline for `pdf.ts`.
+- Verify downloaded PDF output, not only the live browser preview, after every typography or PDF writer change.
 
 ## Prompt Preview Follow-Ups
 

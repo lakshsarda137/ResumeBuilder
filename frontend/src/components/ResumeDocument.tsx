@@ -76,6 +76,21 @@ function editableValue(
   return emphasizeKeywords(value, settings.keywordTerms);
 }
 
+function grayscaleFromIntensity(intensity: number) {
+  const channel = Math.round(255 * (1 - intensity / 100));
+  return `rgb(${channel}, ${channel}, ${channel})`;
+}
+
+function strokeWidthFromWeight(
+  weight: number,
+  baseline: number,
+  range: number,
+  maxStrokePx: number,
+) {
+  const ratio = Math.max(0, Math.min(1, (weight - baseline) / range));
+  return `${(ratio * maxStrokePx).toFixed(3)}px`;
+}
+
 export function ResumeDocument({
   data,
   onChange,
@@ -99,6 +114,29 @@ export function ResumeDocument({
         '--resume-heading-size': `${effectiveSettings.headingFontSize}pt`,
         '--resume-body-size': `${effectiveSettings.bodyFontSize}pt`,
         '--resume-bullet-size': `${effectiveSettings.bulletFontSize}pt`,
+        '--resume-text-color': grayscaleFromIntensity(effectiveSettings.textIntensity),
+        '--resume-rule-color': grayscaleFromIntensity(effectiveSettings.ruleIntensity),
+        '--resume-body-weight': effectiveSettings.bodyTextWeight,
+        '--resume-bold-weight': effectiveSettings.boldTextWeight,
+        '--resume-strong-weight': effectiveSettings.strongTextWeight,
+        '--resume-body-stroke-width': strokeWidthFromWeight(
+          effectiveSettings.bodyTextWeight,
+          400,
+          100,
+          0.08,
+        ),
+        '--resume-bold-stroke-width': strokeWidthFromWeight(
+          effectiveSettings.boldTextWeight,
+          600,
+          200,
+          0.22,
+        ),
+        '--resume-strong-stroke-width': strokeWidthFromWeight(
+          effectiveSettings.strongTextWeight,
+          600,
+          200,
+          0.24,
+        ),
         '--resume-line-height': effectiveSettings.lineHeight,
         '--resume-page-padding-top': `${effectiveSettings.pagePaddingTop}in`,
         '--resume-page-padding-left': `${effectiveSettings.pagePaddingLeft}in`,
@@ -107,15 +145,24 @@ export function ResumeDocument({
         '--resume-section-spacing': `${effectiveSettings.sectionSpacing}pt`,
         '--resume-section-header-spacing': `${effectiveSettings.sectionHeaderSpacing}pt`,
         '--resume-entry-spacing': `${effectiveSettings.entrySpacing}pt`,
-        '--resume-section-title-weight': effectiveSettings.sectionHeadingBold ? 700 : 400,
+        '--resume-name-weight': effectiveSettings.boldTextWeight,
+        '--resume-section-title-weight': effectiveSettings.sectionHeadingBold
+          ? effectiveSettings.boldTextWeight
+          : effectiveSettings.bodyTextWeight,
         '--resume-section-title-style': effectiveSettings.sectionHeadingItalic ? 'italic' : 'normal',
         '--resume-section-title-transform': effectiveSettings.sectionHeadingUppercase ? 'uppercase' : 'none',
-        '--resume-entry-title-weight': effectiveSettings.entryTitleBold ? 700 : 400,
+        '--resume-entry-title-weight': effectiveSettings.entryTitleBold
+          ? effectiveSettings.boldTextWeight
+          : effectiveSettings.bodyTextWeight,
         '--resume-entry-title-style': effectiveSettings.entryTitleItalic ? 'italic' : 'normal',
         '--resume-subtitle-style': effectiveSettings.subtitleItalic ? 'italic' : 'normal',
-        '--resume-date-weight': effectiveSettings.dateBold ? 700 : 400,
+        '--resume-date-weight': effectiveSettings.dateBold
+          ? effectiveSettings.boldTextWeight
+          : effectiveSettings.bodyTextWeight,
         '--resume-date-style': effectiveSettings.dateItalic ? 'italic' : 'normal',
-        '--resume-skill-label-weight': effectiveSettings.skillLabelBold ? 700 : 400,
+        '--resume-skill-label-weight': effectiveSettings.skillLabelBold
+          ? effectiveSettings.boldTextWeight
+          : effectiveSettings.bodyTextWeight,
       }) as CSSProperties,
     [effectiveSettings],
   );

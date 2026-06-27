@@ -12,6 +12,12 @@ type PdfFontKey =
   | 'helveticaItalic'
   | 'helveticaBoldItalic';
 
+interface PdfColor {
+  r: number;
+  g: number;
+  b: number;
+}
+
 export interface ResumePageFit {
   status: 'under' | 'fit' | 'over';
   usageRatio: number;
@@ -27,6 +33,10 @@ interface TextRun {
   size: number;
   font: PdfFontKey;
   width: number;
+  charSpacing: number;
+  color: PdfColor;
+  strokeWidth: number;
+  strokeColor: PdfColor;
 }
 
 interface RuleRun {
@@ -34,6 +44,7 @@ interface RuleRun {
   x2: number;
   y: number;
   width: number;
+  color: PdfColor;
 }
 
 interface CaptureState {
@@ -60,6 +71,8 @@ const WIN_ANSI: Record<string, number> = {
   '·': 0xb7,
   '×': 0xd7,
 };
+
+const DEFAULT_PDF_COLOR: PdfColor = { r: 0, g: 0, b: 0 };
 
 export async function waitForLayout() {
   await document.fonts.ready;
@@ -144,12 +157,8 @@ function isVisibleElement(element: Element) {
 }
 
 function fontStyleKeyFor(style: CSSStyleDeclaration): FontStyleKey {
-  const weight = Number.parseInt(style.fontWeight, 10);
-  const isBold = style.fontWeight === 'bold' || Number.isFinite(weight) && weight >= 600;
   const isItalic = style.fontStyle === 'italic' || style.fontStyle === 'oblique';
 
-  if (isBold && isItalic) return 'boldItalic';
-  if (isBold) return 'bold';
   if (isItalic) return 'italic';
   return 'regular';
 }
@@ -206,6 +215,65 @@ function pdfNumber(value: number) {
   return Number.isFinite(value) ? value.toFixed(3).replace(/\.?0+$/, '') : '0';
 }
 
+function pdfColor(color: PdfColor) {
+  return `${pdfNumber(color.r)} ${pdfNumber(color.g)} ${pdfNumber(color.b)}`;
+}
+
+function parseCssColor(value: string): PdfColor {
+  const match = value.match(
+    /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)$/i,
+  );
+  if (!match) {
+    return DEFAULT_PDF_COLOR;
+  }
+
+  const alpha = Math.min(1, Math.max(0, Number(match[4] ?? 1)));
+  const blend = (channel: string) => {
+    const value255 = Math.min(255, Math.max(0, Number(channel)));
+    return (value255 * alpha + 255 * (1 - alpha)) / 255;
+  };
+
+  return {
+    r: blend(match[1]),
+    g: blend(match[2]),
+    b: blend(match[3]),
+  };
+}
+
+function cssLengthToPt(value: string, scale: number) {
+  if (!value || value === 'normal') {
+    return 0;
+  }
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed * scale : 0;
+}
+
+function textStrokeWidthFor(style: CSSStyleDeclaration, scale: number) {
+  return cssLengthToPt(
+    style.getPropertyValue('-webkit-text-stroke-width'),
+    scale,
+  );
+}
+
+function textStrokeColorFor(style: CSSStyleDeclaration) {
+  return parseCssColor(
+    style.getPropertyValue('-webkit-text-stroke-color') || style.color,
+  );
+}
+
+function applyTextTransform(text: string, transform: string) {
+  if (transform === 'uppercase') {
+    return text.toUpperCase();
+  }
+  if (transform === 'lowercase') {
+    return text.toLowerCase();
+  }
+  if (transform === 'capitalize') {
+    return text.replace(/\b[a-z]/gi, (char) => char.toUpperCase());
+  }
+  return text;
+}
+
 function walkTextNodes(root: HTMLElement) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
@@ -248,26 +316,115 @@ function addTextNodeRuns(
   const style = window.getComputedStyle(parent);
   const font = pdfFontKeyFor(style);
   const size = Number.parseFloat(style.fontSize) * scale;
+  const charSpacing = cssLengthToPt(style.letterSpacing, scale);
+  const color = parseCssColor(style.color);
+  const strokeWidth = textStrokeWidthFor(style, scale);
+  const strokeColor = textStrokeColorFor(style);
+
+  if (style.textAlign === 'justify') {
+    for (const match of text.matchAll(/\S+/g)) {
+      const word = applyTextTransform(match[0], style.textTransform);
+      const start = match.index ?? 0;
+      const range = document.createRange();
+      range.setStart(node, start);
+      range.setEnd(node, start + match[0].length);
+
+      for (const rect of Array.from(range.getClientRects())) {
+        if (rect.width <= 0 || rect.height <= 0) continue;
+
+        const x = (rect.left - pageRect.left) * scale;
+        const y = PDF_HEIGHT_PT - (rect.bottom - pageRect.top) * scale + size * 0.18;
+
+        if (x < -1 || x > PDF_WIDTH_PT + 1 || y < -1 || y > PDF_HEIGHT_PT + 1) {
+          continue;
+        }
+
+        runs.push({
+          text: word,
+          x,
+          y,
+          size,
+          font,
+          width: rect.width * scale,
+          charSpacing,
+          color,
+          strokeWidth,
+          strokeColor,
+        });
+      }
+    }
+    return;
+  }
+
+  const lineGroups: Array<{
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+    start: number;
+    end: number;
+  }> = [];
 
   for (const match of text.matchAll(/\S+/g)) {
-    const word = match[0];
     const start = match.index ?? 0;
+    const end = start + match[0].length;
     const range = document.createRange();
     range.setStart(node, start);
-    range.setEnd(node, start + word.length);
+    range.setEnd(node, end);
 
     for (const rect of Array.from(range.getClientRects())) {
       if (rect.width <= 0 || rect.height <= 0) continue;
 
-      const x = (rect.left - pageRect.left) * scale;
-      const y = PDF_HEIGHT_PT - (rect.bottom - pageRect.top) * scale + size * 0.18;
+      const group = lineGroups.find(
+        (line) =>
+          Math.abs(line.bottom - rect.bottom) <= 1.5 &&
+          Math.abs(line.top - rect.top) <= 1.5,
+      );
 
-      if (x < -1 || x > PDF_WIDTH_PT + 1 || y < -1 || y > PDF_HEIGHT_PT + 1) {
-        continue;
+      if (group) {
+        group.left = Math.min(group.left, rect.left);
+        group.right = Math.max(group.right, rect.right);
+        group.start = Math.min(group.start, start);
+        group.end = Math.max(group.end, end);
+      } else {
+        lineGroups.push({
+          top: rect.top,
+          bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          start,
+          end,
+        });
       }
-
-      runs.push({ text: word, x, y, size, font, width: rect.width * scale });
     }
+  }
+
+  for (const group of lineGroups) {
+    const chunk = applyTextTransform(
+      text.slice(group.start, group.end).replace(/\s+/g, ' ').trim(),
+      style.textTransform,
+    );
+    if (!chunk) continue;
+
+    const x = (group.left - pageRect.left) * scale;
+    const y = PDF_HEIGHT_PT - (group.bottom - pageRect.top) * scale + size * 0.18;
+
+    if (x < -1 || x > PDF_WIDTH_PT + 1 || y < -1 || y > PDF_HEIGHT_PT + 1) {
+      continue;
+    }
+
+    runs.push({
+      text: chunk,
+      x,
+      y,
+      size,
+      font,
+      width: (group.right - group.left) * scale,
+      charSpacing,
+      color,
+      strokeWidth,
+      strokeColor,
+    });
   }
 }
 
@@ -281,6 +438,7 @@ function addBulletRuns(page: HTMLElement, pageRect: DOMRect, scale: number, runs
 
     const rect = item.getBoundingClientRect();
     const size = Number.parseFloat(before.fontSize || window.getComputedStyle(item).fontSize) * scale;
+    const strokeWidth = textStrokeWidthFor(before, scale);
     runs.push({
       text: content,
       x: (rect.left - pageRect.left) * scale,
@@ -288,6 +446,10 @@ function addBulletRuns(page: HTMLElement, pageRect: DOMRect, scale: number, runs
       size,
       font: pdfFontKeyFor(before),
       width: size * 0.4,
+      charSpacing: cssLengthToPt(before.letterSpacing, scale),
+      color: parseCssColor(before.color),
+      strokeWidth,
+      strokeColor: textStrokeColorFor(before),
     });
   });
 }
@@ -306,8 +468,12 @@ function addExtractionSpaces(runs: TextRun[]) {
         x: previous.x + previous.width + gap / 2,
         y: run.y,
         size: run.size,
-        font: 'timesRegular',
+        font: previous.font,
         width: Math.min(gap, run.size * 0.35),
+        charSpacing: 0,
+        color: previous.color,
+        strokeWidth: 0,
+        strokeColor: previous.strokeColor,
       });
     }
 
@@ -353,6 +519,7 @@ function collectRules(page: HTMLElement) {
       x2: (rect.right - pageRect.left) * scale,
       y: PDF_HEIGHT_PT - (rect.bottom - pageRect.top) * scale + (borderWidth * scale) / 2,
       width: borderWidth * scale,
+      color: parseCssColor(style.borderBottomColor),
     });
   });
 
@@ -381,6 +548,7 @@ function buildContentStream(textRuns: TextRun[], rules: RuleRun[]) {
 
   for (const rule of rules) {
     lines.push(
+      `${pdfColor(rule.color)} RG`,
       `${pdfNumber(rule.width)} w`,
       `${pdfNumber(rule.x1)} ${pdfNumber(rule.y)} m`,
       `${pdfNumber(rule.x2)} ${pdfNumber(rule.y)} l`,
@@ -390,11 +558,18 @@ function buildContentStream(textRuns: TextRun[], rules: RuleRun[]) {
 
   for (const run of textRuns) {
     lines.push(
+      'q',
+      `${pdfColor(run.color)} rg`,
+      `${pdfColor(run.strokeColor)} RG`,
+      `${pdfNumber(run.strokeWidth)} w`,
       'BT',
       `/${fontNames[run.font]} ${pdfNumber(run.size)} Tf`,
+      `${pdfNumber(run.charSpacing)} Tc`,
+      `${run.strokeWidth > 0 ? '2' : '0'} Tr`,
       `1 0 0 1 ${pdfNumber(run.x)} ${pdfNumber(run.y)} Tm`,
       `${pdfString(run.text)} Tj`,
       'ET',
+      'Q',
     );
   }
 
