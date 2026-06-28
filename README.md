@@ -281,6 +281,18 @@ The optimize path upload panel is **centered**. The generate button has no decor
 
 `PipelineStatus` renders **below the Generate button** (wizard) or below `AiPanel` (editor). See [AI pipeline progress](#ai-pipeline-progress) below.
 
+### LLM Council (`types/council.ts`, `councilSettings.ts`, `CouncilProgress.tsx`)
+
+A **Solitary LLM** (default) / **LLM Council** toggle on the generate step, both paths.
+
+- **Candidates** — 2–3 unique providers, same solitary prompt, **in parallel**, each in its own fresh background chat. No extension changes were needed: `background.js` already isolates every send by `requestKey(appTabId, appRequestId)`, so the wizard just fires `sendPdfAndWait`/`sendPromptAndWait` concurrently.
+- **Judge** — one provider (separate chat), runs after **≥2 candidates succeed**. Sees drafts labelled **A/B/C only** (`buildCouncilJudgePrompt`); the label→provider map is revealed in the UI after. With no JD, JD-alignment dimensions are skipped.
+- **Failure tolerance** — failures are honest; <2 successes or a judge failure → candidate-pick fallback. **Cancel** aborts app-side (`councilRunIdRef`).
+- **Rubric** — multi-dimension, 1–10, equal weight. Defaults in Settings (`resume-council-settings`); per-run override doesn't mutate them.
+- **Progress** — `CouncilProgress` renders a branching tree: a trunk forks into parallel candidate branches and converges into the judge, reusing the `PipelineStatus` step circles. Slot status is app-driven, so capture logic stays untouched.
+- **Results** — `AiResultModal` adds a Final/Candidate switcher, per-candidate scores + rationales, synthesis notes, per-view page-fit, and failure badges. Refine links to the judge chat. History persists a `CouncilSnapshot`.
+- **Capture** — `parseCouncilJudgeResponse` reads `{ scores, synthesisNotes, final }`; the judge-wrapper `expects*Wrapper` gate in `content-llm.js`/`background.js` keeps the full wrapper from collapsing to its inner `final` resume.
+
 ### Diff viewer (`resumeDiff.ts` + `ResumeDiffView.tsx`)
 
 Compares before/after resumes by **stable ids** (`section.id`, `entry.id`, `skill.id`) — **not** array position. Bullet-level changes are matched semantically within each entry so deleted/reordered bullets show as removals/additions instead of being hidden by index shifts. Reordering Projects above Experience must **not** show false "replaced" bullets. The diff also suppresses the legacy experience schema flip where older baselines stored role in `entry.title` and company in `entry.subtitle`, while the current renderer stores company in `entry.title` and role in `entry.subtitle`; that pure title/subtitle swap is not a content change.

@@ -8,15 +8,29 @@ import {
   Link2,
   Loader2,
   Plug,
+  Plus,
   SlidersHorizontal,
+  Users,
   X,
 } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { EducationData } from '../types/education';
 import type { OngoingItem, RepoItem, RepositorySource } from '../types/repository';
 import type { ResumeData } from '../types/resume';
+import type {
+  CouncilCandidateFailure,
+  CouncilCandidateResult,
+  CouncilJudgeResult,
+  CouncilPath,
+  CouncilRunResult,
+  CouncilSlotState,
+  CouncilSnapshot,
+  RubricDimension,
+} from '../types/council';
+import { CANDIDATE_LABELS } from '../types/council';
 import {
   AI_PROVIDERS,
+  getProviderConfig,
   getSavedProvider,
   saveProvider,
   type AiProvider,
@@ -25,8 +39,15 @@ import {
   buildOptimizePdfPrompt,
   buildResumeFromRepositoryPrompt,
   buildImprovementPrompt,
+  buildCouncilJudgePrompt,
+  buildCouncilRubricSummary,
   estimateWizardPromptTokens,
 } from '../utils/aiPrompt';
+import {
+  createRubricDimension,
+  keyRubric,
+  loadDefaultRubric,
+} from '../utils/councilSettings';
 import {
   getResumeBuildTemplate,
 } from '../utils/resumeBuildStyle';
@@ -42,6 +63,7 @@ import {
   parseOptimizedPdfResponse,
   parseResumeFromLlmResponse,
   parseStrictGeneratedResume,
+  parseCouncilJudgeResponse,
 } from '../utils/parseResumeResponse';
 import { readPdfFileAsBase64 } from '../utils/pdf';
 import {
@@ -54,14 +76,75 @@ import {
   estimateSourceMaterialTokens,
 } from '../utils/repositorySources';
 import { saveAiSession, touchAiSession } from '../utils/aiSessionStorage';
-import { formatCompactTokenEstimate } from '../utils/tokenEstimate';
-import { AiResultModal } from './AiResultModal';
+import {
+  estimateInputTokens,
+  formatCompactTokenEstimate,
+} from '../utils/tokenEstimate';
+import { AiResultModal, type CouncilModalData } from './AiResultModal';
+import { CouncilProgress } from './CouncilProgress';
 import { PipelineStatus } from './PipelineStatus';
 import type { PipelineEvent, PipelineVariant } from '../utils/aiPipeline';
 import './ResumeBuilderWizard.css';
 
 type BuildMode = 'optimize' | 'repository';
 type SelectionMode = 'manual' | 'filter';
+type GenerationMode = 'solitary' | 'council';
+
+const EMPTY_RESUME: ResumeData = { contact: { name: '', links: [] }, sections: [] };
+
+type CandidateOutcome =
+  | { ok: true; result: CouncilCandidateResult }
+  | { ok: false; failure: CouncilCandidateFailure };
+
+interface CouncilDisplay {
+  preview: ResumeData;
+  baseline: ResumeData | null;
+  session: AiChatSession | null;
+  rawResponse: string;
+}
+
+/** Resolve which resume / baseline / chat to show for the current council view. */
+function computeCouncilDisplay(
+  councilResult: CouncilRunResult | null,
+  councilView: string,
+): CouncilDisplay | null {
+  if (!councilResult) {
+    return null;
+  }
+  const { path, candidates, judge } = councilResult;
+
+  if (councilView === 'final' && judge) {
+    return {
+      preview: judge.final,
+      baseline: path === 'optimize' ? judge.finalBaseline : EMPTY_RESUME,
+      session: judge.session,
+      rawResponse: judge.rawResponse,
+    };
+  }
+
+  const candidate =
+    candidates.find((item) => item.slotId === councilView) ?? candidates[0];
+
+  if (!candidate) {
+    return judge
+      ? {
+          preview: judge.final,
+          baseline: path === 'optimize' ? judge.finalBaseline : EMPTY_RESUME,
+          session: judge.session,
+          rawResponse: judge.rawResponse,
+        }
+      : null;
+  }
+
+  return {
+    preview: candidate.resume,
+    baseline: path === 'optimize' ? candidate.baseline : EMPTY_RESUME,
+    // With a judge present, candidate views are read-only comparisons (refine is
+    // the judge chat). Without a judge, the candidate's own chat is the link.
+    session: judge ? null : candidate.session,
+    rawResponse: candidate.rawResponse,
+  };
+}
 
 interface ResumeBuilderWizardProps {
   currentResume: ResumeData;
@@ -106,6 +189,7 @@ interface ResumeBuilderWizardProps {
     data: ResumeData,
     session: AiChatSession | null,
     renderSettings?: ResumeRenderSettings,
+    council?: CouncilSnapshot,
   ) => void;
   onSkipToEditor: () => void;
   jobDescription: string;
@@ -323,6 +407,22 @@ export function ResumeBuilderWizard({
   const [resultVariant, setResultVariant] = useState<'optimize' | 'repository'>(
     'optimize',
   );
+
+  // --- LLM Council state ---------------------------------------------------
+  const [genMode, setGenMode] = useState<GenerationMode>('solitary');
+  const [candidateProviders, setCandidateProviders] = useState<AiProvider[]>([
+    'claude',
+    'chatgpt',
+  ]);
+  const [judgeProvider, setJudgeProvider] = useState<AiProvider>('gemini');
+  const [rubric, setRubric] = useState<RubricDimension[]>(loadDefaultRubric);
+  const [councilSlots, setCouncilSlots] = useState<CouncilSlotState[]>([]);
+  const [councilActive, setCouncilActive] = useState(false);
+  const [councilResult, setCouncilResult] = useState<CouncilRunResult | null>(null);
+  const [councilView, setCouncilView] = useState<string>('final');
+  const councilRunIdRef = useRef(0);
+
+  const keyedRubric = useMemo(() => keyRubric(rubric), [rubric]);
 
   useEffect(() => {
     const next = mergeResumeRenderSettings(renderSettings);
@@ -749,19 +849,23 @@ export function ResumeBuilderWizard({
     setError(null);
 
     try {
+      let title = 'Prompt Preview';
+      let text = '';
+
       if (mode === 'optimize') {
-        setPromptPreview({
-          title: 'Prompt Preview',
-          text: buildOptimizePdfPrompt(jobDescription),
-        });
-        return;
+        text = buildOptimizePdfPrompt(jobDescription);
+      } else {
+        const { prompt, selectedCount } = await buildFreshRepositoryPrompt();
+        title = `Prompt Preview · ${selectedCount} source${selectedCount === 1 ? '' : 's'}`;
+        text = prompt;
       }
 
-      const { prompt, selectedCount } = await buildFreshRepositoryPrompt();
-      setPromptPreview({
-        title: `Prompt Preview · ${selectedCount} source${selectedCount === 1 ? '' : 's'}`,
-        text: prompt,
-      });
+      if (genMode === 'council') {
+        title = `${title} · Council`;
+        text = `CANDIDATE PROMPT — sent to each of the ${candidateProviders.length} candidate providers:\n\n${text}\n\n${'='.repeat(48)}\nRUBRIC SUMMARY SENT TO THE JUDGE\n${'='.repeat(48)}\n${buildCouncilRubricSummary(keyedRubric)}`;
+      }
+
+      setPromptPreview({ title, text });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to build prompt preview.');
     } finally {
@@ -829,40 +933,82 @@ export function ResumeBuilderWizard({
   };
 
   const handleRefine = async (instruction: string) => {
-    if (!activeSession || !previewData) {
+    const inCouncil = councilResult !== null;
+    const session = inCouncil
+      ? councilDisplay?.session ?? null
+      : activeSession;
+    const base = inCouncil ? councilDisplay?.preview ?? null : previewData;
+
+    if (!session || !base) {
       return;
     }
 
     setRefining(true);
     setError(null);
-    startPipeline('improvement');
-    pushPipeline('returning_to_chat', `Returning to chat "${activeSession.chatTitle}"…`);
+    if (!inCouncil) {
+      startPipeline('improvement');
+      pushPipeline('returning_to_chat', `Returning to chat "${session.chatTitle}"…`);
+    }
 
     try {
-      const prompt = buildImprovementPrompt(instruction, previewData);
-      const response = await sendImprovementAndWait({
-        session: activeSession,
-        prompt,
-      });
+      const prompt = buildImprovementPrompt(instruction, base);
+      const response = await sendImprovementAndWait({ session, prompt });
 
-      touchAiSession(activeSession.id);
-      pushPipeline('parsing_json', 'Parsing refined resume…');
+      touchAiSession(session.id);
+      if (!inCouncil) {
+        pushPipeline('parsing_json', 'Parsing refined resume…');
+      }
 
-      const parsed = parseResumeFromLlmResponse(
-        response.rawResponse!,
-        previewData,
-      );
+      const parsed = parseResumeFromLlmResponse(response.rawResponse!, base);
 
       if (response.session) {
         saveAiSession(response.session);
-        setActiveSession(response.session);
       }
 
-      setPreviewData(parsed);
-      setRawResponse(response.rawResponse!);
-      pushPipeline('preview_ready', 'Preview updated');
+      if (inCouncil) {
+        const nextSession = response.session ?? session;
+        const viewId = councilView;
+        setCouncilResult((prev) => {
+          if (!prev) {
+            return prev;
+          }
+          if (viewId === 'final' && prev.judge) {
+            return {
+              ...prev,
+              judge: {
+                ...prev.judge,
+                final: parsed,
+                rawResponse: response.rawResponse!,
+                session: nextSession,
+              },
+            };
+          }
+          return {
+            ...prev,
+            candidates: prev.candidates.map((candidate) =>
+              candidate.slotId === viewId
+                ? {
+                    ...candidate,
+                    resume: parsed,
+                    rawResponse: response.rawResponse!,
+                    session: nextSession,
+                  }
+                : candidate,
+            ),
+          };
+        });
+      } else {
+        if (response.session) {
+          setActiveSession(response.session);
+        }
+        setPreviewData(parsed);
+        setRawResponse(response.rawResponse!);
+        pushPipeline('preview_ready', 'Preview updated');
+      }
     } catch (err) {
-      pushPipeline('error', err instanceof Error ? err.message : 'Failed');
+      if (!inCouncil) {
+        pushPipeline('error', err instanceof Error ? err.message : 'Failed');
+      }
       setError(err instanceof Error ? err.message : 'Refinement failed.');
     } finally {
       setRefining(false);
@@ -870,6 +1016,19 @@ export function ResumeBuilderWizard({
   };
 
   const handleApply = () => {
+    if (councilResult && councilDisplay) {
+      onComplete(
+        councilDisplay.preview,
+        councilDisplay.session,
+        draftSettings,
+        buildCouncilSnapshotFromRun(councilResult),
+      );
+      resetCouncil();
+      setPreviewData(null);
+      setBaselineData(null);
+      setRawResponse('');
+      return;
+    }
     if (!previewData) {
       return;
     }
@@ -880,11 +1039,574 @@ export function ResumeBuilderWizard({
   };
 
   const handleDiscard = () => {
+    if (councilResult) {
+      resetCouncil();
+    }
     setPreviewData(null);
     setBaselineData(null);
     setRawResponse('');
     setActiveSession(null);
   };
+
+  // --- Council: candidate / judge / rubric configuration -------------------
+  const setCandidateCount = useCallback((count: number) => {
+    setCandidateProviders((prev) => {
+      if (count === prev.length) {
+        return prev;
+      }
+      if (count < prev.length) {
+        return prev.slice(0, count);
+      }
+      const all: AiProvider[] = AI_PROVIDERS.map((item) => item.id);
+      const next = [...prev];
+      while (next.length < count) {
+        const free = all.find((id) => !next.includes(id));
+        if (!free) {
+          break;
+        }
+        next.push(free);
+      }
+      return next;
+    });
+  }, []);
+
+  const setCandidateProvider = useCallback(
+    (index: number, provider: AiProvider) => {
+      setCandidateProviders((prev) => {
+        const next = [...prev];
+        const existing = next.indexOf(provider);
+        if (existing !== -1 && existing !== index) {
+          // Keep candidates unique by swapping the conflicting slot.
+          next[existing] = next[index];
+        }
+        next[index] = provider;
+        return next;
+      });
+    },
+    [],
+  );
+
+  const updateRubricDimension = useCallback(
+    (id: string, patch: Partial<RubricDimension>) => {
+      setRubric((prev) =>
+        prev.map((dim) => (dim.id === id ? { ...dim, ...patch } : dim)),
+      );
+    },
+    [],
+  );
+
+  const removeRubricDimension = useCallback((id: string) => {
+    setRubric((prev) => prev.filter((dim) => dim.id !== id));
+  }, []);
+
+  const addRubricDimension = useCallback(() => {
+    setRubric((prev) => [...prev, createRubricDimension()]);
+  }, []);
+
+  const resetRubricToDefaults = useCallback(() => {
+    setRubric(loadDefaultRubric());
+  }, []);
+
+  // --- Council: orchestration ----------------------------------------------
+  const setCouncilSlot = useCallback(
+    (runId: number, slotId: string, patch: Partial<CouncilSlotState>) => {
+      if (runId !== councilRunIdRef.current) {
+        return;
+      }
+      setCouncilSlots((prev) =>
+        prev.map((slot) =>
+          slot.slotId === slotId ? { ...slot, ...patch } : slot,
+        ),
+      );
+    },
+    [],
+  );
+
+  const resetCouncil = useCallback(() => {
+    councilRunIdRef.current += 1;
+    setCouncilResult(null);
+    setCouncilSlots([]);
+    setCouncilActive(false);
+    setCouncilView('final');
+  }, []);
+
+  const runCouncilCandidate = useCallback(
+    async ({
+      runId,
+      slotId,
+      provider,
+      path,
+      candidatePrompt,
+      pdf,
+    }: {
+      runId: number;
+      slotId: string;
+      provider: AiProvider;
+      path: CouncilPath;
+      candidatePrompt: string;
+      pdf: { base64: string; filename: string } | null;
+    }): Promise<CandidateOutcome> => {
+      const cancelled = (): CandidateOutcome => ({
+        ok: false,
+        failure: { slotId, provider, error: 'Cancelled.' },
+      });
+
+      setCouncilSlot(runId, slotId, { status: 'configuring' });
+      // App-side heuristic: after a fresh chat usually opens, show "generating".
+      const advanceTimer = window.setTimeout(() => {
+        if (runId !== councilRunIdRef.current) {
+          return;
+        }
+        setCouncilSlots((prev) =>
+          prev.map((slot) =>
+            slot.slotId === slotId && slot.status === 'configuring'
+              ? { ...slot, status: 'generating' }
+              : slot,
+          ),
+        );
+      }, 5500);
+
+      try {
+        let resume: ResumeData;
+        let baseline: ResumeData | null = null;
+        let rawResponse = '';
+        let session: AiChatSession | null = null;
+
+        if (path === 'optimize') {
+          const response = await sendPdfAndWait({
+            provider,
+            prompt: candidatePrompt,
+            pdfBase64: pdf!.base64,
+            filename: pdf!.filename,
+            forceNewChat: true,
+          });
+          if (runId !== councilRunIdRef.current) {
+            return cancelled();
+          }
+          if (!response.rawResponse) {
+            throw new Error(response.error ?? 'No response captured.');
+          }
+          setCouncilSlot(runId, slotId, { status: 'parsing' });
+          const parsed = parseOptimizedPdfResponse(response.rawResponse);
+          resume = parsed.optimized;
+          baseline = parsed.baseline;
+          rawResponse = response.rawResponse;
+          session = response.session ?? null;
+        } else {
+          const response = await sendPromptAndWait({
+            provider,
+            prompt: candidatePrompt,
+          });
+          if (runId !== councilRunIdRef.current) {
+            return cancelled();
+          }
+          if (!response.rawResponse) {
+            throw new Error(response.error ?? 'No response captured.');
+          }
+          setCouncilSlot(runId, slotId, { status: 'parsing' });
+          resume = parseStrictGeneratedResume(response.rawResponse);
+          rawResponse = response.rawResponse;
+          session = response.session ?? null;
+        }
+
+        if (session) {
+          saveAiSession(session);
+        }
+        setCouncilSlot(runId, slotId, { status: 'done' });
+        return {
+          ok: true,
+          result: {
+            slotId,
+            provider,
+            label: 'A',
+            resume,
+            baseline,
+            rawResponse,
+            session,
+          },
+        };
+      } catch (err) {
+        if (runId !== councilRunIdRef.current) {
+          return cancelled();
+        }
+        const message = err instanceof Error ? err.message : 'Candidate failed.';
+        setCouncilSlot(runId, slotId, { status: 'failed', error: message });
+        return { ok: false, failure: { slotId, provider, error: message } };
+      } finally {
+        window.clearTimeout(advanceTimer);
+      }
+    },
+    [sendPdfAndWait, sendPromptAndWait, setCouncilSlot],
+  );
+
+  const runCouncilFlow = useCallback(async () => {
+    if (!bridgeReady) {
+      setError('Extension bridge required. Reload extension, then refresh (Cmd+R).');
+      return;
+    }
+    if (!mode) {
+      setError('Choose how you want to build your resume.');
+      return;
+    }
+    const providers = candidateProviders;
+    if (new Set(providers).size !== providers.length) {
+      setError('Each council candidate must use a different provider.');
+      return;
+    }
+    const keyed = keyRubric(rubric);
+    if (keyed.length === 0) {
+      setError('Add at least one rubric dimension for the judge.');
+      return;
+    }
+    if (mode === 'optimize' && !pdfFile) {
+      setError('Select a PDF resume to optimize.');
+      return;
+    }
+
+    setError(null);
+    setWorking(true);
+    setCouncilResult(null);
+    setCouncilView('final');
+
+    const runId = ++councilRunIdRef.current;
+    const path: CouncilPath = mode === 'optimize' ? 'optimize' : 'repository';
+
+    const initialSlots: CouncilSlotState[] = providers.map((provider, index) => ({
+      slotId: `candidate-${index + 1}`,
+      role: 'candidate',
+      provider,
+      title: `Candidate ${index + 1}`,
+      status: 'configuring',
+    }));
+    initialSlots.push({
+      slotId: 'judge',
+      role: 'judge',
+      provider: judgeProvider,
+      title: 'Judge',
+      status: 'waiting',
+    });
+    setCouncilActive(true);
+    setCouncilSlots(initialSlots);
+
+    try {
+      let candidatePrompt = '';
+      let pdf: { base64: string; filename: string } | null = null;
+      let styleInstructions = '';
+
+      if (path === 'optimize') {
+        const { base64, filename } = await readPdfFileAsBase64(pdfFile!);
+        pdf = { base64, filename };
+        candidatePrompt = buildOptimizePdfPrompt(jobDescription);
+      } else {
+        const draft = await buildFreshRepositoryPrompt();
+        candidatePrompt = draft.prompt;
+        styleInstructions = generationInstructions;
+      }
+      if (runId !== councilRunIdRef.current) {
+        return;
+      }
+
+      // Phase 1 — candidates in parallel.
+      const outcomes = await Promise.all(
+        providers.map((provider, index) =>
+          runCouncilCandidate({
+            runId,
+            slotId: `candidate-${index + 1}`,
+            provider,
+            path,
+            candidatePrompt,
+            pdf,
+          }),
+        ),
+      );
+      if (runId !== councilRunIdRef.current) {
+        return;
+      }
+
+      const successes: CouncilCandidateResult[] = [];
+      const failures: CouncilCandidateFailure[] = [];
+      for (const outcome of outcomes) {
+        if (outcome.ok) {
+          successes.push(outcome.result);
+        } else if (outcome.failure.error !== 'Cancelled.') {
+          failures.push(outcome.failure);
+        }
+      }
+
+      // Assign anonymized labels A/B/C in slot order among successes.
+      const labeled = successes.map((result, index) => ({
+        ...result,
+        label: CANDIDATE_LABELS[index],
+      }));
+      setCouncilSlots((prev) =>
+        prev.map((slot) => {
+          const match = labeled.find((item) => item.slotId === slot.slotId);
+          return match ? { ...slot, label: match.label } : slot;
+        }),
+      );
+
+      if (labeled.length < 2) {
+        setCouncilSlot(runId, 'judge', {
+          status: 'failed',
+          error: 'Skipped — needs 2+ successful candidates.',
+        });
+
+        if (labeled.length === 0) {
+          // All candidates failed: show errors only, keep failed rows visible.
+          setCouncilActive(false);
+          setError(
+            `All ${providers.length} council candidates failed. ${failures
+              .map((failure) => `${failure.provider}: ${failure.error}`)
+              .join(' · ')}`,
+          );
+          return;
+        }
+
+        // Exactly one succeeded: skip the judge, let the user apply it.
+        setCouncilResult({
+          path,
+          candidates: labeled,
+          failures,
+          judge: null,
+          judgeError:
+            'The council needs at least 2 successful candidates before the judge can run. You can apply the one candidate that succeeded.',
+          rubric: keyed,
+          judgeProvider,
+          hadJobDescription: jobDescription.trim().length > 0,
+        });
+        setCouncilView(labeled[0].slotId);
+        setCouncilActive(false);
+        return;
+      }
+
+      // Phase 2 — judge (sequential).
+      setCouncilSlot(runId, 'judge', { status: 'configuring' });
+      const judgeTimer = window.setTimeout(() => {
+        setCouncilSlot(runId, 'judge', { status: 'generating' });
+      }, 5500);
+
+      let judge: CouncilJudgeResult | null = null;
+      let judgeError: string | null = null;
+      const optimizeBaseline =
+        path === 'optimize'
+          ? labeled.find((item) => item.baseline)?.baseline ?? null
+          : null;
+
+      try {
+        const judgePrompt = buildCouncilJudgePrompt({
+          path,
+          jobDescription,
+          rubric: keyed,
+          candidates: labeled.map((item) => ({
+            label: item.label,
+            resume: item.resume,
+          })),
+          styleInstructions,
+        });
+        const response = await sendPromptAndWait({
+          provider: judgeProvider,
+          prompt: judgePrompt,
+        });
+        window.clearTimeout(judgeTimer);
+        if (runId !== councilRunIdRef.current) {
+          return;
+        }
+        if (!response.rawResponse) {
+          throw new Error(response.error ?? 'No judge response captured.');
+        }
+        setCouncilSlot(runId, 'judge', { status: 'parsing' });
+        const parsed = parseCouncilJudgeResponse(
+          response.rawResponse,
+          optimizeBaseline,
+        );
+        if (response.session) {
+          saveAiSession(response.session);
+        }
+        judge = {
+          scores: parsed.scores,
+          synthesisNotes: parsed.synthesisNotes,
+          final: parsed.final,
+          finalBaseline: optimizeBaseline,
+          rawResponse: response.rawResponse,
+          session: response.session ?? null,
+        };
+        setCouncilSlot(runId, 'judge', { status: 'done' });
+      } catch (err) {
+        window.clearTimeout(judgeTimer);
+        if (runId !== councilRunIdRef.current) {
+          return;
+        }
+        judgeError = err instanceof Error ? err.message : 'Judge failed.';
+        setCouncilSlot(runId, 'judge', { status: 'failed', error: judgeError });
+      }
+
+      setCouncilResult({
+        path,
+        candidates: labeled,
+        failures,
+        judge,
+        judgeError,
+        rubric: keyed,
+        judgeProvider,
+        hadJobDescription: jobDescription.trim().length > 0,
+      });
+      setCouncilView(judge ? 'final' : labeled[0]?.slotId ?? 'final');
+      setCouncilActive(false);
+    } catch (err) {
+      if (runId !== councilRunIdRef.current) {
+        return;
+      }
+      setCouncilSlots((prev) =>
+        prev.map((slot) =>
+          slot.status === 'configuring' || slot.status === 'generating'
+            ? { ...slot, status: 'failed', error: 'Run failed before completion.' }
+            : slot,
+        ),
+      );
+      setCouncilActive(false);
+      setError(err instanceof Error ? err.message : 'Council run failed.');
+    } finally {
+      if (runId === councilRunIdRef.current) {
+        setWorking(false);
+      }
+    }
+  }, [
+    bridgeReady,
+    mode,
+    candidateProviders,
+    rubric,
+    pdfFile,
+    judgeProvider,
+    jobDescription,
+    buildFreshRepositoryPrompt,
+    generationInstructions,
+    runCouncilCandidate,
+    sendPromptAndWait,
+    setCouncilSlot,
+  ]);
+
+  const handleCancelCouncil = useCallback(() => {
+    councilRunIdRef.current += 1;
+    setCouncilActive(false);
+    setCouncilSlots([]);
+    setWorking(false);
+  }, []);
+
+  const buildCouncilSnapshotFromRun = useCallback(
+    (result: CouncilRunResult): CouncilSnapshot => ({
+      mode: 'council',
+      providers: {
+        candidates: candidateProviders,
+        judge: judgeProvider,
+      },
+      rubricUsed: rubric.map((dim) => ({
+        id: dim.id,
+        title: dim.title,
+        description: dim.description,
+      })),
+      candidateOutputs: result.candidates.map((candidate) => ({
+        provider: candidate.provider,
+        label: candidate.label,
+        resume: candidate.resume,
+      })),
+      judgeOutput: result.judge
+        ? {
+            synthesisNotes: result.judge.synthesisNotes,
+            scores: result.judge.scores,
+          }
+        : null,
+      failures: result.failures,
+    }),
+    [candidateProviders, judgeProvider, rubric],
+  );
+
+  const councilDisplay = computeCouncilDisplay(councilResult, councilView);
+
+  const councilModalData = useMemo<CouncilModalData | null>(() => {
+    if (!councilResult) {
+      return null;
+    }
+    const { candidates, judge, failures, judgeError } = councilResult;
+
+    const tabs: CouncilModalData['tabs'] = [];
+    if (judge) {
+      tabs.push({ id: 'final', label: 'Final (Judge)' });
+    }
+    candidates.forEach((candidate) => {
+      tabs.push({
+        id: candidate.slotId,
+        label: `Candidate: ${getProviderConfig(candidate.provider).label}`,
+      });
+    });
+
+    let selected: CouncilModalData['selected'] = null;
+    if (councilView !== 'final') {
+      const candidate = candidates.find((item) => item.slotId === councilView);
+      if (candidate) {
+        const labelScores = judge?.scores[candidate.label];
+        selected = {
+          providerLabel: getProviderConfig(candidate.provider).label,
+          candidateLabel: candidate.label,
+          scores: councilResult.rubric.map((dim) => ({
+            title: dim.title,
+            score: labelScores?.scores[dim.key] ?? null,
+            rationale: labelScores?.rationales[dim.key] ?? '',
+          })),
+        };
+      }
+    }
+
+    return {
+      tabs,
+      view: councilView,
+      onViewChange: setCouncilView,
+      hasJudgeFinal: Boolean(judge),
+      judgeError,
+      synthesisNotes: judge?.synthesisNotes ?? '',
+      noJobDescription: !councilResult.hadJobDescription,
+      failures: failures.map((failure) => ({
+        provider: getProviderConfig(failure.provider).label,
+        error: failure.error,
+      })),
+      selected,
+    };
+  }, [councilResult, councilView]);
+
+  const councilEstimate = useMemo(() => {
+    if (genMode !== 'council' || !mode) {
+      return null;
+    }
+    const path: CouncilPath = mode === 'optimize' ? 'optimize' : 'repository';
+    const perCandidate =
+      mode === 'optimize'
+        ? estimateInputTokens(buildOptimizePdfPrompt(jobDescription))
+        : promptEstimate.total;
+    const candidateCount = candidateProviders.length;
+    const candidateTotal = perCandidate * candidateCount;
+    const judgeBase = estimateInputTokens(
+      buildCouncilJudgePrompt({
+        path,
+        jobDescription,
+        rubric: keyedRubric,
+        candidates: [],
+      }),
+    );
+    return {
+      perCandidate,
+      candidateCount,
+      candidateTotal,
+      judgeBase,
+      total: candidateTotal + judgeBase,
+      pdfSeparate: mode === 'optimize',
+    };
+  }, [
+    genMode,
+    mode,
+    jobDescription,
+    promptEstimate.total,
+    candidateProviders.length,
+    keyedRubric,
+  ]);
 
   const renderTypographyControls = () => (
     <>
@@ -1285,36 +2007,255 @@ export function ResumeBuilderWizard({
         </>
       )}
 
-      <section className="rb-wizard-section rb-wizard-actions">
-        <div className="rb-wizard-provider-row">
-          <label className="rb-wizard-field">
-            <span>Web AI provider</span>
-            <select
-              value={provider}
-              onChange={(e) => {
-                setProvider(e.target.value as AiProvider);
-                saveProvider(e.target.value as AiProvider);
-              }}
+      {mode && (
+        <section className="rb-wizard-section rb-wizard-panel rb-council">
+          <div className="rb-council-mode" role="tablist" aria-label="Generation mode">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={genMode === 'solitary'}
+              className={`rb-council-mode-btn${genMode === 'solitary' ? ' rb-council-mode-btn--active' : ''}`}
+              onClick={() => setGenMode('solitary')}
+              disabled={working || refining}
             >
-              {AI_PROVIDERS.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="rb-wizard-btn rb-wizard-btn--secondary"
-            onClick={handleConnect}
-            disabled={connecting || working || refining}
-          >
-            {connecting ? <Loader2 size={14} className="spin" /> : <Link2 size={14} />}
-            Connect
-          </button>
-        </div>
+              <Bot size={15} />
+              <span>
+                <strong>Solitary LLM</strong>
+                <em>One provider, one resume</em>
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={genMode === 'council'}
+              className={`rb-council-mode-btn${genMode === 'council' ? ' rb-council-mode-btn--active' : ''}`}
+              onClick={() => setGenMode('council')}
+              disabled={working || refining}
+            >
+              <Users size={15} />
+              <span>
+                <strong>LLM Council</strong>
+                <em>2–3 candidates + a judge</em>
+              </span>
+            </button>
+          </div>
 
-        {mode && (
+          {genMode === 'council' && (
+            <div className="rb-council-config">
+              <p className="rb-wizard-note">
+                Each candidate provider generates in parallel in its own background
+                chat. A judge then scores the anonymized drafts on your rubric and
+                merges the best into a final resume.
+              </p>
+
+              <div className="rb-council-pickers">
+                <div className="rb-council-count">
+                  <span className="rb-council-count-label">Candidates</span>
+                  <div className="rb-council-count-toggle">
+                    {[2, 3].map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        className={`rb-council-count-btn${candidateProviders.length === count ? ' rb-council-count-btn--active' : ''}`}
+                        onClick={() => setCandidateCount(count)}
+                        disabled={working}
+                      >
+                        {count}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rb-council-slots">
+                  {candidateProviders.map((slotProvider, index) => (
+                    <label className="rb-council-slot" key={`candidate-${index}`}>
+                      <span>Candidate {index + 1}</span>
+                      <select
+                        value={slotProvider}
+                        disabled={working}
+                        onChange={(event) =>
+                          setCandidateProvider(
+                            index,
+                            event.target.value as AiProvider,
+                          )
+                        }
+                      >
+                        {AI_PROVIDERS.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                  <label className="rb-council-slot rb-council-slot--judge">
+                    <span>Judge</span>
+                    <select
+                      value={judgeProvider}
+                      disabled={working}
+                      onChange={(event) =>
+                        setJudgeProvider(event.target.value as AiProvider)
+                      }
+                    >
+                      {AI_PROVIDERS.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              {candidateProviders.includes(judgeProvider) && (
+                <p className="rb-council-hint">
+                  Judge shares a provider with a candidate — it runs in a separate
+                  chat and never sees which draft came from which provider.
+                </p>
+              )}
+
+              <details className="rb-council-rubric">
+                <summary>
+                  Judge rubric · {keyedRubric.length} dimension
+                  {keyedRubric.length === 1 ? '' : 's'} — override for this run
+                </summary>
+                <div className="rb-council-rubric-body">
+                  <p className="rb-wizard-hint">
+                    Overrides apply to this run only. Edit permanent defaults on the
+                    Settings page. Each dimension is scored 1–10 with equal weight.
+                  </p>
+                  <div className="rb-council-rubric-header" aria-hidden="true">
+                    <span>Title</span>
+                    <span>Description (sent to the judge)</span>
+                    <span />
+                  </div>
+                  {rubric.map((dimension) => (
+                    <div className="rb-council-rubric-row" key={dimension.id}>
+                      <input
+                        className="rb-wizard-input"
+                        placeholder="e.g. JD alignment"
+                        aria-label="Dimension title"
+                        value={dimension.title}
+                        onChange={(event) =>
+                          updateRubricDimension(dimension.id, {
+                            title: event.target.value,
+                          })
+                        }
+                      />
+                      <input
+                        className="rb-wizard-input"
+                        placeholder="What the judge should look for"
+                        aria-label="Dimension description"
+                        value={dimension.description}
+                        onChange={(event) =>
+                          updateRubricDimension(dimension.id, {
+                            description: event.target.value,
+                          })
+                        }
+                      />
+                      <button
+                        type="button"
+                        className="rb-council-rubric-remove"
+                        onClick={() => removeRubricDimension(dimension.id)}
+                        aria-label={`Remove ${dimension.title || 'dimension'}`}
+                        disabled={rubric.length <= 1}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="rb-council-rubric-actions">
+                    <button
+                      type="button"
+                      className="rb-wizard-btn rb-wizard-btn--secondary"
+                      onClick={addRubricDimension}
+                    >
+                      <Plus size={14} />
+                      Add dimension
+                    </button>
+                    <button
+                      type="button"
+                      className="rb-wizard-link"
+                      onClick={resetRubricToDefaults}
+                    >
+                      Reset to saved defaults
+                    </button>
+                  </div>
+                </div>
+              </details>
+
+              {councilEstimate && (
+                <div className="rb-council-estimate" aria-label="Council token estimate">
+                  <div className="rb-council-estimate-total">
+                    <span>Estimated input</span>
+                    <strong>{formatCompactTokenEstimate(councilEstimate.total)}</strong>
+                  </div>
+                  <div className="rb-council-estimate-rows">
+                    <span>
+                      <strong>
+                        {formatCompactTokenEstimate(councilEstimate.perCandidate)}
+                      </strong>
+                      <em>Per candidate</em>
+                    </span>
+                    <span>
+                      <strong>
+                        {formatCompactTokenEstimate(councilEstimate.candidateTotal)}
+                      </strong>
+                      <em>{councilEstimate.candidateCount} candidates</em>
+                    </span>
+                    <span>
+                      <strong>
+                        {formatCompactTokenEstimate(councilEstimate.judgeBase)}
+                      </strong>
+                      <em>Judge base</em>
+                    </span>
+                  </div>
+                  <p className="rb-council-estimate-note">
+                    {councilEstimate.pdfSeparate
+                      ? 'PDF files are counted separately by each provider. '
+                      : ''}
+                    The judge also receives every candidate resume at run time
+                    (~1–3k tokens each), added on top of the judge base.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      <section className="rb-wizard-section rb-wizard-actions">
+        {genMode === 'solitary' && (
+          <div className="rb-wizard-provider-row">
+            <label className="rb-wizard-field">
+              <span>Web AI provider</span>
+              <select
+                value={provider}
+                onChange={(e) => {
+                  setProvider(e.target.value as AiProvider);
+                  saveProvider(e.target.value as AiProvider);
+                }}
+              >
+                {AI_PROVIDERS.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="rb-wizard-btn rb-wizard-btn--secondary"
+              onClick={handleConnect}
+              disabled={connecting || working || refining}
+            >
+              {connecting ? <Loader2 size={14} className="spin" /> : <Link2 size={14} />}
+              Connect
+            </button>
+          </div>
+        )}
+
+        {mode && genMode === 'solitary' && (
           <TokenEstimatePanel estimate={promptEstimate} mode={mode} />
         )}
 
@@ -1335,7 +2276,13 @@ export function ResumeBuilderWizard({
           <button
             type="button"
             className="rb-wizard-btn rb-wizard-btn--primary"
-            onClick={handleGenerate}
+            onClick={() => {
+              if (genMode === 'council') {
+                void runCouncilFlow();
+              } else {
+                void handleGenerate();
+              }
+            }}
             disabled={
               !bridgeReady ||
               !mode ||
@@ -1347,11 +2294,25 @@ export function ResumeBuilderWizard({
             }
           >
             {working ? <Loader2 size={16} className="spin" /> : null}
-            {working ? 'Generating…' : 'Generate tailored resume'}
+            {working
+              ? genMode === 'council'
+                ? 'Running council…'
+                : 'Generating…'
+              : genMode === 'council'
+                ? 'Run LLM Council'
+                : 'Generate tailored resume'}
           </button>
         </div>
 
-        <PipelineStatus events={pipelineEvents} variant={pipelineVariant} />
+        {genMode === 'solitary' ? (
+          <PipelineStatus events={pipelineEvents} variant={pipelineVariant} />
+        ) : null}
+        {councilSlots.length > 0 && !councilResult ? (
+          <CouncilProgress
+            slots={councilSlots}
+            onCancel={councilActive ? handleCancelCouncil : undefined}
+          />
+        ) : null}
 
         {!bridgeReady && (
           <p className="rb-wizard-error">
@@ -1363,12 +2324,14 @@ export function ResumeBuilderWizard({
       </section>
 
       <AiResultModal
-        open={previewData !== null}
-        variant={resultVariant}
-        baselineData={baselineData}
-        previewData={previewData ?? currentResume}
-        rawResponse={rawResponse}
-        session={activeSession}
+        open={previewData !== null || councilResult !== null}
+        variant={councilResult ? councilResult.path : resultVariant}
+        baselineData={councilDisplay ? councilDisplay.baseline : baselineData}
+        previewData={
+          (councilDisplay ? councilDisplay.preview : previewData) ?? currentResume
+        }
+        rawResponse={councilDisplay ? councilDisplay.rawResponse : rawResponse}
+        session={councilDisplay ? councilDisplay.session : activeSession}
         refining={refining}
         refinementChanges={null}
         renderSettings={draftSettings}
@@ -1376,6 +2339,7 @@ export function ResumeBuilderWizard({
         onApply={handleApply}
         onDiscard={handleDiscard}
         onRefine={handleRefine}
+        council={councilModalData}
       />
 
       {promptPreview && (

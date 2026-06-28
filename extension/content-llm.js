@@ -720,7 +720,32 @@ function isResumeWrapperPayload(parsed) {
   );
 }
 
+// LLM Council judge output: { scores, synthesisNotes, final }. The wrapper has
+// no top-level sections, so without this gate the extractor would relay the
+// inner "final" resume and drop the scores/synthesis notes.
+function expectsJudgeWrapper(promptText = '') {
+  return (
+    /"synthesisNotes"/.test(promptText) &&
+    /"scores"/.test(promptText) &&
+    /"final"/.test(promptText)
+  );
+}
+
+function isJudgeWrapperPayload(parsed) {
+  return (
+    parsed &&
+    typeof parsed === 'object' &&
+    parsed.scores &&
+    typeof parsed.scores === 'object' &&
+    isRealResumePayload(parsed.final)
+  );
+}
+
 function isCapturedPayload(parsed, promptText = '') {
+  if (expectsJudgeWrapper(promptText)) {
+    return isJudgeWrapperPayload(parsed);
+  }
+
   if (expectsResumeWrapper(promptText)) {
     return isResumeWrapperPayload(parsed);
   }

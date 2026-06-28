@@ -560,6 +560,137 @@ export function parseOptimizedPdfResponse(rawResponse: string): {
   );
 }
 
+function readDimensionScores(raw: unknown): {
+  scores: Record<string, number>;
+  rationales: Record<string, string>;
+} {
+  const scores: Record<string, number> = {};
+  const rationales: Record<string, string> = {};
+
+  const pushEntry = (key: unknown, score: unknown, rationale: unknown) => {
+    if (typeof key !== 'string' || !key.trim()) {
+      return;
+    }
+    const numeric =
+      typeof score === 'number'
+        ? score
+        : typeof score === 'string'
+          ? Number(score)
+          : NaN;
+    if (Number.isFinite(numeric)) {
+      scores[key] = Math.min(10, Math.max(1, Math.round(numeric)));
+    }
+    if (typeof rationale === 'string' && rationale.trim()) {
+      rationales[key] = rationale.trim();
+    }
+  };
+
+  if (isRecord(raw) && Array.isArray(raw.dimensions)) {
+    for (const dim of raw.dimensions) {
+      if (isRecord(dim)) {
+        pushEntry(dim.key, dim.score, dim.rationale);
+      }
+    }
+    return { scores, rationales };
+  }
+
+  // Tolerate an object-keyed shape: { jd_alignment: 8, rationales: {...} }.
+  if (isRecord(raw)) {
+    const rationaleMap = isRecord(raw.rationales) ? raw.rationales : {};
+    for (const [key, value] of Object.entries(raw)) {
+      if (key === 'rationales' || key === 'dimensions') {
+        continue;
+      }
+      pushEntry(key, value, (rationaleMap as Record<string, unknown>)[key]);
+    }
+  }
+
+  return { scores, rationales };
+}
+
+export interface ParsedCouncilJudge {
+  final: ResumeData;
+  scores: Record<string, { scores: Record<string, number>; rationales: Record<string, string> }>;
+  synthesisNotes: string;
+}
+
+/**
+ * Parse the council judge response. `optimizeBaseline` (optimize path) is used
+ * as the normalization fallback for the merged final resume, since the judge is
+ * instructed not to repeat the baseline.
+ */
+export function parseCouncilJudgeResponse(
+  rawResponse: string,
+  optimizeBaseline?: ResumeData | null,
+): ParsedCouncilJudge {
+  const candidates = collectJsonCandidates(rawResponse);
+  const fallbackBaseline = optimizeBaseline ?? IMPORT_BASELINE;
+  let sawParseableJson = false;
+  let sawJudgeShape = false;
+  // Graceful fallback: if only the merged resume was captured (e.g. an older
+  // extension relayed the inner "final" object without the scores wrapper),
+  // still apply it — scores/synthesis notes are simply marked unavailable.
+  let bareFinal: ResumeData | null = null;
+
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const parsed = parseJsonCandidate(candidates[index]);
+    if (!parsed || !isRecord(parsed)) {
+      continue;
+    }
+    sawParseableJson = true;
+
+    if (!isRecord(parsed.final)) {
+      if (!bareFinal && looksLikeResumePayload(parsed)) {
+        const candidateFinal = normalizeAiResume(parsed, fallbackBaseline);
+        if (resumeHasSubstantiveContent(candidateFinal)) {
+          bareFinal = candidateFinal;
+        }
+      }
+      continue;
+    }
+    sawJudgeShape = true;
+
+    const final = normalizeAiResume(parsed.final, fallbackBaseline);
+    if (!resumeHasSubstantiveContent(final)) {
+      continue;
+    }
+
+    const scores: ParsedCouncilJudge['scores'] = {};
+    if (isRecord(parsed.scores)) {
+      for (const [label, value] of Object.entries(parsed.scores)) {
+        scores[label] = readDimensionScores(value);
+      }
+    }
+
+    const synthesisNotes =
+      typeof parsed.synthesisNotes === 'string'
+        ? parsed.synthesisNotes.trim()
+        : '';
+
+    return { final, scores, synthesisNotes };
+  }
+
+  if (bareFinal) {
+    return { final: bareFinal, scores: {}, synthesisNotes: '' };
+  }
+
+  if (sawJudgeShape) {
+    throw new Error(
+      'The judge returned a "final" resume but it had no substantive content. Open the judge chat, confirm it finished, then try again.',
+    );
+  }
+
+  if (sawParseableJson) {
+    throw new Error(
+      'The judge response did not include a "final" merged resume in the required JSON wrapper. Try the council run again.',
+    );
+  }
+
+  throw new Error(
+    'No complete judge JSON was detected. Open the judge chat, confirm it finished generating, then try again.',
+  );
+}
+
 export function parseResumeFromLlmResponse(
   rawResponse: string,
   fallback: ResumeData,

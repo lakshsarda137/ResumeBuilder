@@ -1,7 +1,14 @@
 import { useState } from 'react';
-import { GripVertical, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { GripVertical, Plus, RotateCcw, SlidersHorizontal, X } from 'lucide-react';
 import type { ResumeData } from '../types/resume';
+import type { RubricDimension } from '../types/council';
 import { makeBullet } from '../types/resume';
+import {
+  DEFAULT_RUBRIC,
+  createRubricDimension,
+  loadDefaultRubric,
+  saveDefaultRubric,
+} from '../utils/councilSettings';
 import {
   DEFAULT_RESUME_RENDER_SETTINGS,
   RESUME_RENDER_TEMPLATES,
@@ -812,6 +819,96 @@ export function SettingsPage() {
           })}
         </div>
       </section>
+
+      <CouncilRubricSettings />
     </div>
+  );
+}
+
+function CouncilRubricSettings() {
+  const [rubric, setRubric] = useState<RubricDimension[]>(loadDefaultRubric);
+
+  function commit(next: RubricDimension[]) {
+    setRubric(next);
+    saveDefaultRubric(next);
+  }
+
+  function updateDimension(id: string, patch: Partial<RubricDimension>) {
+    commit(rubric.map((dim) => (dim.id === id ? { ...dim, ...patch } : dim)));
+  }
+
+  function removeDimension(id: string) {
+    commit(rubric.filter((dim) => dim.id !== id));
+  }
+
+  function addDimension() {
+    commit([...rubric, createRubricDimension()]);
+  }
+
+  function resetDefaults() {
+    commit(DEFAULT_RUBRIC.map((dim) => ({ ...dim })));
+  }
+
+  return (
+    <section className="card settings-card">
+      <div className="settings-rubric-head">
+        <h2>LLM Council Rubric</h2>
+        <button type="button" className="btn btn--secondary" onClick={resetDefaults}>
+          <RotateCcw size={14} />
+          Reset rubric
+        </button>
+      </div>
+      <p className="page-subtitle">
+        Default dimensions the council judge scores each candidate on (1–10, equal
+        weight). You can override these per run in the builder without changing
+        these defaults.
+      </p>
+
+      <div className="settings-rubric-list">
+        <div className="settings-rubric-header" aria-hidden="true">
+          <span>Title</span>
+          <span>Description (sent to the judge)</span>
+          <span />
+        </div>
+        {rubric.map((dimension) => (
+          <div className="settings-rubric-row" key={dimension.id}>
+            <input
+              className="settings-rubric-input"
+              placeholder="e.g. JD alignment"
+              aria-label="Dimension title"
+              value={dimension.title}
+              onChange={(event) =>
+                updateDimension(dimension.id, { title: event.target.value })
+              }
+            />
+            <input
+              className="settings-rubric-input"
+              placeholder="What the judge should look for"
+              aria-label="Dimension description"
+              value={dimension.description}
+              onChange={(event) =>
+                updateDimension(dimension.id, {
+                  description: event.target.value,
+                })
+              }
+            />
+            <button
+              type="button"
+              className="settings-rubric-remove"
+              onClick={() => removeDimension(dimension.id)}
+              aria-label={`Remove ${dimension.title || 'dimension'}`}
+              disabled={rubric.length <= 1}
+            >
+              <X size={15} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <button type="button" className="btn btn--secondary" onClick={addDimension}>
+        <Plus size={14} />
+        Add dimension
+      </button>
+    </section>
   );
 }

@@ -72,6 +72,94 @@ export const PIPELINE_VARIANT_MILESTONES: Record<
   ],
 };
 
+// ---------------------------------------------------------------------------
+// LLM Council — per-slot milestone helpers
+//
+// Council slot progress is driven by the app-side orchestration lifecycle
+// (start → in-flight → settle), not provider-tab micro-steps, so the working
+// extension capture logic is left untouched. Each slot renders the same
+// Amazon-style step circles as the solitary pipeline.
+// ---------------------------------------------------------------------------
+
+export type CouncilSlotRole = 'candidate' | 'judge';
+
+export type CouncilSlotProgressStatus =
+  | 'waiting'
+  | 'configuring'
+  | 'generating'
+  | 'parsing'
+  | 'done'
+  | 'failed';
+
+const COUNCIL_CANDIDATE_STEPS: Array<{ id: string; label: string }> = [
+  { id: 'chat', label: 'Configuring chat' },
+  { id: 'prompt', label: 'Preparing prompt' },
+  { id: 'write', label: 'Writing resume' },
+  { id: 'parse', label: 'Parsing result' },
+];
+
+const COUNCIL_JUDGE_STEPS: Array<{ id: string; label: string }> = [
+  { id: 'chat', label: 'Configuring chat' },
+  { id: 'prompt', label: 'Preparing prompt' },
+  { id: 'eval', label: 'Evaluating candidates' },
+  { id: 'display', label: 'Displaying result' },
+];
+
+const COUNCIL_STATUS_LABELS: Record<CouncilSlotProgressStatus, string> = {
+  waiting: 'Waiting…',
+  configuring: 'Configuring chat…',
+  generating: 'Generating…',
+  parsing: 'Parsing result…',
+  done: 'Done',
+  failed: 'Failed',
+};
+
+export function councilStatusLabel(status: CouncilSlotProgressStatus): string {
+  return COUNCIL_STATUS_LABELS[status];
+}
+
+export function councilMilestoneStates(
+  role: CouncilSlotRole,
+  status: CouncilSlotProgressStatus,
+): PipelineMilestone[] {
+  const steps = role === 'judge' ? COUNCIL_JUDGE_STEPS : COUNCIL_CANDIDATE_STEPS;
+  const lastIndex = steps.length - 1;
+
+  // index of the step currently in flight (-1 = none active)
+  const activeIndex =
+    status === 'configuring'
+      ? 0
+      : status === 'generating'
+        ? 2
+        : status === 'parsing'
+          ? 3
+          : -1;
+  // highest fully-complete step index
+  const completeThrough =
+    status === 'done'
+      ? lastIndex
+      : status === 'parsing'
+        ? 2
+        : status === 'generating'
+          ? 1
+          : -1;
+
+  return steps.map((step, index) => {
+    let milestoneStatus: MilestoneStatus = 'pending';
+    if (status === 'done') {
+      milestoneStatus = 'complete';
+    } else if (status === 'failed') {
+      // Mark setup steps complete and flag the generation step as the failure.
+      milestoneStatus = index <= 1 ? 'complete' : index === 2 ? 'error' : 'pending';
+    } else if (index <= completeThrough) {
+      milestoneStatus = 'complete';
+    } else if (index === activeIndex) {
+      milestoneStatus = 'active';
+    }
+    return { ...step, status: milestoneStatus };
+  });
+}
+
 interface FlowState {
   completedThrough: number;
   sentCount: number;

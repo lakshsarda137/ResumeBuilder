@@ -261,3 +261,100 @@
     width: min(100%, calc(8.5in * 0.42));
   }
 }
+
+/* LLM Council rubric editor */
+.settings-rubric-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.settings-rubric-head h2 {
+  margin: 0;
+  color: var(--text-1);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.settings-rubric-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.settings-rubric-header,
+.settings-rubric-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.9fr) 34px;
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-rubric-header {
+  padding: 0 2px 2px;
+}
+
+.settings-rubric-header span {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+
+@media (max-width: 560px) {
+  .settings-rubric-header,
+  .settings-rubric-row {
+    grid-template-columns: minmax(0, 1fr) 34px;
+  }
+  .settings-rubric-header span:nth-child(2) {
+    display: none;
+  }
+  .settings-rubric-row .settings-rubric-input:nth-child(2) {
+    grid-column: 1 / 2;
+  }
+}
+
+.settings-rubric-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-1);
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.settings-rubric-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.settings-rubric-remove {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.settings-rubric-remove:hover:not(:disabled) {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.settings-rubric-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

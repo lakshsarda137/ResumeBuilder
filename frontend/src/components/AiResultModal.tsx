@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Loader2, MessageSquarePlus } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { ResumeData } from '../types/resume';
@@ -12,11 +12,51 @@ import {
   estimateInputTokens,
   formatTokenEstimate,
 } from '../utils/tokenEstimate';
+import { inspectResumePageFit, type ResumePageFit } from '../utils/pdf';
 import { ResumeDiffView } from './ResumeDiffView';
 import { FormatToolbar } from './FormatToolbar';
-import { ResumeRenderSettingsControls } from './ResumeRenderSettingsControls';
 import { ResumeWithJdNotes } from './ResumeWithJdNotes';
 import './AiResultModal.css';
+
+const AI_PREVIEW_ID = 'resume-ai-preview';
+
+function pageFitLabel(fit: ResumePageFit): string {
+  const percent = Math.round(fit.usageRatio * 100);
+  if (fit.status === 'over') {
+    return `Over 1 page (${percent}%)`;
+  }
+  if (fit.status === 'under') {
+    return `Under 1 page (${percent}%)`;
+  }
+  return `Fits 1 page (${percent}%)`;
+}
+
+export interface CouncilModalScoreRow {
+  title: string;
+  score: number | null;
+  rationale: string;
+}
+
+export interface CouncilModalTab {
+  id: string;
+  label: string;
+}
+
+export interface CouncilModalData {
+  tabs: CouncilModalTab[];
+  view: string;
+  onViewChange: (view: string) => void;
+  hasJudgeFinal: boolean;
+  judgeError: string | null;
+  synthesisNotes: string;
+  noJobDescription: boolean;
+  failures: Array<{ provider: string; error: string }>;
+  selected: {
+    providerLabel: string;
+    candidateLabel: string;
+    scores: CouncilModalScoreRow[];
+  } | null;
+}
 
 interface AiResultModalProps {
   open: boolean;
@@ -34,6 +74,7 @@ interface AiResultModalProps {
   onApply: () => void;
   onDiscard: () => void;
   onRefine: (instruction: string) => void;
+  council?: CouncilModalData | null;
 }
 
 export function AiResultModal({
@@ -48,15 +89,39 @@ export function AiResultModal({
   session,
   refining,
   renderSettings,
-  onRenderSettingsChange,
   onApply,
   onDiscard,
   onRefine,
+  council = null,
 }: AiResultModalProps) {
   const [improvementPrompt, setImprovementPrompt] = useState(
     'Tighten the third bullet and make the tone more confident.',
   );
   const [showJdNotes, setShowJdNotes] = useState(true);
+  const [pageFit, setPageFit] = useState<ResumePageFit | null>(null);
+
+  // Measure the currently-previewed resume's page fit so it's visible before
+  // applying. Re-runs when the previewed resume (e.g. a council view) changes.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    let cancelled = false;
+    inspectResumePageFit(AI_PREVIEW_ID)
+      .then((fit) => {
+        if (!cancelled) {
+          setPageFit(fit);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPageFit(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, previewData, renderSettings]);
 
   const hasJdNotes = useMemo(
     () => resumeHasJdNotes(previewData),
@@ -94,8 +159,12 @@ export function AiResultModal({
       'Review the tailored resume built from your repository sources, then apply it to your editor.',
   };
 
-  const title = titles[variant] ?? titles.edit;
-  const description = descriptions[variant] ?? descriptions.edit;
+  const title = council ? 'LLM Council result' : titles[variant] ?? titles.edit;
+  const description = council
+    ? 'Compare the judge’s merged resume against each candidate, then apply the version you want.'
+    : descriptions[variant] ?? descriptions.edit;
+  const viewingCandidate = Boolean(council && council.view !== 'final');
+  const applyLabel = viewingCandidate ? 'Apply this candidate' : 'Apply to editor';
   const refinementBaselineNote =
     variant === 'import'
       ? 'All changes since import:'
@@ -132,12 +201,101 @@ export function AiResultModal({
               onClick={onApply}
               disabled={refining}
             >
-              Apply to editor
+              {applyLabel}
             </button>
           </div>
         </header>
 
         <div className="ai-result-body">
+          {council ? (
+            <div className="ai-council-bar">
+              <div
+                className="ai-council-tabs"
+                role="tablist"
+                aria-label="Council results"
+              >
+                {council.tabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={council.view === tab.id}
+                    className={`ai-council-tab${council.view === tab.id ? ' ai-council-tab--active' : ''}`}
+                    onClick={() => council.onViewChange(tab.id)}
+                    disabled={refining}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              {council.failures.length > 0 ? (
+                <div className="ai-council-failures">
+                  {council.failures.map((failure, index) => (
+                    <span
+                      key={`${failure.provider}-${index}`}
+                      className="ai-council-failure-badge"
+                      title={failure.error}
+                    >
+                      {failure.provider} failed
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {council?.judgeError ? (
+            <div className="ai-council-judge-error" role="alert">
+              <strong>Judge unavailable.</strong> {council.judgeError}
+            </div>
+          ) : null}
+
+          {council?.selected ? (
+            <section className="ai-council-scores">
+              <h3>
+                Candidate {council.selected.candidateLabel} ·{' '}
+                {council.selected.providerLabel}
+              </h3>
+              {council.hasJudgeFinal && council.noJobDescription ? (
+                <p className="ai-council-score-empty">
+                  No job description was provided for this run, so job-description
+                  alignment was not scored. Dimensions that need a JD show “—”.
+                </p>
+              ) : null}
+              {council.hasJudgeFinal ? (
+                <div className="ai-council-score-grid">
+                  {council.selected.scores.map((row, index) => (
+                    <div key={`${row.title}-${index}`} className="ai-council-score-row">
+                      <div className="ai-council-score-head">
+                        <span className="ai-council-score-title">{row.title}</span>
+                        <span className="ai-council-score-value">
+                          {row.score != null ? `${row.score}/10` : '—'}
+                        </span>
+                      </div>
+                      {row.rationale ? (
+                        <p className="ai-council-score-rationale">{row.rationale}</p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="ai-council-score-empty">
+                  Judge scores are unavailable for this run — this is the
+                  candidate’s raw generated resume.
+                </p>
+              )}
+            </section>
+          ) : null}
+
+          {council?.hasJudgeFinal &&
+          council.view === 'final' &&
+          council.synthesisNotes ? (
+            <section className="ai-council-synthesis">
+              <h3>Judge synthesis notes</h3>
+              <p>{council.synthesisNotes}</p>
+            </section>
+          ) : null}
+
           <section className="ai-result-changes">
             <h3>What changed</h3>
             <p className="ai-result-changes-intro">
@@ -171,18 +329,18 @@ export function AiResultModal({
           <section className="ai-result-preview">
             <div className="ai-result-preview-heading">
               <h3>Preview</h3>
+              {pageFit ? (
+                <span
+                  className={`ai-result-pagefit ai-result-pagefit--${pageFit.status}`}
+                  title="Estimated from the PDF export layout — adjust formatting in the editor after applying"
+                >
+                  {pageFitLabel(pageFit)}
+                </span>
+              ) : null}
             </div>
-            {renderSettings && onRenderSettingsChange ? (
-              <details className="ai-result-format-settings" open>
-                <summary>Formatting settings</summary>
-                <ResumeRenderSettingsControls
-                  settings={renderSettings}
-                  onChange={onRenderSettingsChange}
-                  tone="light"
-                  compact
-                />
-              </details>
-            ) : null}
+            <p className="ai-result-preview-note">
+              Formatting controls live in the editor after you apply.
+            </p>
             <div className="ai-result-preview-canvas">
               <div
                 className={`ai-result-preview-stack${showJdNotes && hasJdNotes ? ' ai-result-preview-stack--with-jd' : ''}`}

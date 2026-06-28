@@ -1,0 +1,243 @@
+.council-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: var(--surface-2, #1e1e1e);
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius, 10px);
+  margin-top: 14px;
+}
+
+.council-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.council-progress-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-1, #f0f0f0);
+}
+
+.council-progress-cancel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(248, 113, 113, 0.1);
+  color: #fca5a5;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.council-progress-cancel:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.18);
+}
+
+.council-progress-cancel:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------------------
+   Branching tree: a trunk that forks into parallel candidate branches and
+   converges into the judge. Reuses the orange step-circle material.
+--------------------------------------------------------------------------- */
+.council-tree {
+  --council-spine: rgba(232, 213, 183, 0.22);
+  display: flex;
+  flex-direction: column;
+}
+
+.council-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  column-gap: 14px;
+}
+
+/* The rail column draws the continuous vertical spine; flex lines stretch to
+   fill each node's height so adjacent nodes connect seamlessly. */
+.council-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+
+.council-rail-line {
+  flex: 1 0 10px;
+  width: 2px;
+  background: var(--council-spine);
+  border-radius: 2px;
+}
+
+.council-rail-line--hidden {
+  visibility: hidden;
+}
+
+.council-rail-slot {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+}
+
+.council-tree--running .council-rail-line {
+  background: linear-gradient(
+    180deg,
+    rgba(232, 213, 183, 0.12) 0%,
+    rgba(249, 115, 22, 0.55) 50%,
+    rgba(232, 213, 183, 0.12) 100%
+  );
+  background-size: 100% 220%;
+  animation: council-flow 1.7s linear infinite;
+}
+
+@keyframes council-flow {
+  from {
+    background-position: 0 220%;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+/* Branch node dot, centered on the spine. */
+.council-node-dot {
+  position: absolute;
+  left: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+}
+
+.council-node-dot--root,
+.council-node-dot--merge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--surface-3, #272727);
+  border: 2px solid var(--accent, #e8d5b7);
+  color: var(--accent, #e8d5b7);
+}
+
+.council-node-dot--merge {
+  border-color: rgba(232, 213, 183, 0.55);
+  color: rgba(232, 213, 183, 0.75);
+}
+
+/* Pulse active branches. */
+.council-node-dot.pipeline-step-circle--active {
+  animation: council-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes council-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.22);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(249, 115, 22, 0.08);
+  }
+}
+
+.council-node-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.council-node--root .council-node-body,
+.council-node--merge .council-node-body {
+  padding: 9px 0;
+  justify-content: center;
+}
+
+.council-node-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.council-node-head strong {
+  font-size: 13px;
+  color: var(--text-1, #f0f0f0);
+}
+
+.council-node-provider {
+  font-size: 11px;
+  color: var(--text-2, #a0a0a0);
+}
+
+.council-node-body--merge span {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-3, #666);
+}
+
+.council-node-status {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2, #a0a0a0);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.council-node-status--configuring,
+.council-node-status--generating,
+.council-node-status--parsing {
+  color: #fbbf24;
+}
+
+.council-node-status--done {
+  color: #4ade80;
+}
+
+.council-node-status--failed {
+  color: #fca5a5;
+}
+
+/* Compact mini step circles inside each branch. */
+.council-mini-steps {
+  max-width: 440px;
+  margin: 0;
+}
+
+.council-mini-steps .pipeline-step-circle {
+  width: 14px;
+  height: 14px;
+}
+
+.council-mini-steps .pipeline-step-connector {
+  top: 6px;
+  right: calc(50% + 9px);
+  left: calc(-50% + 9px);
+  height: 2px;
+}
+
+.council-mini-steps .pipeline-step-label {
+  margin-top: 5px;
+  font-size: 9.5px;
+}
+
+@media (max-width: 720px) {
+  .council-mini-steps .pipeline-step-label {
+    font-size: 8.5px;
+  }
+}

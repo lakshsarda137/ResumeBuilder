@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { HistorySessionSnapshot } from '../types/historySession';
+import type { CouncilSnapshot } from '../types/council';
 import type { ResumeData } from '../types/resume';
 import { ResumeWithJdNotes } from './ResumeWithJdNotes';
 import { useResumeState } from '../hooks/useResumeState';
@@ -94,6 +95,9 @@ export function ResumeEditor() {
   const pendingEditorScrollRef = useRef(false);
   const [view, setView] = useState<'wizard' | 'editor'>('wizard');
   const [linkedSession, setLinkedSession] = useState<AiChatSession | null>(null);
+  const [councilSnapshot, setCouncilSnapshot] = useState<CouncilSnapshot | null>(
+    null,
+  );
   const [jobDescription, setJobDescription] = useState('');
   const [aiUserPrompt, setAiUserPrompt] = useState(getDefaultAiUserPrompt);
   const [historySessionId, setHistorySessionId] = useState<string | null>(null);
@@ -223,6 +227,7 @@ export function ResumeEditor() {
       setRenderSettings(
         mergeResumeRenderSettings(snapshot.renderSettings),
       );
+      setCouncilSnapshot(snapshot.council ?? null);
       setHistorySessionId(sessionId);
       setHistorySessionTitle(title);
       pendingEditorScrollRef.current = true;
@@ -296,6 +301,7 @@ export function ResumeEditor() {
       zoom,
       aiUserPrompt,
       renderSettings,
+      council: councilSnapshot,
     };
   }, [
     data,
@@ -305,6 +311,7 @@ export function ResumeEditor() {
     zoom,
     aiUserPrompt,
     renderSettings,
+    councilSnapshot,
   ]);
 
   const persistSession = useCallback(
@@ -401,12 +408,14 @@ export function ResumeEditor() {
       next: ResumeData,
       session: AiChatSession | null,
       nextRenderSettings?: ResumeRenderSettings,
+      council?: CouncilSnapshot,
     ) => {
       if (nextRenderSettings) {
         setRenderSettings(nextRenderSettings);
       }
       setData(next, true);
       setLinkedSession(session);
+      setCouncilSnapshot(council ?? null);
       setHistorySessionId(null);
       setHistorySessionTitle(null);
       loadedSessionRef.current = null;
@@ -435,6 +444,7 @@ export function ResumeEditor() {
   const handleSkipToEditor = useCallback(() => {
     setHistorySessionId(null);
     setHistorySessionTitle(null);
+    setCouncilSnapshot(null);
     loadedSessionRef.current = null;
     setSearchParams({}, { replace: true });
     pendingEditorScrollRef.current = true;
@@ -444,6 +454,7 @@ export function ResumeEditor() {
   const handleNewBuild = useCallback(() => {
     setHistorySessionId(null);
     setHistorySessionTitle(null);
+    setCouncilSnapshot(null);
     loadedSessionRef.current = null;
     setSearchParams({}, { replace: true });
     setView('wizard');
@@ -497,6 +508,14 @@ export function ResumeEditor() {
               {historySessionTitle ? (
                 <>
                   Session: <em>{historySessionTitle}</em>
+                  {' · '}
+                </>
+              ) : null}
+              {councilSnapshot ? (
+                <>
+                  <em title={`Council: ${councilSnapshot.providers.candidates.join(', ')} · judge ${councilSnapshot.providers.judge}`}>
+                    Council build
+                  </em>
                   {' · '}
                 </>
               ) : null}

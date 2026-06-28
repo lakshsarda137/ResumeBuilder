@@ -709,3 +709,278 @@
     min-height: 320px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   LLM Council configuration
+--------------------------------------------------------------------------- */
+.rb-council-mode {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rb-council-mode-btn {
+  flex: 1 1 220px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius, 10px);
+  border: 1px solid var(--border, #333);
+  background: rgba(255, 255, 255, 0.035);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.rb-council-mode-btn:hover:not(:disabled) {
+  border-color: var(--accent, #e8d5b7);
+}
+
+.rb-council-mode-btn--active {
+  border-color: var(--accent, #e8d5b7);
+  background: rgba(232, 213, 183, 0.1);
+}
+
+.rb-council-mode-btn span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rb-council-mode-btn strong {
+  font-size: 13px;
+}
+
+.rb-council-mode-btn em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-2, #a0a0a0);
+}
+
+.rb-council-mode-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.rb-council-config {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.rb-council-pickers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rb-council-count {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rb-council-count-label {
+  font-size: 12px;
+  color: var(--text-2, #a0a0a0);
+}
+
+.rb-council-count-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius-sm, 6px);
+  overflow: hidden;
+}
+
+.rb-council-count-btn {
+  padding: 6px 16px;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rb-council-count-btn--active {
+  background: var(--accent, #e8d5b7);
+  color: #1a1a1a;
+}
+
+.rb-council-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.rb-council-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 150px;
+  min-width: 140px;
+}
+
+.rb-council-slot > span {
+  font-size: 12px;
+  color: var(--text-2, #a0a0a0);
+}
+
+.rb-council-slot select {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border, #333);
+  background: var(--surface-1, #161616);
+  color: inherit;
+  font-family: inherit;
+}
+
+.rb-council-slot--judge select {
+  border-color: rgba(232, 213, 183, 0.4);
+}
+
+.rb-council-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--accent, #e8d5b7);
+}
+
+.rb-council-rubric {
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius, 10px);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 12px 14px;
+}
+
+.rb-council-rubric > summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1, #f0f0f0);
+}
+
+.rb-council-rubric-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.rb-council-rubric-header,
+.rb-council-rubric-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr) 32px;
+  gap: 8px;
+  align-items: center;
+}
+
+.rb-council-rubric-header span {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-2, #a0a0a0);
+}
+
+@media (max-width: 560px) {
+  .rb-council-rubric-header,
+  .rb-council-rubric-row {
+    grid-template-columns: minmax(0, 1fr) 32px;
+  }
+  .rb-council-rubric-header span:nth-child(2) {
+    display: none;
+  }
+  .rb-council-rubric-row .rb-wizard-input:nth-child(2) {
+    grid-column: 1 / 2;
+  }
+}
+
+.rb-council-rubric-remove {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border, #333);
+  background: transparent;
+  color: var(--text-2, #a0a0a0);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.rb-council-rubric-remove:hover:not(:disabled) {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fca5a5;
+}
+
+.rb-council-rubric-remove:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.rb-council-rubric-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.rb-council-estimate {
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius, 10px);
+  background: var(--surface-1, #161616);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rb-council-estimate-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rb-council-estimate-total span {
+  font-size: 12px;
+  color: var(--text-2, #a0a0a0);
+}
+
+.rb-council-estimate-total strong {
+  font-size: 18px;
+  color: var(--accent, #e8d5b7);
+}
+
+.rb-council-estimate-rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.rb-council-estimate-rows span {
+  display: flex;
+  flex-direction: column;
+}
+
+.rb-council-estimate-rows strong {
+  font-size: 14px;
+  color: var(--text-1, #f0f0f0);
+}
+
+.rb-council-estimate-rows em {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--text-2, #a0a0a0);
+}
+
+.rb-council-estimate-note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-3, #666);
+}

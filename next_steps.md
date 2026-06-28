@@ -1,136 +1,26 @@
 # Next Steps
 
-This file tracks product and prompt improvements that are not finished yet. It is intentionally separate from the README so the README can describe current behavior while this file captures what to build next.
+Open product/prompt work (current behavior lives in the README, not here).
 
-## Resume Generation Quality
+## Resume generation quality
+- **Action-verb variety:** don't start two bullets with the same verb; audit and rewrite the weaker one before output.
+- **Smarter bolding:** `<strong>` only for a core metric, named system/tool, or role-defining outcome — not because a term is in the keyword list. At most one bold span per bullet; many bullets unbolded; never colored.
+- **Preserve source numbers:** keep credible metrics/counts/durations/percentages; compress wording before dropping a number. Show raw numbers from selected sources in the prompt preview so omissions are catchable.
 
-### Action verb variety
+## One-page fit
+- Detect inefficient line usage (e.g. one-word last lines) from real DOM line boxes.
+- Optional user-approved auto-tighten pass for overflow above the small-formatting zone, driven by measured overflow %, compressing in order: weak entries → weak bullets → wording → skills/coursework → low-value metrics.
 
-The LLM should not start multiple bullets with the same action verb.
+## PDF typography
+- Built-in PDF fonts ship only regular+bold, so intermediate CSS weights (e.g. body 500) collapse to the nearest face; the body-weight slider has no visible effect. To fix, embed/subset a variable font (or a print-PDF path that keeps selectable text + one-page checks).
+- Always verify the downloaded PDF, not just the live preview, after typography/PDF-writer changes.
 
-Planned prompt rule:
+## LLM Council
+- The judge sees only candidate resumes + JD + render settings, **not** the raw repository sources, so it can't fully verify evidence fidelity. Consider passing a compact source digest to the judge for repository runs.
+- True per-slot extension progress events (currently slot progress is app-driven heuristics).
 
-```text
-Do not start two bullets with the same action verb. Track bullet-opening verbs across the whole resume and vary them naturally. Prefer precise verbs over generic repeats such as Built, Developed, Implemented, or Led.
+## Diff / review UX
+- Filters for changed/added/removed cards; optionally collapse AI-note-only changes.
 
-Before final output, audit all bullet-opening verbs. If any opening verb repeats, rewrite the weaker bullet with a different accurate verb.
-```
-
-Acceptance check:
-- No duplicate first verb across bullet text after stripping inline HTML.
-- Rewrites must stay truthful to the selected source material.
-
-### Better bolding
-
-Current automatic bolding can be noisy. The LLM should not rely on the user's preferred keyword terms as a bolding checklist.
-
-Planned prompt rule:
-
-```text
-Do not bold text merely because it appears in the preferred keyword list. Use <strong> only when it improves scanability: a core metric, named technical system/tool, or role-defining outcome. Never bold filler words, generic verbs, entire bullets, or every occurrence of a technology. Use at most one bold span per bullet, and leave many bullets unbolded. If unsure, do not bold.
-```
-
-Acceptance check:
-- No colored highlighting.
-- No whole-bullet bolding.
-- No repeated bolding of the same generic keyword across many bullets.
-- Bold spans should point to evidence, not buzzwords.
-
-### Preserve source-supported numbers
-
-The generated resume dropped too many useful source numbers. Metrics should be treated as high-value evidence.
-
-Planned prompt rule:
-
-```text
-Preserve all credible source-supported numbers, metrics, counts, durations, percentages, scale indicators, rankings, GPA/honors, dataset sizes, latency/cost/user counts, and adoption figures when relevant. Do not drop numbers merely to polish prose. If a number is useful but the bullet is too long, compress surrounding wording before removing the number.
-
-Before final output, audit each selected source entry for numbers/metrics. If a relevant number from the source was omitted, either include it in a bullet or omit that source entry entirely if the number cannot be used truthfully.
-```
-
-Acceptance check:
-- Preview prompt should include the raw numbers from selected repository/ongoing/education sources.
-- Generated bullets should preserve relevant numbers unless there is a clear fit or relevance reason to omit them.
-
-## One-Page Fit Strategy
-
-The app can measure rendered page fit, but the LLM cannot see the renderer. The current strategy is to give the first LLM call concrete density quotas, then let the renderer enforce the actual page boundary.
-
-Implemented now:
-- Repository generation targets 4-5 substantial experience/project entries when source quality supports it.
-- Repository generation targets 11-13 total experience/project bullets, mostly 1-2 bullets per entry, with 3 bullets reserved for the strongest entry.
-- Settings exposes draggable section ordering; the renderer/export path applies that order post-generation without mutating resume JSON.
-- Settings expose page margins, font sizes, line height, and section/title-to-content/entry spacing with units.
-- Settings has a scaled live preview rendered by the same `ResumeDocument` component used for PDF export.
-- Settings number inputs use typed drafts so clearing/replacing values does not snap to clamped minimums mid-edit.
-- The editor measures rendered fit and blocks export when content remains over one page.
-- For small overflow up to 105%, the editor can apply deterministic layout-only fit tweaks before content is removed.
-
-Remaining possible work:
-- Detect inefficient rendered line usage, such as one-word final lines, using actual DOM line boxes.
-- Add a user-approved Auto-tighten content pass for overflows above the small-formatting zone.
-- Compress in this order when content edits are needed: remove weak entries, remove weak bullets, shorten wording, reduce skills/coursework, then remove only low-value metrics.
-- If measured fit is well over 100%, run an optional compression prompt with the actual overflow percentage, e.g. "Current render is 115%; reduce content by about 18-22% while preserving source-supported metrics."
-
-## PDF Typography And Spacing Controls
-
-Implemented now:
-- The PDF text exporter no longer emits normal headings as separate absolute-positioned words, so compound headings such as "Technical Skills" should not spread across the rule as if they were two headings.
-- Render settings include text intensity, rule intensity, body weight, bold weight, and strong keyword weight controls.
-- Settings, wizard pre-generation typography controls, the generated-result modal, and the editor Style panel expose typography controls after generation.
-- Shared render-settings controls use typed numeric drafts so clearing/replacing values does not snap immediately to clamped values.
-- The PDF writer honors `font-weight` and selects the real bold/bold-italic PDF font faces (Times-Bold, Times-BoldItalic, Helvetica-Bold, Helvetica-BoldOblique) instead of faking weight with a synthetic stroke. The synthetic `-webkit-text-stroke` reinforcement was removed from both the preview and the export DOM so the two render weight through the identical real-font mechanism.
-- Shared render-settings controls have `i` info dots (hover or click) with plain-language explanations. Tooltips render only while open and are scoped so they cannot be forced visible by broad descendant selectors.
-
-Known remaining issue:
-- Built-in PDF fonts only ship regular and bold weights. Intermediate CSS weight values (e.g. a body weight of 500) collapse to the nearest available face in both the preview and the downloaded PDF, so the body-weight slider (300-500) has no visible effect with Times/Helvetica. The bold-weight slider (500-800) still toggles regular vs bold at the 600 threshold in both paths.
-
-Future work:
-- Embed/subset a variable font (or move to a browser/print PDF path that preserves selectable text and one-page checks) so intermediate weight values render distinctly in both preview and downloaded PDF.
-- Verify downloaded PDF output, not only the live browser preview, after every typography or PDF writer change.
-
-## Prompt Preview Follow-Ups
-
-Implemented now:
-- The wizard has a Preview prompt button before generation.
-- Repository prompt preview refetches repo, ongoing, and education before showing text, using the same prompt construction path as Generate.
-- The prompt modal can copy the exact prompt text.
-- Optimize-PDF prompts now use `---JSON-START---` / `---JSON-END---` delimiters and require the top-level `{ baseline, optimized }` wrapper.
-- Capture validation rejects prompt/schema echoes and refuses plain resume payloads when the current flow expects a wrapper.
-
-Potential improvements:
-- Show selected source labels and token estimates inside the prompt preview modal header.
-- Highlight the source JSON block inside the prompt preview for faster inspection.
-- Add a small "numbers found" summary for selected sources so omitted metrics are easier to catch before sending.
-
-## Diff / Review UX
-
-Implemented now:
-- Bullet diffs are matched within each entry by semantic similarity rather than raw index alone.
-- Optimize-PDF requires a faithful baseline so removals can be shown.
-- Diff summary counts now match the visual legend: a changed item has one removed text block and one added text block.
-
-Potential improvements:
-- Add filters for changed/added/removed cards when the diff list is long.
-- Collapse AI-note-only changes by default if they clutter content review.
-
-## Repository And Ongoing Source Semantics
-
-Current behavior after the latest fix:
-- Repository and Ongoing remain separate user-editable pages.
-- Matching repo and ongoing records are no longer deduped across pages during resume generation, so an ongoing reflection bundle cannot silently mask an edited repository freewrite source.
-
-Possible future work:
-- Add an explicit link field between repo and ongoing records instead of matching by identity heuristics.
-- In Ongoing, show a linked repository freewrite preview when one exists.
-- Let the user choose whether a linked ongoing item should inherit the repo freewrite, append reflections, or stay separate.
-
-## Verification Checklist For These Next Steps
-
-- Preview prompt after editing a repository entry; confirm the edited freewrite appears.
-- Preview prompt when a matching ongoing item exists; confirm both selected sources are visible when checked.
-- Generate from repository and inspect first verbs; no repeated bullet-opening verb.
-- Inspect bold spans in preview/PDF; bolding should be sparse and evidence-driven.
-- Compare source numbers with generated bullets; important metrics should survive.
-- Change Settings section order after generation and confirm preview/export reorder sections without changing resume JSON.
-- If generated preview is over one page, use measured overflow to drive compression rather than exporting a truncated PDF.
+## Repository ↔ Ongoing
+- Explicit link field between repo and ongoing records instead of identity-heuristic matching; let the user choose inherit/append/separate.

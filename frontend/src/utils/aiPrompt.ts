@@ -1,6 +1,7 @@
 import type { ResumeData } from '../types/resume';
 import type { EducationData } from '../types/education';
 import type { RepoItem, RepositorySource } from '../types/repository';
+import type { KeyedRubricDimension, CandidateLabel } from '../types/council';
 import {
   buildResumeStyleInstructions,
   type ResumeBuildStyleProfile,
@@ -476,6 +477,119 @@ Current resume JSON:
 \`\`\`json
 ${JSON.stringify(currentResume, null, 2)}
 \`\`\``;
+}
+
+// ---------------------------------------------------------------------------
+// LLM Council — judge prompt construction
+// ---------------------------------------------------------------------------
+
+/** Human-readable rubric summary for the wizard prompt preview + judge input. */
+export function buildCouncilRubricSummary(
+  rubric: KeyedRubricDimension[],
+): string {
+  if (rubric.length === 0) {
+    return 'No rubric dimensions configured.';
+  }
+  return rubric
+    .map(
+      (dim, index) =>
+        `${index + 1}. ${dim.title}${dim.description ? ` — ${dim.description}` : ''}`,
+    )
+    .join('\n');
+}
+
+export interface CouncilJudgeCandidate {
+  label: CandidateLabel;
+  resume: ResumeData;
+}
+
+/**
+ * Build the anonymized judge prompt. Candidates are labelled A/B/C only — the
+ * judge must never learn which provider produced which resume.
+ */
+export function buildCouncilJudgePrompt({
+  path,
+  jobDescription,
+  rubric,
+  candidates,
+  styleInstructions,
+}: {
+  path: 'repository' | 'optimize';
+  jobDescription: string;
+  rubric: KeyedRubricDimension[];
+  candidates: CouncilJudgeCandidate[];
+  styleInstructions?: string;
+}): string {
+  const hasJd = jobDescription.trim().length > 0;
+  const jd =
+    jobDescription.trim() ||
+    '(No job description provided — judge for general impact, clarity, and one-page fit.)';
+
+  const noJdRule = hasJd
+    ? ''
+    : `\nNO JOB DESCRIPTION PROVIDED: For any rubric dimension that measures alignment to a specific job description (e.g. "JD alignment"), OMIT that dimension entirely from every candidate's "dimensions" array — do not invent or guess a number. Score only the dimensions that can be judged without a job description.\n`;
+
+  const rubricLines = rubric
+    .map(
+      (dim) =>
+        `- key "${dim.key}" — ${dim.title}${dim.description ? `: ${dim.description}` : ''}`,
+    )
+    .join('\n');
+
+  const candidateBlocks = candidates
+    .map(
+      (candidate) =>
+        `CANDIDATE ${candidate.label}:\n\`\`\`json\n${JSON.stringify(
+          candidate.resume,
+          null,
+          2,
+        )}\n\`\`\``,
+    )
+    .join('\n\n');
+
+  const finalSchemaNote =
+    path === 'optimize'
+      ? `"final" MUST be a single optimized resume object matching this schema (the app supplies the baseline for the before/after diff, so do NOT include a baseline):\n${RESUME_JSON_SCHEMA}`
+      : `"final" MUST be a single resume object matching this schema:\n${RESUME_JSON_SCHEMA}`;
+
+  const styleBlock =
+    path === 'repository' && styleInstructions?.trim()
+      ? `\n\nRENDER / CONTENT SETTINGS the final resume must honor:\n${styleInstructions.trim()}\n`
+      : '';
+
+  return `You are the impartial JUDGE on a panel evaluating several anonymized resume drafts for the same job. Each draft was written by a different system, but you do NOT know which — judge purely on merit. Do not speculate about authorship.
+
+JOB DESCRIPTION:
+"""
+${jd}
+"""
+${styleBlock}
+RUBRIC DIMENSIONS (score each candidate 1-10 on every dimension; use the exact keys):
+${rubricLines}
+${noJdRule}
+CANDIDATE RESUMES (anonymized):
+
+${candidateBlocks}
+
+YOUR TASKS:
+1. Score every candidate on every rubric dimension from 1 (poor) to 10 (excellent), with a brief one-sentence rationale per dimension.
+2. Synthesize a single best-of-all-worlds final resume that combines the strongest, most truthful, most job-relevant content across the candidates. Do not invent facts that no candidate supports. Keep it to one page.
+3. Write concise synthesis notes explaining what you borrowed from which anonymized candidate (refer to them only as Candidate A/B/C) and why.
+
+${JD_HONESTY_RULES}
+
+CRITICAL OUTPUT FORMAT — the app can ONLY load delimited JSON:
+1. Write exactly ---JSON-START--- on its own line, then ONE raw JSON object, then ---JSON-END--- on its own line.
+2. The JSON object must have exactly these top-level keys: "scores", "synthesisNotes", "final".
+3. "scores" is an object keyed by candidate label ("A", "B"${candidates.length > 2 ? ', "C"' : ''}). Each value is:
+   { "dimensions": [ { "key": "<rubric key>", "score": <1-10 integer>, "rationale": "<one sentence>" } ] }
+   Include one entry for every rubric key listed above, using the exact keys.
+4. "synthesisNotes" is a plain string (no markdown headings required).
+5. ${finalSchemaNote}
+6. For skills sections use the "skills" array and keep "entries" as [].
+7. Generate stable unique string ids for all sections, entries, links, skills, and bullets in "final".
+8. Inline HTML in string fields is limited to <strong>, <em>, and restricted <span style="font-weight:...;font-style:..."> only. Never use <mark> or color/background styling.
+9. No text, commentary, or markdown fences outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
 }
 
 export function estimateWizardPromptTokens(
