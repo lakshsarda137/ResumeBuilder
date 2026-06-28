@@ -82,6 +82,22 @@
   text-overflow: ellipsis;
 }
 
+.editor-council-link {
+  font: inherit;
+  font-style: italic;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #7dd3fc;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.editor-council-link:hover {
+  color: #bae6fd;
+}
+
 .editor-toolbar-center {
   display: flex;
   align-items: center;

@@ -190,7 +190,7 @@
 }
 
 .council-node-status {
-  font-size: 12px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--text-2, #a0a0a0);
   overflow: hidden;
@@ -233,11 +233,11 @@
 
 .council-mini-steps .pipeline-step-label {
   margin-top: 5px;
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 @media (max-width: 720px) {
   .council-mini-steps .pipeline-step-label {
-    font-size: 8.5px;
+    font-size: 10px;
   }
 }

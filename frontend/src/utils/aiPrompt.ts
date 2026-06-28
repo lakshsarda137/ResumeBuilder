@@ -377,16 +377,13 @@ OPTIMIZATION RULES:
 ${JD_HONESTY_RULES}`;
 }
 
-export function buildResumeFromRepositoryPrompt(
-  jobDescription: string,
-  sources: RepositorySource[],
-  styleProfile: ResumeBuildStyleProfile,
-  customStyleInstructions: string,
-  educationData?: EducationData,
-): string {
-  const jd = jobDescription.trim() || '(No job description provided — build a strong general resume.)';
-
-  const payload = sources.map((source) => ({
+/**
+ * Compact, prompt-friendly projection of repository sources. Shared by the
+ * candidate build prompt and the judge prompt so the judge sees the exact same
+ * ground-truth freewrite material the candidates were built from.
+ */
+function mapRepositorySourcesForPrompt(sources: RepositorySource[]) {
+  return sources.map((source) => ({
     id: source.id,
     kind: source.kind,
     type: source.type,
@@ -396,6 +393,18 @@ export function buildResumeFromRepositoryPrompt(
     dates: `${source.start_date ?? '?'} – ${source.end_date ?? (source.status === 'active' ? 'Present' : '?')}`,
     freewrite: source.freewrite,
   }));
+}
+
+export function buildResumeFromRepositoryPrompt(
+  jobDescription: string,
+  sources: RepositorySource[],
+  styleProfile: ResumeBuildStyleProfile,
+  customStyleInstructions: string,
+  educationData?: EducationData,
+): string {
+  const jd = jobDescription.trim() || '(No job description provided — build a strong general resume.)';
+
+  const payload = mapRepositorySourcesForPrompt(sources);
 
   return `You are an expert resume writer. Build a tailored resume JSON for the job below using ONLY the candidate source material provided.
 
@@ -513,12 +522,19 @@ export function buildCouncilJudgePrompt({
   rubric,
   candidates,
   styleInstructions,
+  sources,
 }: {
   path: 'repository' | 'optimize';
   jobDescription: string;
   rubric: KeyedRubricDimension[];
   candidates: CouncilJudgeCandidate[];
   styleInstructions?: string;
+  /**
+   * Repository path only: the ground-truth freewrite sources the candidates
+   * were built from. Giving the judge this material lets it verify factual
+   * fidelity and reward truthful, well-sourced drafts.
+   */
+  sources?: RepositorySource[];
 }): string {
   const hasJd = jobDescription.trim().length > 0;
   const jd =
@@ -557,6 +573,15 @@ export function buildCouncilJudgePrompt({
       ? `\n\nRENDER / CONTENT SETTINGS the final resume must honor:\n${styleInstructions.trim()}\n`
       : '';
 
+  const sourceBlock =
+    path === 'repository' && sources && sources.length > 0
+      ? `\nCANDIDATE SOURCE MATERIAL (ground-truth freewrite notes every draft was built from — judge factual fidelity against this: reward drafts that surfaced the strongest real evidence and stayed truthful, and penalize any employer, title, date, tool, or metric a draft asserts that is NOT supported here):\n\`\`\`json\n${JSON.stringify(
+          mapRepositorySourcesForPrompt(sources),
+          null,
+          2,
+        )}\n\`\`\`\n`
+      : '';
+
   return `You are the impartial JUDGE on a panel evaluating several anonymized resume drafts for the same job. Each draft was written by a different system, but you do NOT know which — judge purely on merit. Do not speculate about authorship.
 
 JOB DESCRIPTION:
@@ -566,7 +591,7 @@ ${jd}
 ${styleBlock}
 RUBRIC DIMENSIONS (score each candidate 1-10 on every dimension; use the exact keys):
 ${rubricLines}
-${noJdRule}
+${noJdRule}${sourceBlock}
 CANDIDATE RESUMES (anonymized):
 
 ${candidateBlocks}

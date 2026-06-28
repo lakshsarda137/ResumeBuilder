@@ -1,4 +1,5 @@
 import { useId, useState } from 'react';
+import { GripVertical } from 'lucide-react';
 import {
   RESUME_RENDER_TEMPLATES,
   mergeResumeRenderSettings,
@@ -129,9 +130,27 @@ export function ResumeRenderSettingsControls({
   >({});
   const [focusedNumberField, setFocusedNumberField] =
     useState<NumericSettingKey | null>(null);
+  const [draggedSectionIndex, setDraggedSectionIndex] = useState<number | null>(null);
 
   const update = (patch: Partial<ResumeRenderSettings>) => {
     onChange(mergeResumeRenderSettings({ ...settings, ...patch }));
+  };
+
+  const moveSectionHeading = (fromIndex: number, toIndex: number) => {
+    const headings = settings.sectionHeadings;
+    if (
+      fromIndex === toIndex ||
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      fromIndex >= headings.length ||
+      toIndex >= headings.length
+    ) {
+      return;
+    }
+    const next = [...headings];
+    const [heading] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, heading);
+    update({ sectionHeadings: next });
   };
 
   const updateNumberDraft = (
@@ -191,6 +210,70 @@ export function ResumeRenderSettingsControls({
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="resume-settings-controls__group resume-settings-controls__group--section-order">
+        <span className="resume-settings-controls__label">
+          Section order
+          <InfoDot text="Drag rows or use ↑ ↓ to reorder sections on the resume. Edit the text field to rename or add sections." />
+        </span>
+        <div className="rsc-section-order-list">
+          {settings.sectionHeadings.map((heading, index) => (
+            <div
+              key={`${heading}-${index}`}
+              className={`rsc-section-order-row${draggedSectionIndex === index ? ' rsc-section-order-row--dragging' : ''}`}
+              draggable
+              onDragStart={(event) => {
+                setDraggedSectionIndex(index);
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', String(index));
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                const fromIndex = Number(event.dataTransfer.getData('text/plain'));
+                if (Number.isInteger(fromIndex)) {
+                  moveSectionHeading(fromIndex, index);
+                }
+                setDraggedSectionIndex(null);
+              }}
+              onDragEnd={() => setDraggedSectionIndex(null)}
+            >
+              <GripVertical className="rsc-section-order-grip" size={14} />
+              <span>{heading}</span>
+              <div className="rsc-section-order-actions">
+                <button
+                  type="button"
+                  className="rsc-section-order-btn"
+                  onClick={() => moveSectionHeading(index, index - 1)}
+                  disabled={index === 0}
+                  title="Move up"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  className="rsc-section-order-btn"
+                  onClick={() => moveSectionHeading(index, index + 1)}
+                  disabled={index === settings.sectionHeadings.length - 1}
+                  title="Move down"
+                >
+                  ↓
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+        <input
+          className="rsc-section-order-input"
+          aria-label="Section headings in display order (comma-separated)"
+          value={settings.sectionHeadings.join(', ')}
+          onChange={(event) => update({ sectionHeadings: parseCommaList(event.target.value) })}
+          placeholder="e.g. Education, Experience, Projects"
+        />
       </section>
 
       <section className="resume-settings-controls__group resume-settings-controls__group--fonts resume-settings-controls__grid">

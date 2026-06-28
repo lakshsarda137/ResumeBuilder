@@ -259,6 +259,7 @@ interface PromptEstimate {
 interface RepositoryPromptDraft {
   prompt: string;
   selectedCount: number;
+  sources: RepositorySource[];
 }
 
 interface PromptPreviewState {
@@ -742,6 +743,7 @@ export function ResumeBuilderWizard({
 
     return {
       selectedCount: latestFilteredSources.length,
+      sources: latestFilteredSources,
       prompt: buildResumeFromRepositoryPrompt(
         jobDescription,
         latestFilteredSources,
@@ -1292,6 +1294,7 @@ export function ResumeBuilderWizard({
       let candidatePrompt = '';
       let pdf: { base64: string; filename: string } | null = null;
       let styleInstructions = '';
+      let repositorySources: RepositorySource[] = [];
 
       if (path === 'optimize') {
         const { base64, filename } = await readPdfFileAsBase64(pdfFile!);
@@ -1301,6 +1304,7 @@ export function ResumeBuilderWizard({
         const draft = await buildFreshRepositoryPrompt();
         candidatePrompt = draft.prompt;
         styleInstructions = generationInstructions;
+        repositorySources = draft.sources;
       }
       if (runId !== councilRunIdRef.current) {
         return;
@@ -1402,6 +1406,7 @@ export function ResumeBuilderWizard({
             resume: item.resume,
           })),
           styleInstructions,
+          sources: path === 'repository' ? repositorySources : undefined,
         });
         const response = await sendPromptAndWait({
           provider: judgeProvider,

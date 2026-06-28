@@ -43,6 +43,7 @@ import {
   updateHistorySession,
 } from '../utils/historySessions';
 import { AiPanel } from './AiPanel';
+import { CouncilReviewModal } from './CouncilReviewModal';
 import { FormatToolbar } from './FormatToolbar';
 import { PipelineStatus } from './PipelineStatus';
 import { ResumeBuilderWizard } from './ResumeBuilderWizard';
@@ -98,6 +99,7 @@ export function ResumeEditor() {
   const [councilSnapshot, setCouncilSnapshot] = useState<CouncilSnapshot | null>(
     null,
   );
+  const [councilReviewOpen, setCouncilReviewOpen] = useState(false);
   const [jobDescription, setJobDescription] = useState('');
   const [aiUserPrompt, setAiUserPrompt] = useState(getDefaultAiUserPrompt);
   const [historySessionId, setHistorySessionId] = useState<string | null>(null);
@@ -513,9 +515,14 @@ export function ResumeEditor() {
               ) : null}
               {councilSnapshot ? (
                 <>
-                  <em title={`Council: ${councilSnapshot.providers.candidates.join(', ')} · judge ${councilSnapshot.providers.judge}`}>
-                    Council build
-                  </em>
+                  <button
+                    type="button"
+                    className="editor-council-link"
+                    title="View the resumes each candidate produced"
+                    onClick={() => setCouncilReviewOpen(true)}
+                  >
+                    Council build · view candidates
+                  </button>
                   {' · '}
                 </>
               ) : null}
@@ -759,6 +766,15 @@ export function ResumeEditor() {
           }
         }}
       />
+      {councilSnapshot ? (
+        <CouncilReviewModal
+          open={councilReviewOpen}
+          snapshot={councilSnapshot}
+          appliedResume={data}
+          renderSettings={renderSettings}
+          onClose={() => setCouncilReviewOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

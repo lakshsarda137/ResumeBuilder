@@ -765,6 +765,50 @@ function parseJsonSafely(candidate) {
   }
 }
 
+// Collect every top-level balanced { ... } object in `text`, ignoring braces
+// inside string literals. Prompts embed the user's current/baseline resume as
+// raw JSON (not always fenced), so a regex over ```json blocks alone misses it.
+function extractTopLevelJsonObjects(text) {
+  const objects = [];
+  if (!text) {
+    return objects;
+  }
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+    } else if (char === '{') {
+      if (depth === 0) {
+        start = i;
+      }
+      depth += 1;
+    } else if (char === '}') {
+      if (depth > 0) {
+        depth -= 1;
+        if (depth === 0 && start !== -1) {
+          objects.push(text.slice(start, i + 1));
+          start = -1;
+        }
+      }
+    }
+  }
+  return objects;
+}
+
 function candidateAppearsInSubmittedPrompt(candidate, promptText = '') {
   if (!candidate || !promptText || candidate.length < 30) {
     return false;
@@ -786,17 +830,37 @@ function candidateAppearsInSubmittedPrompt(candidate, promptText = '') {
   }
 
   const canonicalCandidate = JSON.stringify(parsedCandidate);
+
+  // Fenced/delimited example blocks the prompt advertises as the output shape.
   const promptCandidates = [
     ...promptText.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g),
     ...promptText.matchAll(/```json\s*([\s\S]*?)```/gi),
     ...promptText.matchAll(/```\s*([\s\S]*?)```/g),
   ];
 
-  return promptCandidates.some((match) => {
-    const parsedPromptCandidate = parseJsonSafely(match[1]?.trim() ?? '');
+  if (
+    promptCandidates.some((match) => {
+      const parsedPromptCandidate = parseJsonSafely(match[1]?.trim() ?? '');
+      return (
+        parsedPromptCandidate &&
+        JSON.stringify(parsedPromptCandidate) === canonicalCandidate
+      );
+    })
+  ) {
+    return true;
+  }
+
+  // Raw inline JSON embedded in the prompt (e.g. "Current resume JSON:\n{...}").
+  // Compare structurally so reflowed/re-indented renderings (Gemini echoes the
+  // whole prompt as a visible user bubble) still match the original payload.
+  return extractTopLevelJsonObjects(promptText).some((raw) => {
+    if (raw.length < 30) {
+      return false;
+    }
+    const parsedPromptObject = parseJsonSafely(raw);
     return (
-      parsedPromptCandidate &&
-      JSON.stringify(parsedPromptCandidate) === canonicalCandidate
+      parsedPromptObject &&
+      JSON.stringify(parsedPromptObject) === canonicalCandidate
     );
   });
 }

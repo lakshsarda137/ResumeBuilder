@@ -88,7 +88,7 @@ const BACKUP_CAPTURE_PENDING_PREFIX = 'llm_capture_pending_';
 const BACKUP_CAPTURE_COMPLETED_PREFIX = 'llm_capture_completed_';
 const BACKUP_CAPTURE_ALARM_PREFIX = 'llm-capture-';
 const CDP_PROTOCOL_VERSION = '1.3';
-const CDP_WAKE_PROVIDERS = new Set(['chatgpt', 'gemini']);
+const CDP_WAKE_PROVIDERS = new Set(['chatgpt', 'gemini', 'claude']);
 
 function requestKey(appTabId, requestId) {
   return `${appTabId ?? 'no-tab'}:${requestId ?? 'no-request'}`;
@@ -651,6 +651,50 @@ function extractDelimitedPayloadFromPage(promptText = '') {
     );
   }
 
+  // Collect every top-level balanced { ... } object in `text`, ignoring braces
+  // inside string literals, so a raw resume embedded in the prompt (not fenced)
+  // can be compared structurally against a captured candidate.
+  function extractTopLevelJsonObjects(text) {
+    const objects = [];
+    if (!text) {
+      return objects;
+    }
+    let depth = 0;
+    let start = -1;
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < text.length; i += 1) {
+      const char = text[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+      } else if (char === '{') {
+        if (depth === 0) {
+          start = i;
+        }
+        depth += 1;
+      } else if (char === '}') {
+        if (depth > 0) {
+          depth -= 1;
+          if (depth === 0 && start !== -1) {
+            objects.push(text.slice(start, i + 1));
+            start = -1;
+          }
+        }
+      }
+    }
+    return objects;
+  }
+
   function candidateAppearsInSubmittedPrompt(candidate) {
     if (!candidate || !promptText || candidate.length < 30) {
       return false;
@@ -679,12 +723,29 @@ function extractDelimitedPayloadFromPage(promptText = '') {
       ...promptText.matchAll(/```\s*([\s\S]*?)```/g),
     ];
 
-    return promptCandidates.some((match) => {
+    if (
+      promptCandidates.some((match) => {
+        try {
+          return (
+            JSON.stringify(JSON.parse(repairJson(match[1]?.trim() ?? ''))) ===
+            canonicalCandidate
+          );
+        } catch {
+          return false;
+        }
+      })
+    ) {
+      return true;
+    }
+
+    // Raw inline JSON embedded in the prompt (Gemini echoes the whole prompt as
+    // a visible user bubble; compare structurally so reflowed copies still match).
+    return extractTopLevelJsonObjects(promptText).some((raw) => {
+      if (raw.length < 30) {
+        return false;
+      }
       try {
-        return (
-          JSON.stringify(JSON.parse(repairJson(match[1]?.trim() ?? ''))) ===
-          canonicalCandidate
-        );
+        return JSON.stringify(JSON.parse(repairJson(raw))) === canonicalCandidate;
       } catch {
         return false;
       }
