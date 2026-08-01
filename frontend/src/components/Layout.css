@@ -79,9 +79,12 @@
 }
 
 /* ── Page shell shared styles ────────────────────────── */
+/* Centered rather than flush-left: the max-width already caps the measure, so
+   left-aligning it stranded every short page against a wide empty right half. */
 .page {
   padding: 36px 40px;
   max-width: 900px;
+  margin-inline: auto;
 }
 
 .page-header {
@@ -128,9 +131,11 @@
   white-space: nowrap;
 }
 
+/* Unmistakably inert, not merely a lighter shade of pressable. */
 .btn:disabled {
-  opacity: 0.45;
+  opacity: 0.38;
   cursor: not-allowed;
+  filter: saturate(0.4);
 }
 
 .btn--primary {
@@ -270,15 +275,36 @@
 }
 
 /* ── Empty state ─────────────────────────────────────── */
+/* One pattern for every "nothing here (yet)" surface: centred icon, one line of
+   copy. Used for genuinely-empty lists and for pages whose content is still
+   pending ("Coming soon"). */
 .empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
-  padding: 48px 24px;
+  padding: 56px 24px;
+  color: var(--text-2);
+}
+
+/* The icon used to be set to opacity 0.3 inline, which on this background left
+   it all but invisible. */
+.empty-state svg {
   color: var(--text-3);
+  margin-bottom: 4px;
 }
 
 .empty-state p {
   font-size: 14px;
   margin: 8px 0 0;
+}
+
+.empty-state__hint {
+  max-width: 42ch;
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-3);
 }
 
 /* ── Sidebar footer / command palette hint ───────────── */

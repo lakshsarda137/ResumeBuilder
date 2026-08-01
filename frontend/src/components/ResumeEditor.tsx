@@ -12,6 +12,7 @@ import {
   Save,
   SlidersHorizontal,
   PlusCircle,
+  X,
 } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { HistorySessionSnapshot } from '../types/historySession';
@@ -60,7 +61,6 @@ import {
   RESUME_RENDER_TEMPLATES,
   loadResumeRenderSettings,
   mergeResumeRenderSettings,
-  saveResumeRenderSettings,
   type ResumeRenderSettings,
 } from '../utils/resumeSettings';
 import {
@@ -230,10 +230,42 @@ export function ResumeEditor() {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, []);
 
+  /**
+   * Per-resume only. This deliberately no longer writes back to the global
+   * `resume-render-settings` store: the editor's Style panel and the Settings
+   * page exposed the same controls, and because the editor silently persisted
+   * them, tweaking one resume's margins quietly changed the default for every
+   * future build. The Settings page is now the only writer of the global
+   * default; this drawer is an override, and says so.
+   *
+   * Per-resume values still persist where they should — a saved history
+   * session carries its own `renderSettings` in the snapshot.
+   */
   const setRenderSettings = useCallback((next: ResumeRenderSettings) => {
-    const merged = mergeResumeRenderSettings(next);
-    setRenderSettingsState(merged);
-    saveResumeRenderSettings(merged);
+    setRenderSettingsState(mergeResumeRenderSettings(next));
+  }, []);
+
+  /** The saved global default, re-read whenever the drawer opens. */
+  const [globalRenderDefaults, setGlobalRenderDefaults] = useState(
+    loadResumeRenderSettings,
+  );
+
+  useEffect(() => {
+    if (stylePanelOpen) {
+      setGlobalRenderDefaults(loadResumeRenderSettings());
+    }
+  }, [stylePanelOpen]);
+
+  const styleOverridesActive = useMemo(
+    () => JSON.stringify(renderSettings) !== JSON.stringify(globalRenderDefaults),
+    [renderSettings, globalRenderDefaults],
+  );
+
+  const handleResetStyleToGlobal = useCallback(() => {
+    const defaults = loadResumeRenderSettings();
+    setGlobalRenderDefaults(defaults);
+    setFitModeratorNotice(null);
+    setRenderSettingsState(defaults);
   }, []);
 
   const updateRenderSettings = useCallback(
@@ -933,6 +965,10 @@ export function ResumeEditor() {
             </div>
           )}
 
+          {hasCoverLetter || coverLetterBusy || coverLetterRun.status === 'failed' ? (
+            <span className="editor-toolbar-divider" aria-hidden />
+          ) : null}
+
           {coverLetterBusy ? (
             <span
               className="editor-cl-status editor-cl-status--running"
@@ -998,6 +1034,23 @@ export function ResumeEditor() {
           >
             <ZoomIn size={16} />
           </button>
+          <button
+            type="button"
+            className={`toolbar-btn toolbar-btn--style${stylePanelOpen ? ' toolbar-btn--toggle-on' : ''}`}
+            onClick={() => setStylePanelOpen((open) => !open)}
+            title="Style overrides for this resume"
+          >
+            <SlidersHorizontal size={16} />
+            Style
+          </button>
+        </div>
+
+        <div className="editor-toolbar-right">
+          {fitModeratorNotice || saveFlash ? (
+            <span className="editor-save-toast" role="status" aria-live="polite">
+              {fitModeratorNotice ?? saveFlash}
+            </span>
+          ) : null}
           <span
             className={`editor-page-fit editor-page-fit--${pageFitVariant(activeFit)}`}
             title={pageFitTitle(activeFit)}
@@ -1034,23 +1087,9 @@ export function ResumeEditor() {
               {expanding ? 'Adding…' : 'Add from repo'}
             </button>
           ) : null}
-          <button
-            type="button"
-            className={`toolbar-btn toolbar-btn--style${stylePanelOpen ? ' toolbar-btn--toggle-on' : ''}`}
-            onClick={() => setStylePanelOpen((open) => !open)}
-            title="Resume style settings"
-          >
-            <SlidersHorizontal size={16} />
-            Style
-          </button>
-        </div>
 
-        <div className="editor-toolbar-right">
-          {fitModeratorNotice || saveFlash ? (
-            <span className="editor-save-toast" role="status" aria-live="polite">
-              {fitModeratorNotice ?? saveFlash}
-            </span>
-          ) : null}
+          <span className="editor-toolbar-divider" aria-hidden />
+
           <button
             type="button"
             className="toolbar-btn toolbar-btn--secondary"
@@ -1083,12 +1122,14 @@ export function ResumeEditor() {
             <Undo2 size={16} />
             Undo
           </button>
+          <span className="editor-toolbar-divider" aria-hidden />
+
           {!onCoverLetter ? (
             <button
               type="button"
-              className="toolbar-btn toolbar-btn--secondary"
+              className="toolbar-btn toolbar-btn--danger"
               onClick={reset}
-              title="Reset to original"
+              title="Discard all edits and reset this resume to the original"
             >
               <RotateCcw size={16} />
               Reset
@@ -1130,14 +1171,66 @@ export function ResumeEditor() {
       </header>
 
       {stylePanelOpen ? (
-        <section className="editor-style-panel" aria-label="Resume style settings">
-          <ResumeRenderSettingsControls
-            settings={renderSettings}
-            onChange={replaceRenderSettings}
-            tone="dark"
-            compact
+        <>
+          <button
+            type="button"
+            className="editor-style-drawer__scrim"
+            aria-label="Close style overrides"
+            onClick={() => setStylePanelOpen(false)}
           />
-        </section>
+          <aside
+            className="editor-style-drawer"
+            aria-label="Style overrides for this resume"
+          >
+            <div className="editor-style-drawer__header">
+              <div>
+                <h2 className="editor-style-drawer__title">Style</h2>
+                <p className="editor-style-drawer__subtitle">
+                  Overrides for <strong>this resume</strong> only. Your defaults
+                  for new builds live in Settings.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="editor-style-drawer__close"
+                onClick={() => setStylePanelOpen(false)}
+                title="Close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="editor-style-drawer__body">
+              <ResumeRenderSettingsControls
+                settings={renderSettings}
+                onChange={replaceRenderSettings}
+                tone="dark"
+              />
+            </div>
+
+            <div className="editor-style-drawer__footer">
+              <span className="editor-style-drawer__footer-note">
+                {styleOverridesActive
+                  ? 'Differs from your saved defaults.'
+                  : 'Matching your saved defaults.'}
+              </span>
+              <button
+                type="button"
+                className="toolbar-btn toolbar-btn--secondary"
+                onClick={handleResetStyleToGlobal}
+                disabled={!styleOverridesActive}
+                title={
+                  styleOverridesActive
+                    ? 'Discard these overrides and go back to your Settings defaults'
+                    : 'Already matching your Settings defaults'
+                }
+              >
+                <RotateCcw size={14} />
+                Reset to global default
+              </button>
+            </div>
+          </aside>
+        </>
       ) : null}
 
       {sessionLoadError ? (

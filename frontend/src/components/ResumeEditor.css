@@ -148,17 +148,28 @@
 .editor-page-fit {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
-  max-width: 180px;
-  padding: 5px 9px;
-  border-radius: 999px;
+  gap: 7px;
+  min-height: 36px;
+  max-width: 260px;
+  padding: 7px 13px;
+  border-radius: 8px;
   border: 1px solid #3a3a3a;
   background: #242424;
   color: #cbd5e1;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+/* Status dot — carries the state without relying on colour alone at a glance. */
+.editor-page-fit::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
 }
 
 .editor-page-fit--fit {
@@ -183,6 +194,18 @@
   border-color: rgba(248, 113, 113, 0.35);
   background: rgba(248, 113, 113, 0.1);
   color: #fca5a5;
+}
+
+/* Separates view controls / document actions / destructive actions, so the row
+   reads as three short groups instead of one undifferentiated run of buttons. */
+.editor-toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 24px;
+  margin-inline: 4px;
+  /* border-2 (0.14 alpha) is invisible at 1px against this surface. */
+  background: rgba(255, 255, 255, 0.28);
+  flex-shrink: 0;
 }
 
 .editor-toolbar-right {
@@ -229,18 +252,41 @@
   white-space: nowrap;
 }
 
+/* Ghost, not filled. Download PDF is the one filled/accent action in this
+   toolbar; when Save and Download both read as solid buttons the row has no
+   primary and the eye has nowhere to land. */
 .toolbar-btn--secondary {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
+  background: transparent;
+  color: var(--text-1);
+  border: 1px solid var(--border-2);
 }
 
-.toolbar-btn--secondary:disabled {
-  opacity: 0.4;
+.toolbar-btn--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--text-3);
+}
+
+.toolbar-btn--secondary:disabled,
+.toolbar-btn--danger:disabled {
+  opacity: 0.38;
   cursor: not-allowed;
 }
 
 .toolbar-btn--secondary:disabled:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: transparent;
+  border-color: var(--border-2);
+}
+
+/* Destructive actions are visually separated from ordinary ones. */
+.toolbar-btn--danger {
+  background: transparent;
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+}
+
+.toolbar-btn--danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.5);
 }
 
 .toolbar-btn--toggle-on {
@@ -263,13 +309,13 @@
   cursor: wait;
 }
 
-.toolbar-btn:not(.toolbar-btn--primary):not(.toolbar-btn--secondary) {
+.toolbar-btn:not(.toolbar-btn--primary):not(.toolbar-btn--secondary):not(.toolbar-btn--danger) {
   background: rgba(255, 255, 255, 0.08);
   color: #e2e8f0;
   padding: 8px;
 }
 
-.toolbar-btn:not(.toolbar-btn--primary):not(.toolbar-btn--secondary):hover {
+.toolbar-btn:not(.toolbar-btn--primary):not(.toolbar-btn--secondary):not(.toolbar-btn--danger):hover {
   background: rgba(255, 255, 255, 0.14);
 }
 
@@ -289,14 +335,104 @@
   color: var(--accent);
 }
 
-.editor-style-panel {
-  display: block;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--border);
+/* A right-hand drawer, not an inline band. As an inline panel it pushed the
+   live resume preview down by its full height, so every style tweak moved the
+   thing you were trying to look at. */
+.editor-style-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 92vw);
+  display: flex;
+  flex-direction: column;
   background: var(--surface);
+  border-left: 1px solid var(--border-2);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.55);
   color: var(--text-1);
+  z-index: 60;
+  animation: editor-style-drawer-in 0.16s ease-out;
+}
+
+@keyframes editor-style-drawer-in {
+  from { transform: translateX(14px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.editor-style-drawer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.editor-style-drawer__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Says plainly that this panel is per-resume, not the global default. */
+.editor-style-drawer__subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.editor-style-drawer__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
   flex-shrink: 0;
-  z-index: 9;
+  border: 1px solid var(--border-2);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-2);
+}
+
+.editor-style-drawer__close:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-1);
+}
+
+.editor-style-drawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* Explicit: overflow-y alone computes overflow-x to auto, which was adding a
+     stray horizontal scrollbar whenever a tooltip overhung the panel. */
+  overflow-x: hidden;
+  padding: 14px 18px 18px;
+}
+
+.editor-style-drawer__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.editor-style-drawer__footer-note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.editor-style-drawer__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background: rgba(0, 0, 0, 0.35);
+  border: none;
+  padding: 0;
+  cursor: default;
 }
 
 .editor-style-group {
@@ -424,7 +560,9 @@
 }
 
 .editor-canvas-stack {
-  --resume-rail-width: 130px;
+  /* Only has to clear the delete controls (-34px) and the page-fit bar; the
+     add-controls that used to need 130px now sit with their content. */
+  --resume-rail-width: 76px;
   --resume-page-width: 8.5in;
   --jd-panel-width: 308px;
   --canvas-width: calc(var(--resume-rail-width) + var(--resume-page-width));
@@ -461,7 +599,9 @@
 /* ── Page fit bar ────────────────────────────────────── */
 .editor-fit-bar {
   position: absolute;
-  left: calc(var(--resume-rail-width) - 22px);
+  /* Far left of the gutter, not hugging the page edge — the row-delete controls
+     sit at page-left minus 34px and would otherwise collide with it. */
+  left: 4px;
   top: 0;
   height: 11in;
   display: flex;

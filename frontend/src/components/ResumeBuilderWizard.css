@@ -612,14 +612,25 @@
   font-family: inherit;
 }
 
+/* Unmistakably inert: dimmed well past "just a lighter shade", flattened, and
+   with the not-allowed cursor. At 0.55 these still read as pressable. */
 .rb-wizard-btn:disabled {
-  opacity: 0.55;
+  opacity: 0.38;
   cursor: not-allowed;
+  filter: saturate(0.4);
 }
 
+/* Ghost, so "Generate tailored resume" is unambiguously the primary action on
+   this page rather than one of two similarly-weighted filled buttons. */
 .rb-wizard-btn--secondary {
-  background: rgba(255, 255, 255, 0.08);
-  color: inherit;
+  background: transparent;
+  color: var(--text-1);
+  border: 1px solid var(--border-2);
+}
+
+.rb-wizard-btn--secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--text-3);
 }
 
 .rb-wizard-btn--primary {

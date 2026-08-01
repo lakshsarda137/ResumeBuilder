@@ -1,8 +1,14 @@
 /* Resume template — matches Laksh Sarda PDF layout (LaTeX-style single column) */
 
+/* The gutter width is owned by --resume-rail-width, declared on
+   .editor-canvas-stack in ResumeEditor.css. It MUST come from that variable and
+   not a literal: the editor positions the page-fit bar against the same value,
+   so a hardcoded copy here silently drifts and drops the fit bar on top of the
+   resume. The fallback covers surfaces that render a page outside the editor
+   canvas (result/review modals), where the variable isn't defined. */
 .resume-page-wrapper {
   position: relative;
-  margin-left: 130px;
+  margin-left: var(--resume-rail-width, 130px);
 }
 
 .resume-page-wrapper:has(.resume-page--print) {
@@ -242,49 +248,97 @@
   color: #1e293b;
 }
 
+/* Add-controls sit WITH the content they act on, revealed on hover, instead of
+   floating in a disconnected column ~118px out in the left margin where it was
+   impossible to tell which block a given "+ bullet" belonged to.
+   They stay absolutely positioned on purpose: the on-screen page has to keep
+   matching the exported PDF line for line, and putting these in flow would push
+   real content down. (They never reach the PDF regardless — the export copy
+   renders with editing={false}, so no control is even mounted there.) */
 .resume-control--rail {
   position: absolute;
-  left: -118px;
-  z-index: 2;
+  left: 0;
+  bottom: 0;
+  z-index: 3;
   white-space: nowrap;
+  padding: 2px 8px;
+  opacity: 0;
+  pointer-events: none;
+  /* Straddles the boundary between this block and the next rather than sitting
+     fully inside the next one. Entries are only ~4pt apart, so a hover control
+     placed under the last line has nowhere to go that is truly empty; the
+     shadow marks it as a floating layer over the page, which is what it is. */
+  transform: translateY(52%);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.28);
+  transition: opacity 0.12s;
 }
 
+.resume-header:hover .resume-control--rail,
+.resume-header:focus-within .resume-control--rail,
+.resume-entry:hover .resume-control--rail,
+.resume-entry:focus-within .resume-control--rail,
+.resume-section:hover > .resume-control--rail,
+.resume-section:focus-within > .resume-control--rail,
+.resume-skills:hover .resume-control--rail,
+.resume-skills:focus-within .resume-control--rail {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Centred under the contact line, which is itself centred. */
 .resume-header .resume-control--rail[data-rail='contact'] {
-  top: 50%;
-  transform: translateY(-50%);
+  left: 50%;
+  transform: translate(-50%, 52%);
 }
 
+/* Lines up with the bullet text, not the bullet glyph. */
 .resume-entry .resume-control--rail[data-rail='bullet'] {
-  bottom: 22px;
+  left: var(--resume-bullet-indent, 8.5pt);
 }
 
-.resume-section .resume-control--rail[data-rail='entry'] {
-  bottom: 0;
-}
-
+/* "+ entry" and "+ skill" are anchored to the RIGHT edge while "+ bullet" stays
+   left. Hovering an entry also hovers its section, so both rails are visible at
+   once, and for the last entry in a section their anchors sit at nearly the
+   same y — the collision the old `bottom: 22px` offset was working around.
+   Splitting them across the horizontal axis removes the overlap outright, and
+   reads better besides: bullets belong to the entry, entries to the section. */
+.resume-section > .resume-control--rail[data-rail='entry'],
 .resume-skills .resume-control--rail[data-rail='skill'] {
-  bottom: 0;
+  left: auto;
+  right: 0;
 }
 
 .resume-control--remove,
 .resume-control--remove-bullet {
   position: absolute;
-  padding: 0 4px;
+  /* Buffer so the hit area never abuts the text it deletes. The negative
+     offsets place the control in the editor's margin gutter; the extra padding
+     is what keeps a visible gap between the glyph and the first character. */
+  padding: 1px 5px;
   line-height: 1.3;
   font-size: 11px;
   color: #ef4444;
   border-color: #fecaca;
   background: #fef2f2;
+  opacity: 0.5;
+  transition: opacity 0.12s;
+}
+
+.resume-entry:hover .resume-control--remove,
+.resume-entry:focus-within .resume-control--remove,
+.resume-bullet-item:hover .resume-control--remove-bullet,
+.resume-bullet-item:focus-within .resume-control--remove-bullet {
+  opacity: 1;
 }
 
 .resume-control--remove {
-  left: -24px;
+  left: -34px;
   top: 0;
 }
 
 .resume-control--remove-bullet {
-  left: -20px;
-  top: 1px;
+  left: -30px;
+  top: 0;
 }
 
 .resume-control--remove-contact {

@@ -220,6 +220,16 @@ Global CSS variables are in `src/index.css`. Component-level shared styles (`.bt
 
 Target audience is gen Z / under-35. Design should stay classy and minimal — avoid deep blues, heavy gradients, and the typical "AI product" aesthetic.
 
+**Button hierarchy.** Exactly **one filled/accent button per surface** — the primary action (Download PDF in the editor, Generate tailored resume in the wizard, Add school on Education). Everything else is `--ghost`/`--secondary` (transparent + border). Destructive actions (`Reset`, `Delete all`) use the danger variant AND are separated from the rest of the row — by a `.editor-toolbar-divider` in the editor, or `margin-right: auto` in a page toolbar. Disabled means `opacity: 0.38` + `saturate(0.4)` + `not-allowed`; a control whose prerequisites aren't met disables itself and explains why via `title` (see `actionBlockedReason` in the wizard) rather than failing after the click.
+
+**Contrast.** `--text-2` and `--text-3` are chosen so every tier clears WCAG AA (4.5:1) against all four surfaces — measured 7.85/6.31 and 5.73/4.61 darkest-to-lightest. Don't darken them without re-measuring; the previous `--text-3` sat at 2.04:1. The settings `.info-dot` takes the panel's full text colour and a 3:1 border, not the muted body grey.
+
+**Bounded numeric settings use sliders**, never bare number inputs — with a live value chip and the min/max endpoints rendered. Small integer ranges (bullet counts) use `<Stepper>` instead, which disables at the bounds. Both retired the typed-draft workarounds that number inputs needed to stop them snapping mid-keystroke.
+
+**Style scope.** The Settings page is the only writer of the global `resume-render-settings`. The editor's Style **drawer** is per-resume: it never persists globally, is labelled "Overrides for this resume", and offers "Reset to global default". It is a fixed right-hand drawer rather than an inline panel so changing a value doesn't push the live preview down the page.
+
+**Empty states** all use `.empty-state` (centred icon + one line). Pending pages use it with "Coming soon"; the icon takes `--text-3` rather than an inline low opacity.
+
 **Light-themed preview surfaces** (the result modal and candidate-review modal) use a neutral gray modal body (`#e9ebf0`) and a deeper canvas (`#cdd1d9`) behind the white résumé page, so the page reads as paper with clear contrast instead of white-on-white. Keep these light but never pure white; the résumé page itself stays `#fff` with a lift shadow.
 
 ---
@@ -347,6 +357,10 @@ Each change card shows:
 
 The Settings page includes a scaled live resume preview using the same `ResumeDocument` renderer as export, so section order, margin, font, line-height, spacing, bold/italic, intensity, weight, and template changes are visible before generation. Numeric labels include units: font and spacing controls are points, margins are inches, intensity is percent, CSS weight is unitless, and line height is a unitless multiplier.
 
+Bounded numerics render as **sliders** (live value chip + min/max endpoints); bullet counts use `<Stepper>`, which disables at the bounds. Both replaced number inputs and let the typed-draft workarounds be deleted from `SettingsPage`, `ResumeRenderSettingsControls`, and the bullet-count handlers.
+
+**This page is the only writer of `resume-render-settings`.** The editor's Style drawer is per-resume and never persists globally — see the design-system notes above.
+
 Section order is controlled by the **Section order** list in Content Defaults. Rows are draggable via the grip icon, with the comma-separated input kept as a fallback for adding/removing/renaming headings. The setting affects both future generation prompts and post-generation rendering/export: `ResumeDocument` sorts display sections by the saved order without mutating the underlying resume JSON. Unknown/custom sections remain after known ordered sections in their original relative order.
 
 All controlled number inputs keep a temporary typed draft so clearing and replacing a number does not immediately snap to clamped values while the user is mid-edit. This applies to Settings, wizard pre-generation typography fields, generated-result modal controls, and the editor Style panel. Sanitized values are still saved back through `mergeResumeRenderSettings` when the draft is valid and synced back on blur/reset.
@@ -376,7 +390,9 @@ Collect notes with `collectJdNotes()` in `jdNotes.ts`. Diff viewer still shows J
 
 ### Editor canvas layout
 
-The workspace is centered as one unit: `[130px rail][8.5in page][optional 308px JD panel]`. The format toolbar spans **only the 8.5in page column** (plus rail offset), not the JD sidebar width.
+The workspace is centered as one unit: `[rail][8.5in page][optional 308px JD panel]`. The format toolbar spans **only the 8.5in page column** (plus rail offset), not the JD sidebar width.
+
+The rail width is **`--resume-rail-width` on `.editor-canvas-stack`, and that is the only place it may be written** (currently 76px). It positions the page-fit gauge, the canvas width, and the format toolbar offset, and `.resume-page-wrapper` in `ResumeDocument.css` reads the same variable (falling back to 130px for pages rendered outside the editor canvas, e.g. the result and candidate-review modals). It was previously duplicated as a literal in both files; changing one dropped the fit gauge on top of the résumé. The rail only has to clear the row-delete controls at `-34px` and the gauge at `left: 4px` — the add-controls that once needed 130px now sit with their content.
 
 ### PDF export (`frontend/src/utils/pdf.ts`)
 
@@ -599,6 +615,8 @@ Saved **editor sessions** — not the same as `resume_versions` (AI-apply snapsh
 | Downloaded PDF font is too dark/heavy | PDF text weight was faked with a synthetic `-webkit-text-stroke` that was invisible on screen but visible at vector resolution in the PDF, and `pdf.ts` ignored `font-weight` so bold text was rendered as stroked regular text | `pdf.ts` now honors `font-weight` and selects the real bold/bold-italic PDF font faces; the synthetic text-stroke was removed from preview and export so both render weight via real fonts |
 | Preview and downloaded PDF weight do not look the same | Preview resolved `font-weight` to real browser fonts while the PDF writer ignored `font-weight` and faked weight with a synthetic stroke (sub-pixel on screen, visible in the PDF) | Both paths now resolve `font-weight` to the same real font faces; intermediate weights still collapse to the nearest available face until a variable font is embedded |
 | All settings info tooltips open at once and cover the inputs | `ResumeRenderSettingsControls.css` used a descendant selector `.resume-settings-controls__field span` that matched the tooltip `<span>` nested inside each field and forced `display: flex`, overriding the `[hidden]` attribute's `display: none` so every tooltip was always visible | Selector narrowed to `.resume-settings-controls__field > span` (direct child only); the tooltip is conditionally rendered only while open and carries an explicit `display: block` |
+| A coloured vertical strip runs down the résumé | The page-fit gauge is positioned from `--resume-rail-width`, but `.resume-page-wrapper` had its own hardcoded copy of the same number. Changing one moved the page and left the gauge inside it | Both read `--resume-rail-width` now. Never write the rail width as a literal in either file |
+| Settings tooltip is cut off at the panel edge, or a stray horizontal scrollbar appears | The tip was anchored to the 14px `.info-dot` with a fixed max-width, so right-column fields overflowed. The grid is `auto-fit`, so there is no fixed column to flip against. `overflow-y: auto` also computes `overflow-x` to `auto`, producing the scrollbar | Tip is anchored to the label row (`left: 0; right: 0`) so it is bounded by the field; drawer body sets `overflow-x: hidden` explicitly |
 | Purple/blue editor panel returned | `AiPanel.css` had its own hardcoded slate/purple colors outside the toolbar CSS | Keep `AiPanel.css`, `ResumeEditor.css`, and `FormatToolbar.css` on the neutral/warm palette; verify on an actual editor session |
 | Top toolbar controls overlap | Fixed grid columns let toolbar center/right groups collide at wide-but-crowded widths | Toolbar uses wrapping flex layout with constrained select width; verify with a saved session and JD notes visible |
 | Format dropdown does nothing | No text selected, or selection lost on focus | Highlight text first; use dropdown after selection is saved |
@@ -670,7 +688,7 @@ npm run lint      # ESLint
 - `useAiBridge` message protocol — must stay in sync with the extension
 - `ResumeData` schema — update prompt, parser, and normalizer together
 - `backend/index.cjs` schema changes — better-sqlite3 won't auto-migrate; handle manually or add migration logic
-- `+ bullet` CSS position (`bottom: 22px`) — was deliberately offset to not overlap `+ entry`; don't reset to 0
+- Add-control rail placement — `+ bullet` is anchored LEFT (at the bullet indent) and `+ entry` / `+ skill` are anchored RIGHT, inside their own hover target. Hovering an entry also hovers its section, so both are visible at once and their anchors nearly coincide on the last entry of a section; the horizontal split is what keeps them from overlapping. Don't collapse them onto the same edge.
 
 ### Do not do without user request
 

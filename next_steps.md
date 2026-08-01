@@ -19,6 +19,12 @@ Open product/prompt work (current behavior lives in the README, not here).
 - **Existing resumes are not retrofitted.** `ensureContactProfile` runs on *generated* output only, so a resume already sitting in the editor (or restored from history) keeps whatever header it had. Deliberate: retroactively mutating a loaded historical document is worse than the missing link. Add GitHub by hand via **+ link**, or regenerate.
 - Not wired: ChatGPT incognito (same gap as the resume path), and a cover-letter refine loop (the editor is inline-edit + Regenerate only).
 
+## UI / design system *(pass done — conventions in the README)*
+- **Behaviour change to confirm:** the editor's Style drawer is now per-resume and no longer writes the global default. If style tweaks made there should still stick for the next build, the drawer needs a "Save these as my defaults" action in its footer.
+- **Two indicators for one number.** The vertical page-fit gauge in the rail and the new page-fit banner beside Download show the same value. Drop one, or keep the gauge only as the at-a-glance fill visual.
+- Long slider labels ("Bottom margin (in)", "Before section gap (pt)") wrap to two lines because the value chip is pushed right by `margin-left: auto`, so paired grid rows sit at slightly different heights. Cosmetic; fix by shortening the labels or moving the chip to its own line.
+- 18 pre-existing `react-hooks/set-state-in-effect` lint errors across 14 files remain — unrelated to this pass, but the repo does not lint clean.
+
 ## One-page fit
 - Detect inefficient line usage (e.g. one-word last lines) from real DOM line boxes.
 - **Done:** Download auto-compresses near-full/small-overflow resumes (spacing/margin/line-height tweaks, looped until usage is under the 98% `SAFE_FILL_RATIO`) so the exported PDF is always one page; a "Tight fit" badge flags the 98–100% zone. Still open: a **content-aware** auto-tighten pass for overflow above the small-formatting zone (>105%), compressing in order weak entries → weak bullets → wording → skills/coursework → low-value metrics, instead of just blocking.

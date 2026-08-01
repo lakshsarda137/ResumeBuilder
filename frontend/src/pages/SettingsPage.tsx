@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { GripVertical, RotateCcw, SlidersHorizontal } from 'lucide-react';
+import { Stepper } from '../components/Stepper';
 import type { ResumeData } from '../types/resume';
 import { makeBullet } from '../types/resume';
 import {
@@ -194,7 +195,7 @@ function clampInteger(value: number, min: number, max: number) {
 
 export function SettingsPage() {
   const [draggedSectionIndex, setDraggedSectionIndex] = useState<number | null>(null);
-  const [{ settings, bulletDrafts, numericDrafts }, setPageState] = useState(() => {
+  const [{ settings }, setPageState] = useState(() => {
     const initialSettings = loadResumeRenderSettings();
     return {
       settings: initialSettings,
@@ -327,23 +328,19 @@ export function SettingsPage() {
     updateSectionHeadings(nextHeadings);
   }
 
-  function syncBulletDrafts() {
-    setPageState((current) => ({
-      ...current,
-      bulletDrafts: bulletDraftsFromSettings(current.settings),
-    }));
+  /** Decimals implied by the step, so 0.25 shows "10.25" and 25 shows "650". */
+  function formatSettingValue(value: number, step: number) {
+    if (step >= 1) return String(Math.round(value));
+    // Only show decimals when the value actually has them: "11", not "11.0".
+    if (Number.isInteger(value)) return String(value);
+    return value.toFixed(step >= 0.1 ? 1 : 2);
   }
 
-  function syncNumericDraft(field: NumericSettingKey) {
-    setPageState((current) => ({
-      ...current,
-      numericDrafts: {
-        ...current.numericDrafts,
-        [field]: String(current.settings[field]),
-      },
-    }));
-  }
-
+  /**
+   * Slider rather than a number box, matching the editor's Style drawer. These
+   * are bounded continuous quantities, and a bare box showed neither the legal
+   * range nor where in it the current value sat.
+   */
   function renderNumberField({
     label,
     field,
@@ -358,18 +355,32 @@ export function SettingsPage() {
     step: number;
   }) {
     return (
-      <label className="field">
-        <span>{label}</span>
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={numericDrafts[field]}
-          onChange={(event) => updateNumericSetting(field, event.target.value)}
-          onBlur={() => syncNumericDraft(field)}
-        />
-      </label>
+      <div className="field settings-slider-field">
+        <span>
+          {label}
+          <output className="settings-slider-value">
+            {formatSettingValue(settings[field], step)}
+          </output>
+        </span>
+        <div className="settings-slider-row">
+          <span className="settings-slider-bound" aria-hidden>
+            {formatSettingValue(min, step)}
+          </span>
+          <input
+            className="settings-slider"
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={settings[field]}
+            aria-label={label}
+            onChange={(event) => updateNumericSetting(field, event.target.value)}
+          />
+          <span className="settings-slider-bound" aria-hidden>
+            {formatSettingValue(max, step)}
+          </span>
+        </div>
+      </div>
     );
   }
 
@@ -456,34 +467,30 @@ export function SettingsPage() {
               onChange={(event) => updateSectionHeadings(parseCommaList(event.target.value))}
             />
           </div>
-          <label className="field">
+          <div className="field">
             <span>Min bullets per experience</span>
-            <input
-              type="number"
+            <Stepper
+              label="Min bullets per experience"
+              value={settings.minBulletsPerExperience}
               min={1}
               max={5}
-              step={1}
-              value={bulletDrafts.min}
-              onChange={(event) =>
-                updateBulletSetting('minBulletsPerExperience', event.target.value)
+              onChange={(next) =>
+                updateBulletSetting('minBulletsPerExperience', String(next))
               }
-              onBlur={syncBulletDrafts}
             />
-          </label>
-          <label className="field">
+          </div>
+          <div className="field">
             <span>Max bullets per experience</span>
-            <input
-              type="number"
+            <Stepper
+              label="Max bullets per experience"
+              value={settings.maxBulletsPerExperience}
               min={1}
               max={6}
-              step={1}
-              value={bulletDrafts.max}
-              onChange={(event) =>
-                updateBulletSetting('maxBulletsPerExperience', event.target.value)
+              onChange={(next) =>
+                updateBulletSetting('maxBulletsPerExperience', String(next))
               }
-              onBlur={syncBulletDrafts}
             />
-          </label>
+          </div>
         </div>
         <label className="field settings-notes">
           <span>Special resume generation notes</span>

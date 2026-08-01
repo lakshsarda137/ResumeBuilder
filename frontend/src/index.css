@@ -13,10 +13,14 @@
   --border:    rgba(255, 255, 255, 0.08);
   --border-2:  rgba(255, 255, 255, 0.14);
 
-  /* Text — high contrast, neutral */
+  /* Text — high contrast, neutral.
+     Every tier clears WCAG AA (4.5:1) against all four surfaces above, which
+     is what fixes the grey-on-black helper text. Measured contrast, darkest
+     surface first: text-2 7.85 / 6.31, text-3 5.73 / 4.61. The previous
+     text-3 (#525252) sat at 2.04-2.53:1 and was effectively unreadable. */
   --text-1: #f5f5f5;
-  --text-2: #888888;
-  --text-3: #525252;
+  --text-2: #a3a3a3;
+  --text-3: #8a8a8a;
 
   /* Accent — muted sage, editorial not tech */
   --accent:       #adc5b3;

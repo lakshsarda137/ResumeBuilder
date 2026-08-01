@@ -1190,7 +1190,7 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
     return (
       <button
         type="button"
-        className="btn btn--secondary repo-import-toggle"
+        className="btn btn--ghost repo-import-toggle"
         onClick={() => setOpen(true)}
       >
         Import

@@ -169,7 +169,7 @@ export function EducationPage() {
           onComplete={load}
         />
         <RepoImportPanel onComplete={load} />
-        <button className="btn btn--secondary" onClick={toggleMetaForm}>
+        <button className="btn btn--ghost" onClick={toggleMetaForm}>
           {metaHasContent ? <Pencil size={15} /> : <Plus size={15} />}
           {metaHasContent ? 'Edit notes' : 'Add notes'}
         </button>

@@ -7,6 +7,13 @@
   margin-bottom: 20px;
 }
 
+/* Push the destructive action to the opposite end of the row from the primary
+   one, so "Delete all" is never the first thing the eye lands on and is never
+   adjacent to "Add school". */
+.education-toolbar > .btn--danger:first-child {
+  margin-right: auto;
+}
+
 .education-form-card,
 .education-meta-card {
   margin-bottom: 20px;

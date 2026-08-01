@@ -9,8 +9,12 @@ export function KnowledgePage() {
         <p className="page-subtitle">Store notes, frameworks, and reference material that inform your resume writing.</p>
       </div>
       <div className="empty-state">
-        <BookOpen size={32} style={{ opacity: 0.3 }} />
+        <BookOpen size={32} />
         <p>Coming soon.</p>
+        <p className="empty-state__hint">
+          Reference material you save here will be available to the resume and
+          cover letter prompts.
+        </p>
       </div>
     </div>
   );

@@ -151,11 +151,6 @@ export function ResumeRenderSettingsControls({
   compact = false,
 }: ResumeRenderSettingsControlsProps) {
   const [activeTab, setActiveTab] = useState<SettingsTab>('template');
-  const [numericDrafts, setNumericDrafts] = useState<
-    Partial<Record<NumericSettingKey, string>>
-  >({});
-  const [focusedNumberField, setFocusedNumberField] =
-    useState<NumericSettingKey | null>(null);
   const [draggedSectionIndex, setDraggedSectionIndex] = useState<number | null>(null);
 
   const update = (patch: Partial<ResumeRenderSettings>) => {
@@ -179,63 +174,55 @@ export function ResumeRenderSettingsControls({
     update({ sectionHeadings: next });
   };
 
-  const updateNumberDraft = (
-    field: NumericSettingKey,
-    rawValue: string,
-    min: number,
-    max: number,
-  ) => {
-    setNumericDrafts((current) => ({
-      ...current,
-      [field]: rawValue,
-    }));
-
-    if (!rawValue.trim()) {
-      return;
-    }
-
-    const numericValue = Number(rawValue);
-    if (!Number.isFinite(numericValue)) {
-      return;
-    }
-    if (numericValue < min || numericValue > max) {
-      return;
-    }
-
-    update({ [field]: numericValue });
+  /**
+   * Decimal places implied by the step, so 0.25 shows "10.25", 0.5 shows
+   * "10.5", and 25 shows "650" rather than "650.00".
+   */
+  const formatValue = (value: number, step: number) => {
+    if (step >= 1) return String(Math.round(value));
+    // Only show decimals when the value actually has them: "11", not "11.0".
+    if (Number.isInteger(value)) return String(value);
+    return value.toFixed(step >= 0.1 ? 1 : 2);
   };
 
-  const syncNumberDraft = (field: NumericSettingKey) => {
-    setFocusedNumberField(null);
-    setNumericDrafts((current) => {
-      const next = { ...current };
-      delete next[field];
-      return next;
-    });
-  };
-
+  /**
+   * A slider rather than a bare number box. These are all bounded, continuous
+   * quantities — margins in inches, CSS weights, intensity percentages — and a
+   * raw text field gave no sense of the allowed range or of how far along it a
+   * value sat. "650" in an empty box means nothing; a handle two-thirds along a
+   * 500-800 track does.
+   *
+   * This also retires the typed-draft machinery this component used to need: a
+   * controlled number input snapped to the clamped minimum while you were still
+   * typing, which a range input cannot do.
+   */
   const renderNumberField = (field: (typeof NUMBER_FIELDS)[number]) => (
-    <label key={field.key} className="resume-settings-controls__field">
+    <div key={field.key} className="resume-settings-controls__field">
       <span>
         {field.label} <InfoDot text={field.help} />
+        <output className="resume-settings-controls__value">
+          {formatValue(settings[field.key], field.step)}
+        </output>
       </span>
-      <input
-        type="number"
-        min={field.min}
-        max={field.max}
-        step={field.step}
-        value={
-          focusedNumberField === field.key
-            ? numericDrafts[field.key] ?? String(settings[field.key])
-            : String(settings[field.key])
-        }
-        onFocus={() => setFocusedNumberField(field.key)}
-        onChange={(event) =>
-          updateNumberDraft(field.key, event.target.value, field.min, field.max)
-        }
-        onBlur={() => syncNumberDraft(field.key)}
-      />
-    </label>
+      <div className="resume-settings-controls__slider-row">
+        <span className="resume-settings-controls__bound" aria-hidden>
+          {formatValue(field.min, field.step)}
+        </span>
+        <input
+          className="resume-settings-controls__slider"
+          type="range"
+          min={field.min}
+          max={field.max}
+          step={field.step}
+          value={settings[field.key]}
+          aria-label={field.label}
+          onChange={(event) => update({ [field.key]: Number(event.target.value) })}
+        />
+        <span className="resume-settings-controls__bound" aria-hidden>
+          {formatValue(field.max, field.step)}
+        </span>
+      </div>
+    </div>
   );
 
   const typeNumbers = NUMBER_FIELDS.filter((field) => field.group === 'type');

@@ -20,6 +20,10 @@ Durable lessons from past sessions. Keep it short — add a bullet only when a m
 - Never ship a workaround that violates a stated hard constraint — stop and ask.
 - **Never swallow a fallback.** `sendLargePromptAndWait` shipped with an empty `catch {}` around the Gemini attach, so an attach failure silently degraded to a paste into a composer that truncates — producing a broken resume from a run that looked healthy. Every fallback must report what it fell back *from*, with the underlying error verbatim. The extension had been emitting precise `gemini_attach_*` diagnostics the whole time; the wizard just never displayed them.
 
+## Layout constants
+- **A magic number that two files both hardcode will drift, and the drift is silent.** The editor rail width lived as `--resume-rail-width: 130px` in `ResumeEditor.css` (positioning the page-fit gauge) *and* as a literal `margin-left: 130px` in `ResumeDocument.css`. Narrowing the gutter meant changing one; the page moved and the gauge stayed, painting a coloured strip straight down the résumé. Before changing a layout constant, grep the value across the CSS and make the second occurrence read the variable.
+- **Check what a gutter is actually holding before reclaiming it.** That 130px looked like dead space left over from the old add-control column; it was also hosting the fit gauge.
+
 ## Reading the repo before changing it
 - **Read the md files first.** `README.md`, `next_steps.md`, `llm_council.md`, and this file record findings that were established empirically, often with a standalone test harness (`gemini-attach-test/`). A session that skips them will re-propose an approach already proven not to work.
 - **`git show HEAD:` is not "what the user is running."** This repo carries a large uncommitted working tree. Diffing a behavior question against HEAD proves nothing about the state the user actually ran, and using it to tell the user they are misremembering is both wrong and expensive. Their observation is data; treat it as the constraint the explanation has to satisfy.
@@ -30,6 +34,8 @@ Durable lessons from past sessions. Keep it short — add a bullet only when a m
 - Don't claim a UI fix ("purple chrome removed", "toolbar overlap fixed", headings visible) without **visually verifying** it.
 - Light-themed modals: headings inherit the app's near-white `--text-1` and go invisible — set an explicit dark color.
 - Info-icon tooltips: scope selectors so a broad descendant selector can't force `[hidden]` tooltips visible.
+- **`[hidden]` loses to any `display` rule.** The UA stylesheet's `[hidden] { display: none }` is overridden by any class that sets `display` (`flex`, `inline-flex`, `grid`). Hiding `.ai-panel` and `.toolbar-template` on the cover-letter view both silently failed for exactly this reason. Every element hidden via the attribute needs its own `[hidden] { display: none }`, and the fix must be *seen*, not assumed.
+- **Anchor an overlay to the box that bounds it, not to the icon that triggers it.** The settings tooltip was positioned against the 14px `.info-dot` with a fixed max-width, so it overflowed the panel for any field in a right-hand column — and the grid is `auto-fit`, so there is no stable "right column" to flip against. Re-anchoring to the full-width label row (`left: 0; right: 0`) makes overflow impossible at any width. Related: `overflow-y: auto` computes `overflow-x` to `auto`, so a horizontal scrollbar appearing is a symptom of something overhanging, not a styling nit.
 - Keyword emphasis = bold (`<strong>`) only, never color/highlight. No tech stack beside entry names. GPA/honors get their own compact bullet.
 - One-page fixes must be explicit (density quotas + renderer enforcement), not hand-wavy shrinking.
 - Refresh repo/ongoing/education immediately before building so saved edits aren't lost to stale wizard state.

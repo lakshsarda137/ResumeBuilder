@@ -106,11 +106,19 @@ export function HistoryPage() {
                 <div className="history-card-meta">
                   <span className="history-card-meta-item">
                     <Clock size={13} />
-                    Last updated {formatUtcDateTime(session.updated_at)}
+                    {/* A session that has never been re-saved shows one date, not
+                        the same timestamp twice under two different labels. */}
+                    {formatUtcDateTime(session.updated_at) ===
+                    formatUtcDateTime(session.created_at)
+                      ? `Saved ${formatUtcDateTime(session.created_at)}`
+                      : `Last updated ${formatUtcDateTime(session.updated_at)}`}
                   </span>
-                  <span className="history-card-meta-item history-card-meta-item--muted">
-                    Created {formatUtcDateTime(session.created_at)}
-                  </span>
+                  {formatUtcDateTime(session.updated_at) !==
+                  formatUtcDateTime(session.created_at) ? (
+                    <span className="history-card-meta-item history-card-meta-item--muted">
+                      Created {formatUtcDateTime(session.created_at)}
+                    </span>
+                  ) : null}
                 </div>
               </div>
               <div className="history-card-actions">

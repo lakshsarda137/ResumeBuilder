@@ -671,6 +671,24 @@ export function ResumeBuilderWizard({
     [draftSettings],
   );
 
+  /**
+   * Prerequisites for the two actions on this step, surfaced as a reason string
+   * so the button can both disable itself AND say why on hover. Previously
+   * "Preview prompt" looked pressable with no path selected and simply threw.
+   */
+  const actionBlockedReason = useMemo(() => {
+    if (!mode) {
+      return 'Choose how you want to start first.';
+    }
+    if (mode === 'optimize' && !pdfFile) {
+      return 'Upload your existing resume PDF first.';
+    }
+    if (mode === 'repository' && filteredSources.length === 0) {
+      return 'Select at least one repository source first.';
+    }
+    return null;
+  }, [filteredSources.length, mode, pdfFile]);
+
   const promptEstimate = useMemo(() => {
     if (mode === 'optimize') {
       const prompt = buildOptimizePdfPrompt(jobDescription, optimizeInstructions);
@@ -2325,7 +2343,10 @@ export function ResumeBuilderWizard({
             type="button"
             className="rb-wizard-btn rb-wizard-btn--secondary"
             onClick={handlePreviewPrompt}
-            disabled={!mode || working || refining || previewingPrompt}
+            disabled={
+              Boolean(actionBlockedReason) || working || refining || previewingPrompt
+            }
+            title={actionBlockedReason ?? 'Inspect the exact prompt before sending it'}
           >
             {previewingPrompt ? (
               <Loader2 size={15} className="spin" />
@@ -2346,12 +2367,16 @@ export function ResumeBuilderWizard({
             }}
             disabled={
               !bridgeReady ||
-              !mode ||
+              Boolean(actionBlockedReason) ||
               working ||
               refining ||
               connecting ||
-              previewingPrompt ||
-              (mode === 'optimize' && !pdfFile)
+              previewingPrompt
+            }
+            title={
+              !bridgeReady
+                ? 'Connect the Chrome extension first.'
+                : (actionBlockedReason ?? undefined)
             }
           >
             {working ? <Loader2 size={16} className="spin" /> : null}
