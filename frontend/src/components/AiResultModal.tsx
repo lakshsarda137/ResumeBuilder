@@ -20,6 +20,13 @@ import './AiResultModal.css';
 
 const AI_PREVIEW_ID = 'resume-ai-preview';
 
+function pageFitVariant(fit: ResumePageFit): string {
+  if (fit.status === 'fit' && !fit.safe) {
+    return 'tight';
+  }
+  return fit.status;
+}
+
 function pageFitLabel(fit: ResumePageFit): string {
   const percent = Math.round(fit.usageRatio * 100);
   if (fit.status === 'over') {
@@ -27,6 +34,9 @@ function pageFitLabel(fit: ResumePageFit): string {
   }
   if (fit.status === 'under') {
     return `Under 1 page (${percent}%)`;
+  }
+  if (!fit.safe) {
+    return `Tight fit (${percent}%)`;
   }
   return `Fits 1 page (${percent}%)`;
 }
@@ -331,7 +341,7 @@ export function AiResultModal({
               <h3>Preview</h3>
               {pageFit ? (
                 <span
-                  className={`ai-result-pagefit ai-result-pagefit--${pageFit.status}`}
+                  className={`ai-result-pagefit ai-result-pagefit--${pageFitVariant(pageFit)}`}
                   title="Estimated from the PDF export layout — adjust formatting in the editor after applying"
                 >
                   {pageFitLabel(pageFit)}

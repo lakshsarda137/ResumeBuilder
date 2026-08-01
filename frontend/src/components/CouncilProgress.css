@@ -1,7 +1,8 @@
+/* ── Council progress card ─────────────────────────────────────────────── */
 .council-progress {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 0;
   padding: 16px;
   background: var(--surface-2, #1e1e1e);
   border: 1px solid var(--border, #333);
@@ -15,13 +16,15 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 
 .council-progress-title {
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-1, #f0f0f0);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
 }
 
 .council-progress-cancel {
@@ -47,12 +50,12 @@
   cursor: default;
 }
 
-/* ---------------------------------------------------------------------------
-   Branching tree: a trunk that forks into parallel candidate branches and
-   converges into the judge. Reuses the orange step-circle material.
---------------------------------------------------------------------------- */
+/* ═══════════════════════════════════════════════════════════════════════════
+   COUNCIL TREE — branching progress view (root → candidates → merge → judge)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
 .council-tree {
-  --council-spine: rgba(232, 213, 183, 0.22);
+  --council-spine: rgba(173, 197, 179, 0.2);
   display: flex;
   flex-direction: column;
 }
@@ -64,8 +67,6 @@
   column-gap: 14px;
 }
 
-/* The rail column draws the continuous vertical spine; flex lines stretch to
-   fill each node's height so adjacent nodes connect seamlessly. */
 .council-rail {
   display: flex;
   flex-direction: column;
@@ -74,10 +75,16 @@
 }
 
 .council-rail-line {
+  position: relative;
   flex: 1 0 10px;
   width: 2px;
   background: var(--council-spine);
   border-radius: 2px;
+}
+
+.council-rail-line--flowing {
+  flex-grow: 1.4;
+  overflow: visible;
 }
 
 .council-rail-line--hidden {
@@ -93,24 +100,19 @@
 .council-tree--running .council-rail-line {
   background: linear-gradient(
     180deg,
-    rgba(232, 213, 183, 0.12) 0%,
-    rgba(249, 115, 22, 0.55) 50%,
-    rgba(232, 213, 183, 0.12) 100%
+    rgba(173, 197, 179, 0.1) 0%,
+    rgba(173, 197, 179, 0.45) 50%,
+    rgba(173, 197, 179, 0.1) 100%
   );
   background-size: 100% 220%;
   animation: council-flow 1.7s linear infinite;
 }
 
 @keyframes council-flow {
-  from {
-    background-position: 0 220%;
-  }
-  to {
-    background-position: 0 0;
-  }
+  from { background-position: 0 220%; }
+  to   { background-position: 0 0; }
 }
 
-/* Branch node dot, centered on the spine. */
 .council-node-dot {
   position: absolute;
   left: 4px;
@@ -128,28 +130,22 @@
   justify-content: center;
   border-radius: 50%;
   background: var(--surface-3, #272727);
-  border: 2px solid var(--accent, #e8d5b7);
-  color: var(--accent, #e8d5b7);
+  border: 2px solid var(--accent);
+  color: var(--accent);
 }
 
 .council-node-dot--merge {
-  border-color: rgba(232, 213, 183, 0.55);
-  color: rgba(232, 213, 183, 0.75);
+  border-color: rgba(173, 197, 179, 0.5);
+  color: rgba(173, 197, 179, 0.7);
 }
 
-/* Pulse active branches. */
 .council-node-dot.pipeline-step-circle--active {
   animation: council-pulse 1.4s ease-in-out infinite;
 }
 
 @keyframes council-pulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.22);
-  }
-  50% {
-    box-shadow: 0 0 0 6px rgba(249, 115, 22, 0.08);
-  }
+  0%, 100% { box-shadow: 0 0 0 3px rgba(173, 197, 179, 0.18); }
+  50%       { box-shadow: 0 0 0 7px rgba(173, 197, 179, 0.05); }
 }
 
 .council-node-body {
@@ -183,10 +179,59 @@
   color: var(--text-2, #a0a0a0);
 }
 
-.council-node-body--merge span {
+.council-merge-caption {
   font-size: 11px;
   font-style: italic;
   color: var(--text-3, #666);
+}
+
+.council-merge-caption--active {
+  color: rgba(251, 191, 36, 0.95);
+  font-style: normal;
+}
+
+.council-merge-caption--done {
+  color: #4ade80;
+  font-style: normal;
+}
+
+.council-merge-caption--failed {
+  color: #fca5a5;
+  font-style: normal;
+}
+
+.council-node-dot--merge-active {
+  border-color: rgba(249, 115, 22, 0.75);
+  color: rgba(249, 115, 22, 0.95);
+  animation: council-pulse 1.4s ease-in-out infinite;
+}
+
+.council-node-dot--merge-done {
+  border-color: rgba(74, 222, 128, 0.7);
+  color: #4ade80;
+}
+
+.council-rail-packet {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 7px rgba(173, 197, 179, 0.7);
+  animation: council-rail-drop 1.3s linear infinite;
+}
+
+.council-rail-packet:nth-child(2) { animation-delay: 0.43s; }
+.council-rail-packet:nth-child(3) { animation-delay: 0.86s; }
+
+@keyframes council-rail-drop {
+  0%   { top: -10%; opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
 }
 
 .council-node-status {
@@ -205,15 +250,9 @@
   color: #fbbf24;
 }
 
-.council-node-status--done {
-  color: #4ade80;
-}
+.council-node-status--done   { color: #4ade80; }
+.council-node-status--failed { color: #fca5a5; }
 
-.council-node-status--failed {
-  color: #fca5a5;
-}
-
-/* Compact mini step circles inside each branch. */
 .council-mini-steps {
   max-width: 440px;
   margin: 0;
@@ -234,6 +273,16 @@
 .council-mini-steps .pipeline-step-label {
   margin-top: 5px;
   font-size: 11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .council-rail-packet,
+  .council-node-dot--merge-active {
+    animation: none;
+  }
+  .council-rail-packet {
+    display: none;
+  }
 }
 
 @media (max-width: 720px) {

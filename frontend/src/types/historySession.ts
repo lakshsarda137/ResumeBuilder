@@ -1,5 +1,6 @@
 import type { AiChatSession } from './aiSession';
 import type { ResumeData } from './resume';
+import type { CoverLetterData } from './coverLetter';
 import type { CouncilSnapshot } from './council';
 import type { ResumeRenderSettings } from '../utils/resumeSettings';
 
@@ -14,6 +15,15 @@ export interface HistorySessionSnapshot {
   renderSettings?: ResumeRenderSettings;
   /** Present when the resume was built via an LLM Council run. */
   council?: CouncilSnapshot | null;
+  /**
+   * Present when this session also built a cover letter alongside the resume.
+   * Cover letters are always written by a single model, so there is no council
+   * snapshot here. Render settings are derived from `renderSettings` rather
+   * than stored, so the letter can never drift from the resume's typography.
+   */
+  coverLetter?: CoverLetterData | null;
+  /** The chat the cover letter was generated in, for reopening it. */
+  coverLetterSession?: AiChatSession | null;
 }
 
 export interface HistorySessionListItem {

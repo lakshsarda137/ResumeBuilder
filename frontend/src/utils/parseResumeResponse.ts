@@ -7,12 +7,14 @@ import type {
 } from '../types/resume';
 import { makeBullet } from '../types/resume';
 import { migrateResumeData } from './migrateResume';
+import { sanitizeEmDashes } from './emDash';
+import { ensureContactProfile } from './contactProfile';
 
-function generateId(prefix: string) {
+export function generateId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function repairJson(json: string): string {
+export function repairJson(json: string): string {
   return json
     .replace(/^\uFEFF/, '')
     .replace(/,\s*([}\]])/g, '$1')
@@ -20,7 +22,7 @@ function repairJson(json: string): string {
     .replace(/[\u2018\u2019]/g, "'");
 }
 
-function extractJsonCandidate(text: string): string {
+export function extractJsonCandidate(text: string): string {
   const delimitedBlocks = [
     ...text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g),
   ];
@@ -48,7 +50,7 @@ function extractJsonCandidate(text: string): string {
   );
 }
 
-function parseJsonCandidate(candidate: string): unknown {
+export function parseJsonCandidate(candidate: string): unknown {
   try {
     return JSON.parse(repairJson(candidate));
   } catch {
@@ -119,7 +121,7 @@ function expandToJsonObject(text: string, anchorPos: number): string {
   return '';
 }
 
-function collectJsonCandidates(text: string): string[] {
+export function collectJsonCandidates(text: string): string[] {
   const candidates: string[] = [];
   const seen = new Set<string>();
   const push = (candidate: string | undefined) => {
@@ -189,11 +191,11 @@ function isPlaceholderText(value: unknown): boolean {
   );
 }
 
-function hasRealText(value: unknown): boolean {
+export function hasRealText(value: unknown): boolean {
   return typeof value === 'string' && value.trim().length > 1 && !isPlaceholderText(value);
 }
 
-function cleanGeneratedText(value: string): string {
+export function cleanGeneratedText(value: string): string {
   return sanitizeInlineFormatting(value)
     .replace(/\s*\((?:please\s+)?edit(?:\s+[^)]*)?\)/gi, '')
     .replace(/\s*\[(?:please\s+)?edit(?:\s+[^\]]*)?\]/gi, '')
@@ -205,7 +207,12 @@ function cleanGeneratedText(value: string): string {
     .trim();
 }
 
-function sanitizeInlineFormatting(value: string): string {
+/** Same as `cleanGeneratedText`, plus the em-dash content rule. Never use on date fields. */
+export function cleanGeneratedProseText(value: string): string {
+  return sanitizeEmDashes(cleanGeneratedText(value));
+}
+
+export function sanitizeInlineFormatting(value: string): string {
   return value
     .replace(/<\s*mark(?:\s+[^>]*)?>/gi, '<strong>')
     .replace(/<\s*\/\s*mark\s*>/gi, '</strong>')
@@ -334,16 +341,16 @@ function looksLikeResumePayload(parsed: unknown): boolean {
 
 function normalizeBullet(raw: unknown, index: number): ResumeBullet {
   if (typeof raw === 'string') {
-    return makeBullet(cleanGeneratedText(raw));
+    return makeBullet(cleanGeneratedProseText(raw));
   }
 
   if (raw && typeof raw === 'object') {
     const bullet = raw as { text?: unknown; jdComment?: unknown };
     const text =
       typeof bullet.text === 'string'
-        ? cleanGeneratedText(bullet.text)
+        ? cleanGeneratedProseText(bullet.text)
         : typeof (raw as { value?: unknown }).value === 'string'
-          ? cleanGeneratedText((raw as { value: string }).value)
+          ? cleanGeneratedProseText((raw as { value: string }).value)
           : `Bullet ${index + 1}`;
     const jdComment =
       typeof bullet.jdComment === 'string' && bullet.jdComment.trim()
@@ -369,10 +376,11 @@ function normalizeEntry(raw: Partial<ResumeEntry>, index: number): ResumeEntry {
 
   return {
     id: typeof raw.id === 'string' ? raw.id : generateId(`entry-${index}`),
-    title: typeof raw.title === 'string' ? cleanGeneratedText(raw.title) : 'Title',
-    location: typeof raw.location === 'string' ? cleanGeneratedText(raw.location) : '',
+    title: typeof raw.title === 'string' ? cleanGeneratedProseText(raw.title) : 'Title',
+    location: typeof raw.location === 'string' ? cleanGeneratedProseText(raw.location) : '',
+    // Em dashes are allowed in dates (e.g. "Jan 2023 — Mar 2024") — do not sanitize.
     date: typeof raw.date === 'string' ? cleanGeneratedText(raw.date) : '',
-    subtitle: typeof raw.subtitle === 'string' ? cleanGeneratedText(raw.subtitle) : '',
+    subtitle: typeof raw.subtitle === 'string' ? cleanGeneratedProseText(raw.subtitle) : '',
     bullets,
     jdComment,
   };
@@ -386,8 +394,8 @@ function normalizeSkill(raw: Partial<SkillCategory>, index: number): SkillCatego
 
   return {
     id: typeof raw.id === 'string' ? raw.id : generateId(`skill-${index}`),
-    label: typeof raw.label === 'string' ? cleanGeneratedText(raw.label) : 'Category',
-    items: typeof raw.items === 'string' ? cleanGeneratedText(raw.items) : '',
+    label: typeof raw.label === 'string' ? cleanGeneratedProseText(raw.label) : 'Category',
+    items: typeof raw.items === 'string' ? cleanGeneratedProseText(raw.items) : '',
     jdComment,
   };
 }
@@ -431,7 +439,7 @@ function normalizeSection(
     type,
     title:
       typeof raw.title === 'string'
-        ? cleanGeneratedText(raw.title)
+        ? cleanGeneratedProseText(raw.title)
         : fallback?.title ?? 'Section',
     entries: type === 'skills' ? [] : normalizedEntries,
     skills: type === 'skills' ? skills ?? fallback?.skills ?? [] : skills,
@@ -442,6 +450,16 @@ function normalizeSection(
 export function normalizeAiResume(
   raw: unknown,
   fallback: ResumeData,
+  options: {
+    /**
+     * Guarantee the header carries every canonical contact fact. Set for
+     * resumes the app GENERATES; never set for a faithful transcription (a PDF
+     * import, or the optimize path's "baseline"), where adding a link the
+     * source document did not have would corrupt the before/after diff and
+     * misrepresent what was uploaded.
+     */
+    enforceContactProfile?: boolean;
+  } = {},
 ): ResumeData {
   const migrated = migrateResumeData(raw);
   const source = migrated.contact && migrated.sections ? migrated : fallback;
@@ -449,7 +467,7 @@ export function normalizeAiResume(
   const contact = {
     name:
       typeof source.contact?.name === 'string' && source.contact.name.trim()
-        ? cleanGeneratedText(source.contact.name)
+        ? cleanGeneratedProseText(source.contact.name)
         : fallback.contact.name,
     links:
       Array.isArray(source.contact?.links) && source.contact.links.length > 0
@@ -458,7 +476,7 @@ export function normalizeAiResume(
               typeof link.id === 'string'
                 ? link.id
                 : fallback.contact.links[index]?.id ?? generateId(`link-${index}`),
-            value: typeof link.value === 'string' ? cleanGeneratedText(link.value) : '',
+            value: typeof link.value === 'string' ? cleanGeneratedProseText(link.value) : '',
           }))
         : fallback.contact.links,
   };
@@ -474,7 +492,10 @@ export function normalizeAiResume(
         )
       : fallback.sections;
 
-  return { contact, sections };
+  return {
+    contact: options.enforceContactProfile ? ensureContactProfile(contact) : contact,
+    sections,
+  };
 }
 
 const IMPORT_BASELINE: ResumeData = {
@@ -486,7 +507,7 @@ export function parseImportedResume(rawResponse: string): ResumeData {
   return parseResumeFromLlmResponse(rawResponse, IMPORT_BASELINE);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
@@ -526,7 +547,9 @@ export function parseOptimizedPdfResponse(rawResponse: string): {
     }
 
     const baseline = normalizeAiResume(parsed.baseline, IMPORT_BASELINE);
-    const optimized = normalizeAiResume(parsed.optimized, baseline);
+    const optimized = normalizeAiResume(parsed.optimized, baseline, {
+      enforceContactProfile: true,
+    });
     if (!resumeHasSubstantiveContent(baseline) && resumeHasSubstantiveContent(optimized)) {
       throw new Error(
         'The LLM returned an optimized resume but did not include a faithful baseline extraction, so the app cannot show removals. Ask it to return both "baseline" and "optimized" objects.',
@@ -560,57 +583,41 @@ export function parseOptimizedPdfResponse(rawResponse: string): {
   );
 }
 
-function readDimensionScores(raw: unknown): {
-  scores: Record<string, number>;
-  rationales: Record<string, string>;
-} {
-  const scores: Record<string, number> = {};
-  const rationales: Record<string, string> = {};
+/**
+ * Read one candidate's ATS verdict. Tolerant about shape because providers
+ * vary: the score may arrive as a number or a numeric string, and the
+ * justification under any of a few plausible key names.
+ */
+function readAtsScore(raw: unknown): { atsScore: number | null; justification: string } {
+  if (!isRecord(raw)) {
+    return { atsScore: null, justification: '' };
+  }
 
-  const pushEntry = (key: unknown, score: unknown, rationale: unknown) => {
-    if (typeof key !== 'string' || !key.trim()) {
-      return;
-    }
-    const numeric =
-      typeof score === 'number'
-        ? score
-        : typeof score === 'string'
-          ? Number(score)
-          : NaN;
-    if (Number.isFinite(numeric)) {
-      scores[key] = Math.min(10, Math.max(1, Math.round(numeric)));
-    }
-    if (typeof rationale === 'string' && rationale.trim()) {
-      rationales[key] = rationale.trim();
-    }
+  const rawScore = raw.atsScore ?? raw.ats_score ?? raw.score;
+  const numeric =
+    typeof rawScore === 'number'
+      ? rawScore
+      : typeof rawScore === 'string'
+        ? Number(rawScore.replace(/[^0-9.]/g, ''))
+        : NaN;
+
+  const rawJustification =
+    raw.justification ?? raw.rationale ?? raw.reasoning ?? raw.notes;
+
+  return {
+    atsScore: Number.isFinite(numeric)
+      ? Math.min(100, Math.max(0, Math.round(numeric)))
+      : null,
+    justification:
+      typeof rawJustification === 'string' ? rawJustification.trim() : '',
   };
-
-  if (isRecord(raw) && Array.isArray(raw.dimensions)) {
-    for (const dim of raw.dimensions) {
-      if (isRecord(dim)) {
-        pushEntry(dim.key, dim.score, dim.rationale);
-      }
-    }
-    return { scores, rationales };
-  }
-
-  // Tolerate an object-keyed shape: { jd_alignment: 8, rationales: {...} }.
-  if (isRecord(raw)) {
-    const rationaleMap = isRecord(raw.rationales) ? raw.rationales : {};
-    for (const [key, value] of Object.entries(raw)) {
-      if (key === 'rationales' || key === 'dimensions') {
-        continue;
-      }
-      pushEntry(key, value, (rationaleMap as Record<string, unknown>)[key]);
-    }
-  }
-
-  return { scores, rationales };
 }
+
+export { readAtsScore };
 
 export interface ParsedCouncilJudge {
   final: ResumeData;
-  scores: Record<string, { scores: Record<string, number>; rationales: Record<string, string> }>;
+  scores: Record<string, { atsScore: number | null; justification: string }>;
   synthesisNotes: string;
 }
 
@@ -641,7 +648,9 @@ export function parseCouncilJudgeResponse(
 
     if (!isRecord(parsed.final)) {
       if (!bareFinal && looksLikeResumePayload(parsed)) {
-        const candidateFinal = normalizeAiResume(parsed, fallbackBaseline);
+        const candidateFinal = normalizeAiResume(parsed, fallbackBaseline, {
+          enforceContactProfile: true,
+        });
         if (resumeHasSubstantiveContent(candidateFinal)) {
           bareFinal = candidateFinal;
         }
@@ -650,7 +659,9 @@ export function parseCouncilJudgeResponse(
     }
     sawJudgeShape = true;
 
-    const final = normalizeAiResume(parsed.final, fallbackBaseline);
+    const final = normalizeAiResume(parsed.final, fallbackBaseline, {
+      enforceContactProfile: true,
+    });
     if (!resumeHasSubstantiveContent(final)) {
       continue;
     }
@@ -658,7 +669,7 @@ export function parseCouncilJudgeResponse(
     const scores: ParsedCouncilJudge['scores'] = {};
     if (isRecord(parsed.scores)) {
       for (const [label, value] of Object.entries(parsed.scores)) {
-        scores[label] = readDimensionScores(value);
+        scores[label] = readAtsScore(value);
       }
     }
 
@@ -730,7 +741,9 @@ export function parseStrictGeneratedResume(rawResponse: string): ResumeData {
     }
 
     sawResumeShape = true;
-    const normalized = normalizeAiResume(parsed, IMPORT_BASELINE);
+    const normalized = normalizeAiResume(parsed, IMPORT_BASELINE, {
+      enforceContactProfile: true,
+    });
     if (resumeHasSubstantiveContent(normalized)) {
       return normalized;
     }

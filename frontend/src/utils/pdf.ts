@@ -1,6 +1,15 @@
 const PDF_WIDTH_PT = 612;
 const PDF_HEIGHT_PT = 792;
 
+/**
+ * Fraction of the page height we treat as safely usable. The print engine lays
+ * out line boxes atomically — a line that crosses the page boundary is pushed
+ * whole onto page 2 — so a resume measured at ~100% can still spill a line or
+ * two. Reserving ~2% (≈0.22in, a bit over one line) keeps the last line on
+ * page 1. A resume is "safe" only when it fits within this fraction.
+ */
+export const SAFE_FILL_RATIO = 0.98;
+
 type FontStyleKey = 'regular' | 'bold' | 'italic' | 'boldItalic';
 type PdfFontKey =
   | 'timesRegular'
@@ -24,6 +33,8 @@ export interface ResumePageFit {
   usedHeightPt: number;
   pageHeightPt: number;
   overflowPt: number;
+  /** True when usage is within the safe fill ratio (won't risk spilling a line). */
+  safe: boolean;
 }
 
 interface TextRun {
@@ -623,8 +634,10 @@ function measurePageFit(page: HTMLElement): ResumePageFit {
   const usageRatio = expectedHeightPx > 0 ? usedHeightPx / expectedHeightPx : 1;
   const usedHeightPt = usageRatio * PDF_HEIGHT_PT;
   const overflowPt = Math.max(0, usedHeightPt - PDF_HEIGHT_PT);
+  // Any measured overflow is treated as "over": near the boundary, line-box
+  // atomicity turns even a fractional overflow into a spilled line on page 2.
   const status =
-    usageRatio > 1.005 ? 'over' : usageRatio < 0.975 ? 'under' : 'fit';
+    usageRatio > 1 ? 'over' : usageRatio < 0.975 ? 'under' : 'fit';
 
   return {
     status,
@@ -632,6 +645,7 @@ function measurePageFit(page: HTMLElement): ResumePageFit {
     usedHeightPt,
     pageHeightPt: PDF_HEIGHT_PT,
     overflowPt,
+    safe: usageRatio <= SAFE_FILL_RATIO,
   };
 }
 

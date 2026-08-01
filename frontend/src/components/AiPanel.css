@@ -10,6 +10,13 @@
   flex-shrink: 0;
 }
 
+/* `display: flex` above outranks the [hidden] attribute's UA `display: none`,
+   so hiding the panel needs an explicit rule. Same trap as the settings
+   tooltips that all rendered at once. */
+.ai-panel[hidden] {
+  display: none;
+}
+
 .ai-panel-controls {
   display: flex;
   align-items: center;

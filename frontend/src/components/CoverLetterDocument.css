@@ -1,0 +1,62 @@
+/* Cover letter template — reuses .resume-page/.resume-page-wrapper page-level
+   plumbing (padding/font/color/PDF-export detection) from ResumeDocument.css;
+   this file only adds the letter-specific inner elements. */
+
+.cover-letter-page {
+  min-height: 9.5in;
+}
+
+.cl-header {
+  margin-bottom: 0;
+}
+
+.cl-date-block {
+  margin-top: var(--cl-header-spacing, 18pt);
+}
+
+.cl-date {
+  margin: 0;
+  font-weight: var(--cl-date-weight, 400);
+  font-style: var(--cl-date-style, normal);
+}
+
+.cl-greeting {
+  margin: var(--cl-header-spacing, 18pt) 0 0;
+}
+
+.cl-paragraphs {
+  margin-top: var(--cl-paragraph-spacing, 12pt);
+  position: relative;
+}
+
+.cl-paragraphs .resume-control--rail[data-rail='entry'] {
+  position: static;
+  display: inline-block;
+  margin-top: 2pt;
+  left: 0;
+}
+
+.cl-paragraph-row {
+  position: relative;
+  margin-bottom: var(--cl-paragraph-spacing, 12pt);
+}
+
+.cl-paragraph {
+  margin: 0;
+  text-align: justify;
+}
+
+.cl-closing {
+  margin: var(--cl-header-spacing, 18pt) 0 0;
+}
+
+.cl-signature {
+  margin: 28pt 0 0;
+  font-style: var(--cl-signature-style, normal);
+}
+
+@media print {
+  .cover-letter-page {
+    min-height: 0;
+  }
+}

@@ -6,6 +6,8 @@ import './ResumeDiffView.css';
 
 interface ResumeDiffViewProps {
   changes: ResumeDiffChange[];
+  /** Document noun used in change-card copy, e.g. "resume" or "cover letter". */
+  documentLabel?: string;
 }
 
 const KIND_LABELS: Record<ResumeDiffChange['kind'], string> = {
@@ -14,7 +16,7 @@ const KIND_LABELS: Record<ResumeDiffChange['kind'], string> = {
   modified: 'Changed',
 };
 
-export function ResumeDiffView({ changes }: ResumeDiffViewProps) {
+export function ResumeDiffView({ changes, documentLabel = 'resume' }: ResumeDiffViewProps) {
   const counts = useMemo(() => countDiffChanges(changes), [changes]);
 
   if (changes.length === 0) {
@@ -54,13 +56,13 @@ export function ResumeDiffView({ changes }: ResumeDiffViewProps) {
                 <>
                   {change.before && (
                     <div className="resume-diff-block resume-diff-block--removed">
-                      <span className="resume-diff-block-tag">Was on resume</span>
+                      <span className="resume-diff-block-tag">Was on {documentLabel}</span>
                       <p>{change.before}</p>
                     </div>
                   )}
                   {change.after && (
                     <div className="resume-diff-block resume-diff-block--added">
-                      <span className="resume-diff-block-tag">Now on resume</span>
+                      <span className="resume-diff-block-tag">Now on {documentLabel}</span>
                       <p>{change.after}</p>
                     </div>
                   )}
@@ -69,14 +71,14 @@ export function ResumeDiffView({ changes }: ResumeDiffViewProps) {
 
               {change.kind === 'added' && change.after && (
                 <div className="resume-diff-block resume-diff-block--added">
-                  <span className="resume-diff-block-tag">New on resume</span>
+                  <span className="resume-diff-block-tag">New on {documentLabel}</span>
                   <p>{change.after}</p>
                 </div>
               )}
 
               {change.kind === 'removed' && change.before && (
                 <div className="resume-diff-block resume-diff-block--removed">
-                  <span className="resume-diff-block-tag">Removed from resume</span>
+                  <span className="resume-diff-block-tag">Removed from {documentLabel}</span>
                   <p>{change.before}</p>
                 </div>
               )}
@@ -85,7 +87,7 @@ export function ResumeDiffView({ changes }: ResumeDiffViewProps) {
                 <div className="resume-diff-ai-note">
                   <div className="resume-diff-ai-note-header">
                     <MessageCircle size={13} />
-                    <span>AI note — not printed on your resume</span>
+                    <span>AI note — not printed on your {documentLabel}</span>
                   </div>
                   <p>{change.aiNote}</p>
                 </div>

@@ -2,22 +2,6 @@ import type { AiProvider } from '../utils/aiProviders';
 import type { AiChatSession } from './aiSession';
 import type { ResumeData } from './resume';
 
-/** A single scoring dimension the judge applies to every candidate. */
-export interface RubricDimension {
-  id: string;
-  title: string;
-  description: string;
-}
-
-/**
- * A rubric dimension with a stable machine `key` used in the judge prompt /
- * response contract. Derived from the dimension title at run time so the judge
- * can return scores keyed predictably regardless of user-entered titles.
- */
-export interface KeyedRubricDimension extends RubricDimension {
-  key: string;
-}
-
 /** Anonymized candidate label shown to the judge — never a provider name. */
 export type CandidateLabel = 'A' | 'B' | 'C';
 
@@ -69,15 +53,20 @@ export interface CouncilCandidateFailure {
   error: string;
 }
 
-/** Judge scores for one candidate, keyed by rubric dimension key. */
-export interface CandidateRubricScores {
-  scores: Record<string, number>;
-  rationales: Record<string, string>;
+/**
+ * The judge's verdict on one candidate: a single ATS score out of 100 and a
+ * short plain-prose justification. Replaced a multi-dimension rubric whose
+ * per-dimension rationales consumed most of the judge's output budget before it
+ * reached the resume it actually ships.
+ */
+export interface CandidateAtsScore {
+  atsScore: number | null;
+  justification: string;
 }
 
 export interface CouncilJudgeResult {
   /** Keyed by anonymized candidate label (A/B/C). */
-  scores: Record<string, CandidateRubricScores>;
+  scores: Record<string, CandidateAtsScore>;
   synthesisNotes: string;
   /** Merged best-of-all-worlds resume. */
   final: ResumeData;
@@ -96,7 +85,6 @@ export interface CouncilRunResult {
   failures: CouncilCandidateFailure[];
   judge: CouncilJudgeResult | null;
   judgeError: string | null;
-  rubric: KeyedRubricDimension[];
   judgeProvider: AiProvider;
   /** Whether a job description was supplied for this run. */
   hadJobDescription: boolean;
@@ -109,7 +97,6 @@ export interface CouncilSnapshot {
     candidates: AiProvider[];
     judge: AiProvider;
   };
-  rubricUsed: RubricDimension[];
   candidateOutputs: Array<{
     provider: AiProvider;
     label: CandidateLabel;
@@ -117,7 +104,7 @@ export interface CouncilSnapshot {
   }>;
   judgeOutput: {
     synthesisNotes: string;
-    scores: Record<string, CandidateRubricScores>;
+    scores: Record<string, CandidateAtsScore>;
   } | null;
   failures: CouncilCandidateFailure[];
 }

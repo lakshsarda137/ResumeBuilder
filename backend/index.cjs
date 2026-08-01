@@ -30,28 +30,6 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS ongoing_items (
-    id         TEXT PRIMARY KEY,
-    type       TEXT NOT NULL DEFAULT 'experience',
-    title      TEXT NOT NULL,
-    company    TEXT,
-    position   TEXT,
-    start_date TEXT,
-    status     TEXT NOT NULL DEFAULT 'active',
-    end_date   TEXT,
-    compiled   TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-  );
-
-  CREATE TABLE IF NOT EXISTS reflections (
-    id              TEXT PRIMARY KEY,
-    ongoing_item_id TEXT NOT NULL,
-    content         TEXT NOT NULL,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (ongoing_item_id) REFERENCES ongoing_items(id) ON DELETE CASCADE
-  );
-
   CREATE TABLE IF NOT EXISTS education_items (
     id         TEXT PRIMARY KEY,
     school     TEXT NOT NULL,
@@ -385,6 +363,93 @@ app.post('/api/pdf/markdown', (req, res) => {
   }
 });
 
+app.post('/api/docx/text', (req, res) => {
+  const { base64, filename } = req.body ?? {};
+  if (!base64 || typeof base64 !== 'string') {
+    return res.status(400).json({ error: 'base64 docx required' });
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resume-docx-'));
+  const safeName = (filename || 'document.docx').replace(/[^a-z0-9._-]/gi, '_');
+  const docxPath = path.join(
+    tempDir,
+    safeName.toLowerCase().endsWith('.docx') ? safeName : `${safeName}.docx`,
+  );
+
+  try {
+    const buffer = Buffer.from(base64, 'base64');
+    // .docx is a ZIP archive, so it must start with the "PK" local-file header.
+    if (buffer.length === 0 || buffer.subarray(0, 2).toString('utf8') !== 'PK') {
+      return res.status(400).json({ error: 'Uploaded file is not a valid .docx file.' });
+    }
+
+    fs.writeFileSync(docxPath, buffer);
+
+    const scriptPath = path.join(__dirname, 'docx_to_text.py');
+    const result = spawnSync('python3', [scriptPath, docxPath], {
+      encoding: 'utf8',
+      maxBuffer: 20 * 1024 * 1024,
+    });
+
+    const raw = result.stdout.trim();
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (result.status !== 0 || !parsed?.ok) {
+      const detail = parsed?.error || result.stderr.trim() || 'DOCX text extraction failed.';
+      return res.status(422).json({ error: detail });
+    }
+
+    return res.json({ text: parsed.text });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'DOCX text extraction failed.' });
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// Write an attachment to a temp file and return its ABSOLUTE path. Needed for
+// the Gemini CDP file-chooser attach: chrome.debugger's DOM.setFileInputFiles
+// reads files from disk by absolute path (the Puppeteer mechanism), and the
+// extension service worker cannot write to disk itself. The file is cleaned up
+// after a TTL so paths don't accumulate.
+const GEMINI_ATTACH_DIR = path.join(os.tmpdir(), 'resume-gemini-attach');
+const GEMINI_ATTACH_TTL_MS = 10 * 60 * 1000;
+
+app.post('/api/tmpfile', (req, res) => {
+  const { base64, text, filename } = req.body ?? {};
+  if (!filename || typeof filename !== 'string') {
+    return res.status(400).json({ error: 'filename required' });
+  }
+  if (typeof base64 !== 'string' && typeof text !== 'string') {
+    return res.status(400).json({ error: 'base64 or text required' });
+  }
+
+  try {
+    fs.mkdirSync(GEMINI_ATTACH_DIR, { recursive: true });
+    // Unique subdir so concurrent bulk jobs never collide on the same name.
+    const dir = fs.mkdtempSync(path.join(GEMINI_ATTACH_DIR, 'f-'));
+    const safeName = filename.replace(/[^a-z0-9._-]/gi, '_') || 'attachment.txt';
+    const filePath = path.join(dir, safeName);
+    const buffer =
+      typeof base64 === 'string'
+        ? Buffer.from(base64, 'base64')
+        : Buffer.from(text, 'utf8');
+    fs.writeFileSync(filePath, buffer);
+
+    const timer = setTimeout(() => {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* already gone */
+      }
+    }, GEMINI_ATTACH_TTL_MS);
+    if (typeof timer.unref === 'function') timer.unref();
+
+    return res.json({ path: filePath });
+  } catch (err) {
+    return res.status(500).json({ error: err.message || 'Failed to write temp file.' });
+  }
+});
+
 /* ── REPOSITORY ─────────────────────────────────────────────────────────── */
 
 app.get('/api/repo', (_req, res) => {
@@ -426,91 +491,6 @@ app.patch('/api/repo/:id', (req, res) => {
 
 app.delete('/api/repo/:id', (req, res) => {
   db.prepare('DELETE FROM repo_items WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
-});
-
-/* ── ONGOING ─────────────────────────────────────────────────────────────── */
-
-app.get('/api/ongoing', (_req, res) => {
-  const items = db.prepare('SELECT * FROM ongoing_items ORDER BY created_at DESC').all();
-  const allReflections = db.prepare('SELECT * FROM reflections ORDER BY created_at ASC').all();
-  const refMap = {};
-  for (const r of allReflections) {
-    if (!refMap[r.ongoing_item_id]) refMap[r.ongoing_item_id] = [];
-    refMap[r.ongoing_item_id].push(r);
-  }
-  res.json(items.map(i => ({ ...i, reflections: refMap[i.id] ?? [] })));
-});
-
-app.post('/api/ongoing', (req, res) => {
-  const { type, title, company, position, start_date } = req.body;
-  if (!title?.trim()) return res.status(400).json({ error: 'title required' });
-  const id = nowId();
-  db.prepare(`
-    INSERT INTO ongoing_items (id, type, title, company, position, start_date)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, type ?? 'experience', title.trim(), company ?? null, position ?? null, start_date ?? null);
-  res.json({ ...db.prepare('SELECT * FROM ongoing_items WHERE id = ?').get(id), reflections: [] });
-});
-
-app.delete('/api/ongoing', (_req, res) => {
-  db.prepare('DELETE FROM ongoing_items').run();
-  res.json({ ok: true });
-});
-
-app.post('/api/ongoing/:id/reflection', (req, res) => {
-  const item = db.prepare('SELECT * FROM ongoing_items WHERE id = ?').get(req.params.id);
-  if (!item) return res.status(404).json({ error: 'not found' });
-  const { content } = req.body;
-  if (!content?.trim()) return res.status(400).json({ error: 'content required' });
-  const id = nowId();
-  db.prepare('INSERT INTO reflections (id, ongoing_item_id, content) VALUES (?, ?, ?)').run(id, req.params.id, content.trim());
-  db.prepare("UPDATE ongoing_items SET updated_at = datetime('now') WHERE id = ?").run(req.params.id);
-  res.json(db.prepare('SELECT * FROM reflections WHERE id = ?').get(id));
-});
-
-app.patch('/api/ongoing/:id/reflection/:rid', (req, res) => {
-  const { content } = req.body;
-  if (!content?.trim()) return res.status(400).json({ error: 'content required' });
-  db.prepare('UPDATE reflections SET content = ? WHERE id = ? AND ongoing_item_id = ?').run(content.trim(), req.params.rid, req.params.id);
-  res.json(db.prepare('SELECT * FROM reflections WHERE id = ?').get(req.params.rid));
-});
-
-app.delete('/api/ongoing/:id/reflection/:rid', (req, res) => {
-  db.prepare('DELETE FROM reflections WHERE id = ? AND ongoing_item_id = ?').run(req.params.rid, req.params.id);
-  res.json({ ok: true });
-});
-
-app.patch('/api/ongoing/:id', (req, res) => {
-  const item = db.prepare('SELECT * FROM ongoing_items WHERE id = ?').get(req.params.id);
-  if (!item) return res.status(404).json({ error: 'not found' });
-  const fields = ['type','title','company','position','start_date','end_date','status','compiled'];
-  const updates = {};
-  for (const f of fields) { if (req.body[f] !== undefined) updates[f] = req.body[f]; }
-  if (Object.keys(updates).length === 0) return res.json(item);
-  const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE ongoing_items SET ${setClauses}, updated_at = ? WHERE id = ?`).run(...Object.values(updates), new Date().toISOString(), req.params.id);
-  res.json(db.prepare('SELECT * FROM ongoing_items WHERE id = ?').get(req.params.id));
-});
-
-app.post('/api/ongoing/:id/complete', (req, res) => {
-  const item = db.prepare('SELECT * FROM ongoing_items WHERE id = ?').get(req.params.id);
-  if (!item) return res.status(404).json({ error: 'not found' });
-  const reflections = db.prepare('SELECT * FROM reflections WHERE ongoing_item_id = ? ORDER BY created_at ASC').all(req.params.id);
-  const end_date = req.body.end_date ?? new Date().toISOString().slice(0, 10);
-  const compiled = [
-    `${item.title}${item.company ? ` at ${item.company}` : ''}${item.position ? ` (${item.position})` : ''}`,
-    `${item.start_date ?? 'Unknown start'} – ${end_date}`,
-    '',
-    ...reflections.map(r => `- ${r.content}`),
-  ].join('\n');
-  db.prepare("UPDATE ongoing_items SET status = 'done', end_date = ?, compiled = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(end_date, compiled, req.params.id);
-  res.json(db.prepare('SELECT * FROM ongoing_items WHERE id = ?').get(req.params.id));
-});
-
-app.delete('/api/ongoing/:id', (req, res) => {
-  db.prepare('DELETE FROM ongoing_items WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 

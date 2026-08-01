@@ -16,7 +16,7 @@ export function PrivacyPage() {
             <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 600 }}>100% local — no cloud</h3>
             <p style={{ margin: 0, fontSize: 13.5, color: 'var(--text-2)', lineHeight: 1.65 }}>
               Resume Builder never sends your data to any server we control. Your resume, repository
-              entries, reflections, and version history are stored exclusively on your machine.
+              entries, and version history are stored exclusively on your machine.
             </p>
           </div>
         </div>
@@ -26,7 +26,7 @@ export function PrivacyPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {[
             { label: 'Resume state', where: 'Browser localStorage (key: resume-editor-data)' },
-            { label: 'Repository, Ongoing, History', where: '~/.resume-builder/data.db (SQLite)' },
+            { label: 'Repository, Education, History', where: '~/.resume-builder/data.db (SQLite)' },
             { label: 'AI chat sessions', where: 'Browser localStorage + Chrome extension storage' },
             { label: 'AI prompts & responses', where: 'Sent directly from your browser to the LLM provider — never routed through this app\'s backend' },
           ].map(item => (

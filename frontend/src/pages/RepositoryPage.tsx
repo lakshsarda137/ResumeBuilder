@@ -234,6 +234,7 @@ export function RepositoryPage() {
                   <div className="repo-item-meta">
                     <span className={`badge badge--${item.type === 'experience' ? 'amber' : 'green'}`}>{item.type}</span>
                     <span className="badge badge--neutral">{item.mode === 'optimized' ? 'resume-ready' : 'freewrite'}</span>
+                    {!item.end_date && <span className="badge badge--green">ongoing</span>}
                   </div>
                   <div className="repo-item-title-row">
                     <div>

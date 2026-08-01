@@ -7,6 +7,7 @@ import {
   type PipelineEvent,
   type PipelineVariant,
 } from '../utils/aiPipeline';
+import { blobToBase64 } from '../utils/pdf';
 
 const APP_SOURCE = 'resume-builder-app';
 const BRIDGE_SOURCE = 'resume-builder-bridge';
@@ -93,6 +94,35 @@ EXTRACTED PDF MARKDOWN:
 \`\`\`markdown
 ${markdownForPrompt}
 \`\`\``;
+}
+
+// Write an attachment to a temp file on the local backend and return its
+// ABSOLUTE path, which the extension feeds to CDP DOM.setFileInputFiles (it
+// reads from disk by path). Used for the Gemini judge file attach.
+async function writeGeminiTempFile({
+  base64,
+  text,
+  filename,
+}: {
+  base64?: string;
+  text?: string;
+  filename: string;
+}): Promise<string> {
+  const res = await fetch('/api/tmpfile', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(
+      base64 != null ? { base64, filename } : { text: text ?? '', filename },
+    ),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    path?: string;
+    error?: string;
+  };
+  if (!res.ok || !body.path) {
+    throw new Error(body.error ?? 'Failed to prepare the file for Gemini.');
+  }
+  return body.path;
 }
 
 function isBridgeMarkedReady() {
@@ -318,12 +348,14 @@ export function useAiBridge() {
       pdfBase64,
       filename,
       forceNewChat = true,
+      incognito = false,
     }: {
       provider: AiProvider;
       prompt: string;
       pdfBase64: string;
       filename: string;
       forceNewChat?: boolean;
+      incognito?: boolean;
     }) => {
       if (provider === 'gemini') {
         pushPipeline('reading_pdf', `Extracting ${filename} locally for Gemini…`);
@@ -340,6 +372,7 @@ export function useAiBridge() {
           provider,
           prompt: geminiPrompt,
           forceNewChat,
+          incognito,
         });
 
         if (!response.ok) {
@@ -362,6 +395,7 @@ export function useAiBridge() {
         pdfBase64,
         filename,
         forceNewChat,
+        incognito,
       });
 
       if (!response.ok) {
@@ -377,6 +411,88 @@ export function useAiBridge() {
       return response;
     },
     [pushPipeline, sendBridgeMessage],
+  );
+
+  /**
+   * Deliver a large text prompt as a plain-text (.txt) file attachment plus a
+   * short cover instruction, instead of typing the whole thing into the
+   * composer. Used for the LLM Council judge on Gemini, whose composer silently
+   * truncates very large pasted prompts. Reuses the extension's SEND_PDF attach
+   * path (MIME is inferred from the .txt filename), bypassing the Gemini
+   * extract-to-text branch in sendPdfAndWait.
+   */
+  const sendPromptAsFileAndWait = useCallback(
+    async ({
+      provider,
+      coverPrompt,
+      fileText,
+      filename,
+      forceNewChat = true,
+      incognito = false,
+    }: {
+      provider: AiProvider;
+      coverPrompt: string;
+      fileText: string;
+      filename: string;
+      forceNewChat?: boolean;
+      incognito?: boolean;
+    }) => {
+      let payload: Record<string, unknown>;
+      if (provider === 'gemini') {
+        // Gemini's web upload UI can't be fed by synthetic events, so the
+        // extension does a real CDP file-chooser attach that reads the file
+        // from disk by absolute path. Write the file locally and pass the path.
+        // (This briefly foregrounds the Gemini tab — scoped to this judge/file
+        // path, per the agreed constraint.)
+        //
+        // Do NOT "improve" this by routing Gemini through the content-script
+        // attach: next_steps.md records that synthetic-event attach was tested
+        // and fails on Gemini in both background AND foreground tabs, because
+        // the "+" menu exposes no reachable <input type=file> and "Upload
+        // files" opens the native OS picker. CDP interception is the only path
+        // that works.
+        const geminiFilePath = await writeGeminiTempFile({ text: fileText, filename });
+        payload = {
+          type: 'SEND_PDF',
+          provider,
+          prompt: coverPrompt,
+          geminiFilePath,
+          filename,
+          forceNewChat,
+          incognito,
+        };
+      } else {
+        const base64 = await blobToBase64(
+          new Blob([fileText], { type: 'text/plain' }),
+        );
+        payload = {
+          type: 'SEND_PDF',
+          provider,
+          prompt: coverPrompt,
+          pdfBase64: base64,
+          filename,
+          forceNewChat,
+          incognito,
+        };
+      }
+
+      const response = await sendBridgeMessage(payload);
+
+      if (!response.ok) {
+        throw new Error(
+          response.error ?? 'Failed to attach the prompt file to the provider.',
+        );
+      }
+
+      if (!response.rawResponse?.trim()) {
+        throw new Error(
+          'No response captured from the chat. Wait for the reply in the provider tab, then try again.',
+        );
+      }
+
+      return response;
+    },
+    [sendBridgeMessage],
   );
 
   const sendImprovementAndWait = useCallback(
@@ -413,14 +529,17 @@ export function useAiBridge() {
     async ({
       provider,
       prompt,
+      incognito = false,
     }: {
       provider: AiProvider;
       prompt: string;
+      incognito?: boolean;
     }) => {
       const response = await sendBridgeMessage({
         type: 'SEND_PROMPT',
         provider,
         prompt,
+        incognito,
       });
 
       if (!response.ok) {
@@ -468,6 +587,7 @@ export function useAiBridge() {
     connectProvider,
     sendPdfAndWait,
     sendPromptAndWait,
+    sendPromptAsFileAndWait,
     sendImprovementAndWait,
     scrapeUrlAndWait,
     pipelineEvents,

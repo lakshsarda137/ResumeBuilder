@@ -1,0 +1,165 @@
+.cp-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  backdrop-filter: blur(2px);
+}
+
+.cp-modal {
+  width: 520px;
+  max-width: calc(100vw - 32px);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Search row ────────────────────────────────────── */
+.cp-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cp-search-icon {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.cp-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text-1);
+  caret-color: var(--accent);
+}
+
+.cp-input::placeholder {
+  color: var(--text-3);
+}
+
+.cp-esc-hint {
+  font-family: var(--font);
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* ── Results list ──────────────────────────────────── */
+.cp-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.cp-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.08s;
+}
+
+.cp-item--active {
+  background: var(--surface-3);
+}
+
+.cp-item-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.cp-item--active .cp-item-icon {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.cp-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cp-item-label {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text-1);
+  line-height: 1.3;
+}
+
+.cp-item-desc {
+  font-size: 11.5px;
+  color: var(--text-3);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cp-item--active .cp-item-label {
+  color: var(--accent);
+}
+
+/* ── Tags ──────────────────────────────────────────── */
+.cp-tag {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.cp-tag--page {
+  background: var(--surface-3);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+}
+
+.cp-tag--feature {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(173, 197, 179, 0.22);
+}
+
+/* ── Empty state ───────────────────────────────────── */
+.cp-empty {
+  padding: 24px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-3);
+  margin: 0;
+}

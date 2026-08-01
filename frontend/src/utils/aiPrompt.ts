@@ -1,11 +1,13 @@
 import type { ResumeData } from '../types/resume';
 import type { EducationData } from '../types/education';
 import type { RepoItem, RepositorySource } from '../types/repository';
-import type { KeyedRubricDimension, CandidateLabel } from '../types/council';
+import type { CandidateLabel } from '../types/council';
 import {
   buildResumeStyleInstructions,
   type ResumeBuildStyleProfile,
 } from './resumeBuildStyle';
+import { EM_DASH_PROMPT_RULE } from './emDash';
+import { RESUME_WRITING_CONTRACT } from './resumeWritingRules';
 
 export const RESUME_JSON_SCHEMA = `{
   "contact": {
@@ -24,7 +26,7 @@ export const RESUME_JSON_SCHEMA = `{
           "title": "string — top-line label. For experience entries, this MUST be the employer/company/org name, not the job title. For projects, use the project name; for education, use the school.",
           "location": "string",
           "date": "string",
-          "subtitle": "string — for experience entries, job title/role only (no technologies). Do not put the employer/company here unless needed for non-experience context.",
+          "subtitle": "string — for experience entries, job title/role only (no technologies). Do not put the employer/company here unless needed for non-experience context. For project entries, leave subtitle empty — do not add 'Founder', 'Co-Founder', 'Creator', 'Builder', or any self-assigned title.",
           "jdComment": "optional — how this entry matches the job description",
           "bullets": [
             {
@@ -76,7 +78,8 @@ const DEFAULT_USER_PROMPT =
 const EDIT_RESUME_WRITING_RULES = `RESUME STRUCTURE RULES (preserve unless the user explicitly asks to change layout):
 - Experience format is company-first: for every experience entry, put the employer/company/org name in entry.title so the renderer places it on the same baseline as entry.date; put only the job title/role in entry.subtitle on the line below. Do not put job title and date together on the top line.
 - Do not add technologies, tools, or tech stacks to entry.subtitle. Keep tools in bullets or the Technical Skills section only.
-- Hard layout constraint: never put a tech stack beside an entry name/title.`;
+- Hard layout constraint: never put a tech stack beside an entry name/title.
+- Project subtitle rule: for project-type entries, leave entry.subtitle empty. Never add "Founder", "Co-Founder", "Creator", "Builder", or any self-assigned role title to a project entry's subtitle.`;
 
 export function getDefaultAiUserPrompt() {
   return DEFAULT_USER_PROMPT;
@@ -107,7 +110,7 @@ const REPO_IMPORT_SCHEMA = `{
       }
     ],
     "skills_note": "optional string — languages, tools, certifications not tied to one job",
-    "other_fixed_facts": ["optional strings — contact, visa, awards, etc."]
+    "other_fixed_facts": ["optional strings — contact details, awards, certifications, etc."]
   },
   "entries": [
     {
@@ -170,6 +173,7 @@ ${REPO_IMPORT_SCHEMA}
 12. Dates as YYYY-MM when possible.
 13. Put ALL education (school, degree, major, GPA, graduation date, honors, relevant coursework) in profile.education — never in entries.
 14. Put skills, certifications, and other fixed facts in profile.skills_note / profile.other_fixed_facts.
+14a. Never capture visa or work-authorization status, citizenship, nationality, gender, age, marital status, religion, or any other protected personal attribute, in any field. Drop it from the source entirely rather than storing it — none of it belongs on a resume.
 15. Compare the source against EXISTING REPOSITORY CONTEXT and EXISTING EDUCATION INFO CONTEXT when provided. If an incoming fact contradicts an existing saved fact, add a record to "contradictions" instead of silently merging it.
 16. Contradictions are mutually exclusive identity facts that need human review, e.g. same degree/major but different school, same role/date but different employer, different graduation dates for the same school/degree, or incompatible titles for the same dated role.
 17. Additive facts are NOT contradictions. Example: existing skills say Python/SQL/Java and incoming skills say Docker/AWS/GCP; merge those into profile.skills_note without a contradiction.
@@ -235,7 +239,7 @@ function buildExistingEducationContext(existingEducation?: EducationData): strin
   return `\n\nEXISTING EDUCATION INFO CONTEXT:\n${JSON.stringify(compact, null, 2)}\n\nMERGE RULES AGAINST EXISTING EDUCATION INFO:\n- If the source repeats an existing school/degree with no new details, omit it from profile.education.\n- If the source adds missing GPA, graduation date, coursework, honors, or location for an existing school, include only those useful details in profile.education so the app can merge them.\n- If the source appears to describe the same education credential but conflicts on a mutually exclusive field (for example BS in CS from Harvard vs BS in CS from Stanford, or same school/degree with different graduation dates), include the incoming education record in profile.education and add a contradictions[] item with category "education", existing_id, incoming_index, existing_value, incoming_value, and reason.\n- For skills_note and other_fixed_facts, include only facts that are missing or more specific than the existing notes. Do not repeat skills or facts already present.`;
 }
 
-function buildResumeEducationContext(existingEducation?: EducationData): string {
+export function buildResumeEducationContext(existingEducation?: EducationData): string {
   const items = existingEducation?.items ?? [];
   const meta = existingEducation?.meta;
   const hasMeta = Boolean(meta?.skills_note?.trim() || meta?.other_notes?.trim());
@@ -293,26 +297,36 @@ Set source_label to ${JSON.stringify(sourceLabel)}.
 Extract all experiences and projects into entries; put education and skills in profile.${buildExistingRepositoryContext(existingItems)}${buildExistingEducationContext(existingEducation)}`;
 }
 
-export function buildOptimizeResumePrompt(jobDescription: string): string {
+export function buildOptimizeResumePrompt(
+  jobDescription: string,
+  styleInstructions?: string,
+): string {
   const jd = jobDescription.trim() || '(No job description provided — optimize for general impact and clarity.)';
 
-  return `You are an expert resume optimizer tailoring a resume for a specific job.
+  const styleBlock = styleInstructions?.trim()
+    ? `\n\nRENDER / CONTENT SETTINGS the optimized resume must honor:\n${styleInstructions.trim()}\n`
+    : '';
+
+  return `You are an expert resume writer tailoring a resume for a specific job.
 
 JOB DESCRIPTION:
 """
 ${jd}
 """
-
+${styleBlock}
 Optimize the resume while keeping every fact truthful.
 
+${RESUME_WRITING_CONTRACT}
+
 OPTIMIZATION RULES:
-- Lead bullets with strong action verbs (Built, Led, Shipped, Reduced, Increased, etc.).
-- Quantify impact wherever the source supports it (%, $, time saved, scale, users, latency).
-- Tighten wording — every word should earn its place.
+- Rewrite every bullet to the standard above; do not simply pass through the original wording.
 - Prioritize and reorder content to foreground what matters most for THIS job.
-- Mirror legitimate JD keywords only where the candidate's real experience supports them.
+- Tighten wording. Every word should earn its place.
 - Do not invent employers, titles, dates, tools, or metrics.
 - Experience format is company-first: put the employer/company/org in entry.title so it renders on the same baseline as entry.date; put the job title/role first in entry.subtitle on the line below.
+- Project subtitle rule: for project-type entries, leave entry.subtitle empty. Never add "Founder", "Co-Founder", "Creator", "Builder", or any self-assigned role title to a project entry's subtitle.
+
+${EM_DASH_PROMPT_RULE}
 
 ${JD_HONESTY_RULES}
 
@@ -324,8 +338,9 @@ ${OUTPUT_RULES}
 export function buildOptimizeFromExtractPrompt(
   jobDescription: string,
   extracted: ResumeData,
+  styleInstructions?: string,
 ): string {
-  return `${buildOptimizeResumePrompt(jobDescription)}
+  return `${buildOptimizeResumePrompt(jobDescription, styleInstructions)}
 
 The resume has already been extracted from the PDF. Optimize the JSON below:
 
@@ -334,16 +349,23 @@ ${JSON.stringify(extracted, null, 2)}
 \`\`\``;
 }
 
-export function buildOptimizePdfPrompt(jobDescription: string): string {
+export function buildOptimizePdfPrompt(
+  jobDescription: string,
+  styleInstructions?: string,
+): string {
   const jd = jobDescription.trim() || '(No job description provided — optimize for general impact and clarity.)';
 
-  return `You are an expert resume optimizer tailoring an attached resume PDF for a specific job.
+  const styleBlock = styleInstructions?.trim()
+    ? `\nRENDER / CONTENT SETTINGS the optimized resume must honor:\n${styleInstructions.trim()}\n`
+    : '';
+
+  return `You are an expert resume writer tailoring an attached resume PDF for a specific job.
 
 JOB DESCRIPTION:
 """
 ${jd}
 """
-
+${styleBlock}
 Do this in ONE pass:
 1. Extract the attached resume PDF faithfully into a baseline resume JSON.
 2. Create an optimized version tailored to the job description.
@@ -364,15 +386,20 @@ CRITICAL OUTPUT FORMAT — the editor can ONLY load JSON:
 7. Reuse the corresponding baseline ids in optimized whenever an item came from the same resume item; only generate new ids for genuinely new optimized structure.
 8. Do not include commentary, Markdown fences, or text outside the ---JSON-START--- / ---JSON-END--- delimiters.
 
-OPTIMIZATION RULES:
-- Lead bullets with strong action verbs (Built, Led, Shipped, Reduced, Increased, etc.).
-- Quantify impact wherever the source supports it (%, $, time saved, scale, users, latency).
-- Tighten wording — every word should earn its place.
+The "baseline" object is a faithful transcription and is NOT subject to the writing rules below. Apply every rule below to "optimized" only.
+
+${RESUME_WRITING_CONTRACT}
+
+OPTIMIZATION RULES (for "optimized"):
+- Rewrite every bullet to the standard above; do not simply pass through the original PDF wording.
 - Prioritize and reorder content to foreground what matters most for THIS job.
-- Mirror legitimate JD keywords only where the candidate's real experience supports them.
+- Tighten wording. Every word should earn its place.
 - Do not invent employers, titles, dates, tools, or metrics.
 - Experience format is company-first: put the employer/company/org in entry.title so it renders on the same baseline as entry.date; put the job title/role first in entry.subtitle on the line below.
+- Project subtitle rule: for project-type entries, leave entry.subtitle empty. Never add "Founder", "Co-Founder", "Creator", "Builder", or any self-assigned role title to a project entry's subtitle.
 - Preserve truthful section structure where sensible; you may add/remove/reorder bullets if it improves fit.
+
+${EM_DASH_PROMPT_RULE}
 
 ${JD_HONESTY_RULES}`;
 }
@@ -382,7 +409,7 @@ ${JD_HONESTY_RULES}`;
  * candidate build prompt and the judge prompt so the judge sees the exact same
  * ground-truth freewrite material the candidates were built from.
  */
-function mapRepositorySourcesForPrompt(sources: RepositorySource[]) {
+export function mapRepositorySourcesForPrompt(sources: RepositorySource[]) {
   return sources.map((source) => ({
     id: source.id,
     kind: source.kind,
@@ -390,7 +417,7 @@ function mapRepositorySourcesForPrompt(sources: RepositorySource[]) {
     title: source.title,
     company: source.company,
     position: source.position,
-    dates: `${source.start_date ?? '?'} – ${source.end_date ?? (source.status === 'active' ? 'Present' : '?')}`,
+    dates: `${source.start_date ?? '?'} – ${source.end_date ?? 'Present'}`,
     freewrite: source.freewrite,
   }));
 }
@@ -421,24 +448,21 @@ ${JSON.stringify(payload, null, 2)}
 \`\`\`
 ${buildResumeEducationContext(educationData)}
 
-WRITING RULES:
-- ABSOLUTE PAGE LIMIT: produce content suitable for a one-page resume. A two-page result is a failed result. Cut lower-signal content instead of relying on visual shrinking.
-- Select and prioritize experiences/projects that best fit the job description and have enough source detail for credible bullets.
-- Do NOT include every repository source. Omit weak/thin entries, especially entries with little more than title/company/date.
-- Convert selected freewrite material into polished resume bullets with action verbs, numbers, and impact.
-- Experience format is company-first: for every experience entry, put the employer/company/org name in entry.title so the renderer places it on the same baseline as entry.date; put the job title/role first in entry.subtitle on the line below. Do not put job title and date together on the top line.
-- Use the explicit bullet-count range from the resume settings/profile for each selected experience/project. Keep density balanced across entries; if an entry would need more bullets than the configured maximum, merge related points or omit lower-signal material.
-- Prefer 4-5 credible entries with balanced density and 11-13 total experience/project bullets when source quality supports it. Do not underfill with only 2-3 entries or fewer than 10 bullets unless the source material is genuinely thin.
-- Use the resume settings/profile as a content contract for section order, section inclusion, emphasis, and density. The app will render the returned JSON into the final visual format.
-- Hard layout constraint: never put a tech stack beside an entry name/title. If tools are useful, keep them in the subtitle line below the title or in bullets/skills.
-- Inline HTML is allowed inside string fields only for formatting conventions: use <strong>...</strong> for bold keyword emphasis you choose, <em>...</em> for italic context, or restricted <span style="font-weight:...;font-style:..."> for heading/label style. Do not output Markdown formatting.
-- Never use <mark>, color, background, background-color, yellow highlight, or any colored keyword styling. Keyword emphasis must be bold-only via <strong>.
-- Use a clean single-column resume structure with only sections requested by the format profile and custom conventions.
-- Do not invent employers, titles, dates, tools, or metrics not supported by the source material.
-- Do not put project/product/company URLs in the contact header as the candidate's personal URL. For example, a startup site like checkmateedu.com is not a personal website unless the source explicitly says it is.
-- If contact info is missing from sources, leave it empty or use only neutral labels like "email" / "phone" without fake values. Never include the literal word "edit" or parenthetical edit instructions anywhere in the resume.
-- Before finalizing, mentally estimate page length. If likely over one page, remove lower-signal entries or bullets rather than shrinking truthfulness.
-- Never include meta-instructions, placeholders, todo text, or editor notes in visible resume fields.
+${RESUME_WRITING_CONTRACT}
+
+SELECTION AND LAYOUT RULES (the settings block above owns page limit, section order, entry count, and bullet counts; do not re-derive those here):
+- Select the experiences/projects that best fit the job description and have enough source detail for credible bullets. Do NOT include every repository source: omit entries with little more than a title, company, and date.
+- Convert selected freewrite material into polished resume bullets that follow the writing standard above. The freewrite is raw truth, not a draft to lightly edit.
+- Experience entries are company-first: put the employer/company/org name in entry.title so it renders on the same baseline as entry.date, and put the job title/role first in entry.subtitle on the line below. Never put job title and date together on the top line.
+- Project entries leave entry.subtitle empty. Never add "Founder", "Co-Founder", "Creator", "Builder", or any self-assigned role title.
+- Never put a tech stack beside an entry name/title. Tools belong in the subtitle line below the title, in bullets, or in skills.
+- Single-column structure, only the sections the settings block asks for.
+- Do not invent employers, titles, dates, tools, or metrics that the source material does not support.
+- Contact: do not promote a project/product/company URL into the header as the candidate's personal site. A startup domain is not a personal website unless the source says so. If a contact fact is missing, leave it empty rather than inventing one.
+- Never write placeholder or meta text in any visible field: no "(edit)", no "your.email@example.com", no "Expected May 20XX", no todo notes, no instructions to the reader.
+- Inline HTML in string fields is limited to <strong> for the bold emphasis described above, <em> for italic context, and restricted <span style="font-weight:...;font-style:..."> for label style. No Markdown.
+
+${EM_DASH_PROMPT_RULE}
 
 ${JD_HONESTY_RULES}
 
@@ -456,6 +480,12 @@ export function buildAiPrompt(
 You are editing a resume. Apply the requested change to the resume content.
 
 ${EDIT_RESUME_WRITING_RULES}
+
+Any bullet text you write or rewrite must satisfy the standard below. Leave bullets you are not touching alone, including their existing <strong> tags.
+
+${RESUME_WRITING_CONTRACT}
+
+${EM_DASH_PROMPT_RULE}
 
 ${OUTPUT_RULES}
 3. Preserve section order, ids, jdComment fields, and structure whenever possible.
@@ -478,6 +508,12 @@ Continue in this same chat. Update the resume from your previous response.
 
 ${EDIT_RESUME_WRITING_RULES}
 
+Any bullet text you write or rewrite must satisfy the standard below. Leave bullets you are not touching alone, including their existing <strong> tags.
+
+${RESUME_WRITING_CONTRACT}
+
+${EM_DASH_PROMPT_RULE}
+
 ${JD_HONESTY_RULES}
 
 Return ONLY the complete updated resume in one \`\`\`json code block using the same schema as before. Preserve jdComment fields unless your edit changes the match rationale. After the closing \`\`\` write exactly: ---END---
@@ -492,25 +528,34 @@ ${JSON.stringify(currentResume, null, 2)}
 // LLM Council — judge prompt construction
 // ---------------------------------------------------------------------------
 
-/** Human-readable rubric summary for the wizard prompt preview + judge input. */
-export function buildCouncilRubricSummary(
-  rubric: KeyedRubricDimension[],
-): string {
-  if (rubric.length === 0) {
-    return 'No rubric dimensions configured.';
-  }
-  return rubric
-    .map(
-      (dim, index) =>
-        `${index + 1}. ${dim.title}${dim.description ? ` — ${dim.description}` : ''}`,
-    )
-    .join('\n');
-}
-
 export interface CouncilJudgeCandidate {
   label: CandidateLabel;
   resume: ResumeData;
 }
+
+/**
+ * What the judge scores. Replaced a 7-dimension rubric whose per-dimension
+ * rationales cost the judge a large amount of output before it ever reached the
+ * resume it actually ships. One number and a short justification leaves the
+ * budget where it matters.
+ */
+const ATS_SCORING_RULES = `SCORING (do this briefly, then spend your real effort on the resume):
+Give each candidate a single ATS score from 0 to 100 — how well an applicant tracking system plus the recruiter behind it would rate that resume against this job description. Weigh the things ATS screening and a first-pass recruiter actually key on:
+- coverage of the job description's stated requirements, titles, tools, and skill keywords, in the resume's own words;
+- whether required qualifications are visibly present rather than implied;
+- clean, parseable structure: standard section headings, no tables, no graphics, no text stuffed into odd fields;
+- concrete evidence (metrics, scope, outcomes) attached to the claims;
+- absence of padding, keyword stuffing, or unsupported claims.
+
+MECHANICAL CHECK — six things you can verify by reading a candidate's JSON directly, so deduct only for what you can actually see:
+- TENSE — bullets under an entry whose dates end in "Present" are present tense, every other entry is past tense, and no entry mixes the two.
+- DATES — every date field reads "Mon YYYY – Mon YYYY" or "Mon YYYY – Present", in the same format across all entries. No days, semesters, numeric dates, or bare years.
+- PUNCTUATION — no bullet ends in a period, uniformly across the whole resume.
+- VERBS — every bullet opens with an action verb, no leading verb repeats anywhere in the resume, and none is on the banned list.
+- DENSITY — each entry's bullet count sits inside the range the render/content settings above specify, with the strongest entries at the higher end.
+- SUBSTANCE — bullets state accomplishments and outcomes, not the duties the role nominally involved.
+
+Then write a justification of 3-4 lines for each score: what carried it, and what specifically cost it points. Plain sentences, no headings, no bullet lists, no per-criterion breakdown. Do not walk the mechanical check item by item — it informs the number, and earns at most one clause of the justification when a candidate actually fails something.`;
 
 /**
  * Build the anonymized judge prompt. Candidates are labelled A/B/C only — the
@@ -519,14 +564,12 @@ export interface CouncilJudgeCandidate {
 export function buildCouncilJudgePrompt({
   path,
   jobDescription,
-  rubric,
   candidates,
   styleInstructions,
   sources,
 }: {
   path: 'repository' | 'optimize';
   jobDescription: string;
-  rubric: KeyedRubricDimension[];
   candidates: CouncilJudgeCandidate[];
   styleInstructions?: string;
   /**
@@ -543,14 +586,7 @@ export function buildCouncilJudgePrompt({
 
   const noJdRule = hasJd
     ? ''
-    : `\nNO JOB DESCRIPTION PROVIDED: For any rubric dimension that measures alignment to a specific job description (e.g. "JD alignment"), OMIT that dimension entirely from every candidate's "dimensions" array — do not invent or guess a number. Score only the dimensions that can be judged without a job description.\n`;
-
-  const rubricLines = rubric
-    .map(
-      (dim) =>
-        `- key "${dim.key}" — ${dim.title}${dim.description ? `: ${dim.description}` : ''}`,
-    )
-    .join('\n');
+    : `\nNO JOB DESCRIPTION PROVIDED: score each candidate on general ATS readiness instead — parseable structure, concrete evidence, and absence of padding. Say in the justification that no job description was supplied, so keyword coverage could not be assessed.\n`;
 
   const candidateBlocks = candidates
     .map(
@@ -568,10 +604,9 @@ export function buildCouncilJudgePrompt({
       ? `"final" MUST be a single optimized resume object matching this schema (the app supplies the baseline for the before/after diff, so do NOT include a baseline):\n${RESUME_JSON_SCHEMA}`
       : `"final" MUST be a single resume object matching this schema:\n${RESUME_JSON_SCHEMA}`;
 
-  const styleBlock =
-    path === 'repository' && styleInstructions?.trim()
-      ? `\n\nRENDER / CONTENT SETTINGS the final resume must honor:\n${styleInstructions.trim()}\n`
-      : '';
+  const styleBlock = styleInstructions?.trim()
+    ? `\n\nRENDER / CONTENT SETTINGS the final resume must honor:\n${styleInstructions.trim()}\n`
+    : '';
 
   const sourceBlock =
     path === 'repository' && sources && sources.length > 0
@@ -588,18 +623,25 @@ JOB DESCRIPTION:
 """
 ${jd}
 """
-${styleBlock}
-RUBRIC DIMENSIONS (score each candidate 1-10 on every dimension; use the exact keys):
-${rubricLines}
-${noJdRule}${sourceBlock}
+${styleBlock}${noJdRule}${sourceBlock}
 CANDIDATE RESUMES (anonymized):
 
 ${candidateBlocks}
 
 YOUR TASKS:
-1. Score every candidate on every rubric dimension from 1 (poor) to 10 (excellent), with a brief one-sentence rationale per dimension.
+1. Give each candidate one ATS score out of 100 plus a 3-4 line justification, per the scoring rules below.
 2. Synthesize a single best-of-all-worlds final resume that combines the strongest, most truthful, most job-relevant content across the candidates. Do not invent facts that no candidate supports. Keep it to one page.
 3. Write concise synthesis notes explaining what you borrowed from which anonymized candidate (refer to them only as Candidate A/B/C) and why.
+
+Task 2 is the one that matters. Task 1 exists to inform it, so keep the scoring short.
+
+${ATS_SCORING_RULES}
+
+The writing standard below is the SAME contract every candidate was given. Your "final" resume is what actually ships, so it must satisfy this contract even where no candidate did. Where the best candidate content violates it, keep the content and rewrite the wording.
+
+${RESUME_WRITING_CONTRACT}
+
+${EM_DASH_PROMPT_RULE}
 
 ${JD_HONESTY_RULES}
 
@@ -607,14 +649,91 @@ CRITICAL OUTPUT FORMAT — the app can ONLY load delimited JSON:
 1. Write exactly ---JSON-START--- on its own line, then ONE raw JSON object, then ---JSON-END--- on its own line.
 2. The JSON object must have exactly these top-level keys: "scores", "synthesisNotes", "final".
 3. "scores" is an object keyed by candidate label ("A", "B"${candidates.length > 2 ? ', "C"' : ''}). Each value is:
-   { "dimensions": [ { "key": "<rubric key>", "score": <1-10 integer>, "rationale": "<one sentence>" } ] }
-   Include one entry for every rubric key listed above, using the exact keys.
+   { "atsScore": <integer 0-100>, "justification": "<3-4 lines of plain sentences>" }
+   Include one entry for every candidate shown above. No other keys.
 4. "synthesisNotes" is a plain string (no markdown headings required).
 5. ${finalSchemaNote}
 6. For skills sections use the "skills" array and keep "entries" as [].
 7. Generate stable unique string ids for all sections, entries, links, skills, and bullets in "final".
-8. Inline HTML in string fields is limited to <strong>, <em>, and restricted <span style="font-weight:...;font-style:..."> only. Never use <mark> or color/background styling.
-9. No text, commentary, or markdown fences outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
+8. Inline HTML in string fields is limited to <strong>, <em>, and restricted <span style="font-weight:...;font-style:..."> only. Never use <mark> or color/background styling. Apply <strong> only inside bullet text, following the bold emphasis budget above; re-decide the emphasis yourself rather than inheriting whatever a candidate chose.
+9. Project subtitle rule: for project-type entries in "final", leave entry.subtitle empty. Never add "Founder", "Co-Founder", "Creator", "Builder", or any self-assigned role title to a project entry's subtitle — even if a candidate draft included one.
+10. No text, commentary, or markdown fences outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
+}
+
+/**
+ * Small cover instruction paired with the judge prompt when it is delivered as
+ * a plain-text (.txt) attachment instead of being typed into the composer.
+ * Gemini's composer silently truncates very large pasted prompts — which cuts
+ * off the tail of the judge prompt where the output-format contract lives — so
+ * for Gemini we attach the full task as a file and send this short cover note
+ * telling the model to execute the attachment and reply only with the JSON.
+ */
+/**
+ * Cover note for the resume-build task when it is delivered as a plain-text
+ * (.txt) attachment instead of being typed into the composer. Same reason as
+ * the judge cover prompt: Gemini's composer silently truncates very large
+ * pasted prompts, and the output-format contract lives at the tail of the
+ * build prompt, so a truncated send loses the JSON delimiters entirely.
+ */
+export function buildResumeBuildCoverPrompt(filename: string): string {
+  return `The attached file "${filename}" contains your COMPLETE task as an expert resume writer. Read the ENTIRE file and follow every instruction in it exactly — including the job description, the render/content settings, the candidate source material, the education context, the writing standard, and the output-format contract at the end.
+
+Reply with ONLY the output the file specifies: one JSON resume object wrapped exactly between a line reading ---JSON-START--- and a line reading ---JSON-END---. Do not write any analysis, headings, prose, or markdown outside those two delimiter lines.`;
+}
+
+export function buildCouncilJudgeCoverPrompt(filename: string): string {
+  return `The attached file "${filename}" contains your COMPLETE task as the impartial JUDGE on a resume-evaluation panel. Read the ENTIRE file and follow every instruction in it exactly — including the job description, rubric, candidate resumes, and the output-format contract at the end.
+
+Reply with ONLY the output the file specifies: one JSON object wrapped exactly between a line reading ---JSON-START--- and a line reading ---JSON-END---, with the top-level keys "scores", "synthesisNotes", and "final". Do not write any analysis, headings, prose, or markdown outside those two delimiter lines.`;
+}
+
+export function buildExpandResumePrompt(
+  currentResume: ResumeData,
+  source: RepositorySource,
+  jobDescription?: string,
+): string {
+  const jdBlock = jobDescription?.trim()
+    ? `\nJOB DESCRIPTION (keep tailoring for this role while adding the new item):\n"""\n${jobDescription.trim()}\n"""\n`
+    : '';
+
+  const sourcePayload = {
+    id: source.id,
+    type: source.type,
+    title: source.title,
+    company: source.company ?? null,
+    position: source.position ?? null,
+    dates: [source.start_date, source.end_date ?? 'Present']
+      .filter(Boolean)
+      .join(' – ') || null,
+    freewrite: source.freewrite,
+  };
+
+  return `You are expanding a resume that currently fits well under one page. Add the item below as a new resume entry.
+${jdBlock}
+ITEM TO ADD:
+\`\`\`json
+${JSON.stringify(sourcePayload, null, 2)}
+\`\`\`
+
+RULES:
+- Add this item to the most appropriate existing section, or create a new section if no suitable one exists.
+- Write 2-4 polished resume bullets from the freewrite notes, following the writing standard below.
+- Do not invent employers, titles, dates, tools, or metrics not present in the freewrite.
+- Experience format: put the employer/company in entry.title; put only the job title in entry.subtitle on the line below. For project entries, leave entry.subtitle empty — never add "Founder", "Co-Founder", "Creator", or any self-assigned title.
+- Keep the total resume to one page. If needed, trim 1-2 lower-signal bullets from other entries to make room, but never remove entire entries.
+- Preserve all existing section ids, entry ids, link ids, and skill ids exactly. Only generate new stable ids for the new entry, its bullets, and any new section.
+- The no-repeat verb rule applies across the WHOLE resume including the bullets already present, so read the existing bullets first and pick leading verbs none of them use.
+
+${RESUME_WRITING_CONTRACT}
+
+${EM_DASH_PROMPT_RULE}
+
+CURRENT RESUME:
+\`\`\`json
+${JSON.stringify(currentResume, null, 2)}
+\`\`\`
+
+${REPOSITORY_RESUME_OUTPUT_RULES}`;
 }
 
 export function estimateWizardPromptTokens(

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Gemini .txt attach test</title>
+  <style>
+    body { font: 13px/1.4 system-ui, sans-serif; width: 300px; margin: 0; padding: 14px; background: #1e1e1e; color: #eee; }
+    h1 { font-size: 14px; margin: 0 0 4px; }
+    p.sub { margin: 0 0 12px; color: #aaa; font-size: 11.5px; }
+    button { display: block; width: 100%; margin: 6px 0; padding: 9px 10px; border: 1px solid #444; border-radius: 7px; background: #2a2a2a; color: #eee; font-size: 12.5px; text-align: left; cursor: pointer; }
+    button:hover { background: #333; border-color: #666; }
+    button b { display: block; font-size: 12.5px; }
+    button span { display: block; color: #9aa; font-size: 10.5px; margin-top: 2px; }
+    #status { margin-top: 12px; padding: 8px; border-radius: 6px; background: #262626; color: #cdd; font-size: 11px; min-height: 16px; white-space: pre-wrap; }
+    .note { margin-top: 10px; color: #888; font-size: 10.5px; }
+  </style>
+</head>
+<body>
+  <h1>Gemini .txt attach test</h1>
+  <p class="sub">Each opens a background Gemini tab and tries to attach dummy.txt + paste a prompt a different way.</p>
+
+  <button id="baseline"><b>1 · Baseline (control)</b><span>Background tab + CDP wake + content-script attach (current behavior)</span></button>
+  <button id="foreground"><b>2 · Foreground during attach</b><span>Switch to the Gemini tab for the attach, then switch back</span></button>
+  <button id="cdp"><b>3 · CDP trusted file-set</b><span>DOM.setFileInputFiles on an existing input (known: no input exists)</span></button>
+  <button id="filechooser"><b>4 · CDP file-chooser intercept</b><span>Playwright-style: intercept the native picker, inject via backendNodeId — the decisive test</span></button>
+
+  <div id="status">Pick a variant to run.</div>
+  <p class="note">Watch the opened Gemini tab, and the service-worker console (chrome://extensions → this extension → “Inspect views: service worker”). Badge shows OK/ERR.</p>
+
+  <script src="popup.js"></script>
+</body>
+</html>

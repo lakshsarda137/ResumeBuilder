@@ -26,6 +26,9 @@ The bridge loads `page-bridge.js` from the extension (not inline script) so it w
 3. In Resume Builder:
    - Pick a provider
    - Click **Connect** (opens your web session)
+   - (Optional) Tick **Incognito mode** to generate in a private / temporary chat
+     (Claude *Use incognito*, Gemini *Temporary chat*) that the provider does not
+     save to history. The extension flips the toggle before sending.
    - Click **Send PDF**, import, or generate from repository. The extension opens
      the provider tab in the background and sends/captures without switching tabs.
 
@@ -37,4 +40,5 @@ The bridge loads `page-bridge.js` from the extension (not inline script) so it w
 - Repository imports use explicit JSON delimiters, background backup polling, and app-visible diagnostics so response capture failures can be debugged without asking the user to paste console output.
 - Waiting status distinguishes a background provider tab that has not visibly started generating from a model that is already streaming. ChatGPT capture uses CDP focus emulation, assistant DOM mutation events, and immediate complete-JSON detection so normal sends do not require activating or focusing the provider tab. The v1.5.21 CDP wake is the confirmed fix for ChatGPT hidden-tab response materialization. Gemini keeps the CDP wake for background text-send/capture throttling, but PDF input uses local markdown extraction instead of Gemini's hidden-tab upload menu.
 - The extension requests Chrome's `debugger` permission for CDP focus/lifecycle emulation. It must not call tab activation APIs or CDP `Page.bringToFront`.
+- **Incognito mode** (`enableIncognitoChat` in `content-llm.js`): when a send carries `incognito:true`, the content script clicks the provider's privacy toggle before typing — Claude `button[aria-label="Use incognito"]`, Gemini `button[aria-label="Temporary chat"]` (confirmed on = the `<gem-icon-button>` wrapper gains a `temp-chat-on` class). If it can't confirm the toggle activated it **aborts the send** rather than using a normal saved chat. Only Claude/Gemini are wired; ChatGPT is out of scope.
 - After changing extension files, reload the unpacked extension and refresh the Resume Builder tab.

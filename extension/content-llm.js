@@ -3021,12 +3021,121 @@ async function submitMessage(provider, promptLength = 0, composer = null, debugC
   );
 }
 
+// Per-provider incognito / temporary-chat toggle wiring. `enable` matches the
+// button in its OFF state (the click that turns privacy ON). `isOn()` returns
+// true only when privacy is CONFIRMED active — anchored to a provider-specific
+// marker discovered via diagnostics, because neither provider exposes the state
+// on the toggle button's own ARIA attributes:
+//   • Gemini flips a `temp-chat-on` class on the <gem-icon-button> wrapper while
+//     the inner <button> keeps aria-label="Temporary chat".
+//   • Claude relabels/removes the "Use incognito" button and surfaces an
+//     exit/turn-off control once incognito is active.
+const INCOGNITO_TOGGLE_SELECTORS = {
+  claude: {
+    enable: [
+      'button[aria-label="Use incognito"]',
+      'button[aria-label*="use incognito" i]',
+    ],
+    isOn: () =>
+      Boolean(
+        findVisibleElement([
+          'button[aria-label*="exit incognito" i]',
+          'button[aria-label*="turn off incognito" i]',
+          'button[aria-label*="leave incognito" i]',
+        ]),
+      ),
+  },
+  gemini: {
+    enable: [
+      'button[aria-label="Temporary chat"]',
+      'button[aria-label*="temporary chat" i]',
+      'button[aria-label*="turn on temporary" i]',
+    ],
+    isOn: () => Boolean(querySelectorDeep('gem-icon-button.temp-chat-on')),
+  },
+};
+
+// Turn on the provider's incognito / temporary chat BEFORE anything is typed or
+// attached. Throws if it can't confirm privacy is active — we must never fall
+// back to sending resume data in a normal, saved chat when incognito was asked
+// for.
+async function enableIncognitoChat(provider, debugContext = {}) {
+  const config = INCOGNITO_TOGGLE_SELECTORS[provider];
+  if (!config) {
+    throw new Error(`Incognito mode is not supported for provider "${provider}".`);
+  }
+
+  reportProgress('incognito_enabling', 'Switching to a private incognito chat…');
+
+  // Already private (e.g. the provider remembered the preference) — leave it.
+  if (config.isOn()) {
+    reportDebug('content_incognito_already_on', { provider }, debugContext);
+    reportProgress('incognito_ready', 'Private incognito chat ready');
+    return;
+  }
+
+  const toggle = await waitForElement(() => findVisibleElement(config.enable), {
+    attempts: 20,
+    delayMs: 400,
+  });
+  if (!toggle) {
+    // The enable button may be absent because privacy is already on.
+    if (config.isOn()) {
+      reportProgress('incognito_ready', 'Private incognito chat ready');
+      return;
+    }
+    throw new Error(
+      `Could not find the incognito toggle on ${provider}; refusing to send in a normal chat.`,
+    );
+  }
+
+  const urlBefore = location.href;
+  activateElementWithPointer(toggle);
+
+  // The ON state can take a beat to render — poll the provider's confirmed
+  // marker (or a URL change / the OFF-state button disappearing) for a few
+  // seconds before giving up.
+  let enabled = false;
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await sleep(350);
+    if (
+      config.isOn() ||
+      location.href !== urlBefore ||
+      !findVisibleElement(config.enable)
+    ) {
+      enabled = true;
+      break;
+    }
+  }
+
+  reportDebug(
+    'content_incognito_toggle',
+    {
+      provider,
+      enabled,
+      isOn: config.isOn(),
+      urlChanged: location.href !== urlBefore,
+      enableButtonGone: !findVisibleElement(config.enable),
+    },
+    debugContext,
+  );
+
+  if (!enabled) {
+    throw new Error(
+      `Incognito toggle on ${provider} did not activate; refusing to send in a normal chat.`,
+    );
+  }
+
+  reportProgress('incognito_ready', 'Private incognito chat ready');
+}
+
 async function sendAndCaptureResponse({
   provider,
   prompt,
   pdfBase64,
   filename,
   skipAttach = false,
+  incognito = false,
   appRequestId,
   appTabId,
 }) {
@@ -3063,6 +3172,27 @@ async function sendAndCaptureResponse({
       { attempts: 12, delayMs: 600 },
     );
     reportGeminiStage('gemini_rich_textarea_wait_complete', {}, debugContext);
+  }
+
+  if (incognito) {
+    await enableIncognitoChat(provider, debugContext);
+    // Toggling incognito re-renders the composer (and clears any attachment),
+    // so re-confirm the composer is ready before we attach/type anything.
+    await waitForElement(() => getComposerElement(provider), {
+      attempts: 24,
+      delayMs: 500,
+    });
+    if (provider === 'gemini') {
+      await waitForElement(
+        () =>
+          findVisibleElement([
+            'div.ql-editor[contenteditable="true"]',
+            'rich-textarea div[contenteditable="true"]',
+            '[aria-label*="Enter a prompt" i][contenteditable="true"]',
+          ]),
+        { attempts: 12, delayMs: 600 },
+      );
+    }
   }
 
   const baselineText = getBaselineText(provider);

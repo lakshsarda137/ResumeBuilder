@@ -1,0 +1,6 @@
+DUMMY .TXT ATTACHMENT — Gemini attach experiment.
+
+If you can read this file, the .txt attachment reached Gemini intact.
+Line A: the quick brown fox jumps over the lazy dog.
+Line B: 1234567890 — em dash — smart quotes “like this”.
+END OF FILE.

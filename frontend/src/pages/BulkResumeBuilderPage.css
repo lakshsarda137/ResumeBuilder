@@ -1,0 +1,604 @@
+.bulk-page {
+  padding-bottom: 120px;
+}
+
+.bulk-title-icon {
+  color: var(--accent);
+  vertical-align: -4px;
+  margin-right: 8px;
+}
+
+.page-subtitle code,
+.bulk-card-sub code,
+.bulk-warn code {
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+  color: var(--text-1);
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.bulk-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 380px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .bulk-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bulk-col {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+
+.bulk-card {
+  padding: 16px 18px;
+}
+
+.bulk-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  color: var(--text-1);
+}
+.bulk-card-head h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+}
+.bulk-card-head svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.bulk-card-sub {
+  font-size: 11.5px;
+  color: var(--text-2);
+  margin-left: auto;
+}
+
+.bulk-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+
+/* ── Segmented controls ─────────────────────────────────────────────────── */
+.bulk-seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 14px;
+}
+.bulk-seg--sm {
+  margin-bottom: 10px;
+}
+.bulk-seg-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.bulk-seg-btn:hover {
+  color: var(--text-1);
+}
+.bulk-seg-btn.is-active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+.bulk-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+.bulk-field > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.bulk-field-row {
+  display: flex;
+  gap: 12px;
+}
+.bulk-field-row .bulk-field {
+  flex: 1;
+}
+.bulk-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bulk-card select,
+.bulk-card input[type='text'],
+.bulk-card input[type='number'],
+.bulk-card textarea {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+.bulk-card input[type='number'] {
+  width: 72px;
+}
+.bulk-inline input[type='number'] {
+  width: 64px;
+}
+.bulk-card textarea {
+  resize: vertical;
+}
+.bulk-card select:focus,
+.bulk-card input:focus,
+.bulk-card textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* ── Messages ───────────────────────────────────────────────────────────── */
+.bulk-muted {
+  font-size: 12px;
+  color: var(--text-2);
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.bulk-error {
+  font-size: 12.5px;
+  color: var(--red);
+  background: var(--red-bg);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin: 0 0 10px;
+}
+.bulk-warn {
+  font-size: 12.5px;
+  color: var(--amber);
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin: 0 0 10px;
+}
+.bulk-notice {
+  font-size: 12px;
+  color: var(--accent);
+  margin: 0 0 10px;
+}
+.bulk-rubric-note {
+  margin-top: 2px;
+}
+
+/* ── Source list ────────────────────────────────────────────────────────── */
+.bulk-source-actions {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.bulk-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.bulk-link:hover {
+  text-decoration: underline;
+}
+.bulk-link--danger {
+  color: var(--red);
+  margin-left: auto;
+}
+
+.bulk-source-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bulk-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.bulk-check:hover {
+  background: var(--surface-2);
+}
+.bulk-check input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.bulk-check-box {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--bg);
+}
+.bulk-check input:checked + .bulk-check-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.bulk-source-label {
+  font-size: 12.5px;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.bulk-type {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 100px;
+  border: 1px solid var(--border-2);
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+.bulk-type--experience {
+  color: var(--accent);
+  border-color: var(--accent-hover);
+}
+
+/* ── JD editor ──────────────────────────────────────────────────────────── */
+.bulk-card--jd {
+  position: sticky;
+  top: 18px;
+}
+.bulk-jd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.bulk-jd-textarea {
+  width: 100%;
+  min-height: 240px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 12px 14px;
+  resize: vertical;
+}
+.bulk-jd-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.bulk-parsed {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.bulk-parsed-count {
+  font-size: 13px;
+  color: var(--text-1);
+  margin: 0 0 10px;
+}
+
+.bulk-job-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bulk-job {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.bulk-job summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.bulk-job summary::-webkit-details-marker {
+  display: none;
+}
+.bulk-job-num {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-radius: 5px;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+.bulk-job-label-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+  font-size: 12.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bulk-job-chars {
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.bulk-job-body {
+  border-top: 1px solid var(--border);
+  padding: 12px;
+}
+.bulk-job-label-field {
+  margin-bottom: 10px;
+}
+.bulk-job-text {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.bulk-job-saveas {
+  margin-top: 8px;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.bulk-footer {
+  margin-top: 18px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.bulk-footer-recap {
+  min-width: 0;
+  text-align: center;
+}
+.bulk-checklist {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+.bulk-checklist span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+}
+.bulk-checklist .ok {
+  color: var(--green);
+  background: var(--green-bg);
+  border-color: rgba(74, 222, 128, 0.25);
+}
+.bulk-checklist .todo {
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+.bulk-footer-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.bulk-cta-note {
+  max-width: 360px;
+  text-align: center;
+  display: block;
+}
+.bulk-footer-cta .btn svg,
+.bulk-run-actions .btn svg {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+/* ── Run panel ──────────────────────────────────────────────────────────── */
+.bulk-run {
+  margin-top: 18px;
+  padding: 18px 20px;
+}
+.bulk-run-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+.bulk-progress {
+  flex: 1;
+  min-width: 0;
+}
+.bulk-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.bulk-progress-head strong {
+  font-size: 15px;
+  color: var(--text-1);
+}
+.bulk-progress-track {
+  display: flex;
+  height: 10px;
+  border-radius: 100px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.bulk-progress-seg {
+  height: 100%;
+  transition: width 0.5s ease;
+}
+.bulk-progress-seg--ok {
+  background: var(--green);
+}
+.bulk-progress-seg--fail {
+  background: var(--red);
+}
+.bulk-progress-track.is-running {
+  background-image: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.05) 50%,
+    transparent 70%
+  );
+  background-size: 200% 100%;
+  animation: bulk-shimmer 1.6s linear infinite;
+}
+@keyframes bulk-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.bulk-run-actions {
+  flex-shrink: 0;
+}
+
+.bulk-run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bulk-run-job {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+.bulk-run-job summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.bulk-run-job summary::-webkit-details-marker {
+  display: none;
+}
+.bulk-run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 100px;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+.bulk-run-status--running {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: var(--accent-hover);
+}
+.bulk-run-status--saved {
+  color: var(--green);
+  background: var(--green-bg);
+  border-color: rgba(74, 222, 128, 0.25);
+}
+.bulk-run-status--failed {
+  color: var(--red);
+  background: var(--red-bg);
+  border-color: rgba(248, 113, 113, 0.25);
+}
+.bulk-run-job-body {
+  border-top: 1px solid var(--border);
+  padding: 14px;
+}
+.bulk-run-job-body .council-progress {
+  margin: 0;
+}
+.bulk-run-job-body .bulk-error {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+.bulk-run-job-body .bulk-link {
+  margin-top: 12px;
+}
+
+@media (max-width: 720px) {
+  .bulk-run-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

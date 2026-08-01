@@ -5,7 +5,15 @@ export interface PipelineEvent {
   at: number;
 }
 
-export type PipelineVariant = 'optimize' | 'write' | 'edit_pdf' | 'improvement' | 'import';
+export type PipelineVariant =
+  | 'optimize'
+  | 'write'
+  | 'edit_pdf'
+  | 'improvement'
+  | 'import'
+  | 'cl_write'
+  | 'cl_edit_pdf'
+  | 'cl_improvement';
 
 export type MilestoneStatus = 'pending' | 'active' | 'complete' | 'error';
 
@@ -69,6 +77,24 @@ export const PIPELINE_VARIANT_MILESTONES: Record<
     { id: 'fetch', label: 'Reading profile / PDF' },
     { id: 'extract', label: 'Extracting via Web AI' },
     { id: 'merge', label: 'Merging into repository' },
+  ],
+  cl_write: [
+    { id: 'chat', label: 'Configuring chat session' },
+    { id: 'prompt', label: 'Preparing prompt' },
+    { id: 'write', label: 'Writing cover letter' },
+    { id: 'display', label: 'Displaying cover letter' },
+  ],
+  cl_edit_pdf: [
+    { id: 'chat', label: 'Configuring chat session' },
+    { id: 'prompt', label: 'Preparing prompt' },
+    { id: 'apply', label: 'Applying AI edits' },
+    { id: 'display', label: 'Displaying cover letter' },
+  ],
+  cl_improvement: [
+    { id: 'chat', label: 'Returning to chat session' },
+    { id: 'prompt', label: 'Preparing prompt' },
+    { id: 'refine', label: 'Applying improvements' },
+    { id: 'display', label: 'Displaying cover letter' },
   ],
 };
 
@@ -369,6 +395,15 @@ function applyEvent(
       break;
     case 'import':
       applyImportEvent(event, state);
+      break;
+    case 'cl_write':
+      applyWriteEvent(event, state);
+      break;
+    case 'cl_edit_pdf':
+      applyEditPdfEvent(event, state);
+      break;
+    case 'cl_improvement':
+      applyImprovementEvent(event, state);
       break;
     default:
       break;

@@ -15,29 +15,7 @@ export interface RepoItem {
   updated_at?: string;
 }
 
-export interface Reflection {
-  id: string;
-  ongoing_item_id: string;
-  content: string;
-  created_at: string;
-}
-
-export interface OngoingItem {
-  id: string;
-  type: ItemType;
-  title: string;
-  company: string | null;
-  position: string | null;
-  start_date: string | null;
-  status: 'active' | 'done';
-  end_date: string | null;
-  compiled: string | null;
-  created_at: string;
-  updated_at?: string;
-  reflections: Reflection[];
-}
-
-export type SourceKind = 'repo' | 'ongoing';
+export type SourceKind = 'repo';
 
 export interface RepositorySource {
   id: string;
@@ -47,9 +25,9 @@ export interface RepositorySource {
   company: string | null;
   position: string | null;
   start_date: string | null;
+  /** null end_date means the item is ongoing ("Present"). */
   end_date: string | null;
   freewrite: string;
-  /** Repo-only: false when mode is optimized (not sent to LLM). */
+  /** false when mode is optimized (not sent to LLM). */
   sendable: boolean;
-  status?: OngoingItem['status'];
 }

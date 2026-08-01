@@ -1,4 +1,50 @@
 .resume-settings-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Tab bar — splits the many configs into readable categories. */
+.resume-settings-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.resume-settings-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--resume-settings-border-strong);
+  border-radius: 8px;
+  background: var(--resume-settings-input);
+  color: var(--resume-settings-muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+
+.resume-settings-tab:hover {
+  border-color: var(--resume-settings-accent);
+  color: var(--resume-settings-text);
+}
+
+.resume-settings-tab--active {
+  border-color: var(--resume-settings-accent);
+  background: var(--resume-settings-accent-dim);
+  color: var(--resume-settings-accent);
+}
+
+.resume-settings-tab svg {
+  flex-shrink: 0;
+}
+
+.resume-settings-panel {
   display: grid;
   gap: 10px;
   min-width: 0;
@@ -84,10 +130,32 @@
   pointer-events: none;
 }
 
+/* Template tab: templates in column one, keyword terms in column two, so the
+   buttons stay compact instead of stretching across the whole panel. */
+.rsc-template-tab {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
 .resume-settings-controls__template-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 6px;
+}
+
+/* Stack the template buttons in their column, each sized to the widest label. */
+.resume-settings-controls__group--template .resume-settings-controls__template-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+@media (max-width: 540px) {
+  .rsc-template-tab {
+    grid-template-columns: 1fr;
+  }
 }
 
 .resume-settings-controls__template {
@@ -300,14 +368,15 @@
 }
 
 .resume-settings-controls--compact {
-  display: block;
-  max-height: 280px;
-  overflow: auto;
-  padding-right: 2px;
+  max-height: 340px;
 }
 
-.resume-settings-controls--compact .resume-settings-controls__group + .resume-settings-controls__group {
-  margin-top: 10px;
+/* Keep the tab bar pinned; only the active panel scrolls. */
+.resume-settings-controls--compact .resume-settings-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .resume-settings-controls--compact .resume-settings-controls__grid {

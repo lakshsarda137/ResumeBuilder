@@ -30,6 +30,12 @@ import './AiPanel.css';
 import './ResumeBuilderWizard.css';
 
 interface AiPanelProps {
+  /**
+   * Visually hide the panel without unmounting it. Used while the cover letter
+   * is on screen: every action here operates on the resume. It stays mounted so
+   * an in-flight send is not torn down by a view switch.
+   */
+  hidden?: boolean;
   resumeFilename: string;
   resumeData: ResumeData;
   onApplyResume: (data: ResumeData) => void;
@@ -93,6 +99,7 @@ function formatDebugDetail(detail: unknown): string {
 }
 
 export function AiPanel({
+  hidden = false,
   resumeFilename,
   resumeData,
   onApplyResume,
@@ -425,7 +432,7 @@ export function AiPanel({
 
   return (
     <>
-      <section className="ai-panel">
+      <section className="ai-panel" hidden={hidden}>
         <div className="ai-panel-controls">
           <div className="ai-panel-title">
             <Bot size={16} />

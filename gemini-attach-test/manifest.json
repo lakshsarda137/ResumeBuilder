@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini .txt Attach Test",
+  "version": "1.0.0",
+  "description": "Standalone experiment: attach a dummy .txt to Gemini using the Resume Builder extension's EXACT attach + CDP-wake logic (content-llm.js is a byte-for-byte copy).",
+  "permissions": ["tabs", "scripting", "storage", "debugger"],
+  "host_permissions": ["https://gemini.google.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Gemini .txt attach test",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://gemini.google.com/*"],
+      "js": ["content-llm.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

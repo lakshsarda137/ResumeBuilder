@@ -64,11 +64,6 @@ interface ImportSummary {
     merged: number;
     skipped: number;
   };
-  ongoing: {
-    linked: number;
-    updated: number;
-    skipped: number;
-  };
   education: {
     created: number;
     merged: number;
@@ -675,15 +670,6 @@ function ImportSummaryTable({ summary }: { summary: ImportSummary }) {
       note: 'Saved as freewrite',
     },
     {
-      area: 'Ongoing links',
-      firstLabel: 'Linked',
-      firstValue: summary.ongoing.linked,
-      secondLabel: 'Updated',
-      secondValue: summary.ongoing.updated,
-      skipped: summary.ongoing.skipped,
-      note: 'Current roles/projects only',
-    },
-    {
       area: 'Education records',
       firstLabel: 'New',
       firstValue: summary.education.created,
@@ -1001,9 +987,6 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
       let totalCreated = 0;
       let totalMerged = 0;
       let totalSkipped = 0;
-      let totalOngoingCreated = 0;
-      let totalOngoingUpdated = 0;
-      let totalOngoingSkipped = 0;
       let totalEducationCreated = 0;
       let totalEducationMerged = 0;
       let totalEducationSkipped = 0;
@@ -1024,9 +1007,6 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
         totalCreated += result.created;
         totalMerged += result.merged;
         totalSkipped += result.skipped + resolved.repositorySkipped;
-        totalOngoingCreated += result.ongoingCreated;
-        totalOngoingUpdated += result.ongoingUpdated;
-        totalOngoingSkipped += result.ongoingSkipped;
         totalEducationCreated += result.educationCreated;
         totalEducationMerged += result.educationMerged + resolved.educationMerged;
         totalEducationSkipped += result.educationSkipped + resolved.educationSkipped;
@@ -1042,11 +1022,6 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
           created: totalCreated,
           merged: totalMerged,
           skipped: totalSkipped,
-        },
-        ongoing: {
-          linked: totalOngoingCreated,
-          updated: totalOngoingUpdated,
-          skipped: totalOngoingSkipped,
         },
         education: {
           created: totalEducationCreated,
@@ -1233,7 +1208,7 @@ export function RepoImportPanel({ onComplete }: RepoImportPanelProps) {
             entries. Education (school, GPA, major, coursework) goes to the{' '}
             <strong>Education Info</strong> tab. Explicit AI matches replace saved
             freewrite with a coherent merged version; fuzzy local matches append.
-            Current roles/projects are also linked on Ongoing.
+            Ongoing roles/projects are saved with no end date (shown as “present”).
           </p>
         </div>
         <button type="button" className="btn btn--ghost btn--sm" onClick={() => setOpen(false)}>

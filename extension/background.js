@@ -548,6 +548,291 @@ async function sendToLlmTab(tabId, message) {
   return chrome.tabs.sendMessage(tabId, message);
 }
 
+/* ── Gemini CDP file attach (migrated from gemini-attach-test) ─────────────── *
+ * Gemini's "+" → "Upload files" opens the native OS file picker (backed by a
+ * hidden <input type=file>), which synthetic content-script clicks/drag cannot
+ * feed. We instead intercept the picker via CDP (Page.setInterceptFileChooser
+ * Dialog), trusted-click "+"→"Upload files", and inject the file by absolute
+ * path with DOM.setFileInputFiles — the Puppeteer/Playwright mechanism.
+ *
+ * Constraint learned in testing: the file chooser only opens for the ACTIVE
+ * tab, so we briefly foreground the Gemini tab for the attach, then restore the
+ * previously-active tab. Scoped to Gemini file sends only. */
+
+function cdp(tabId, method, params = {}) {
+  return chromeDebuggerSendCommand(debuggerTarget(tabId), method, params);
+}
+
+// Foreground `tabId` and return an idempotent restore() to switch back.
+async function foregroundTab(tabId) {
+  const tab = await chrome.tabs.get(tabId);
+  const windowId = tab.windowId;
+  const [prev] = await chrome.tabs.query({ active: true, windowId });
+  const prevId = prev?.id ?? null;
+
+  await chrome.tabs.update(tabId, { active: true });
+  try {
+    await chrome.windows.update(windowId, { focused: true });
+  } catch {
+    // window focus is best-effort
+  }
+
+  let done = false;
+  return async () => {
+    if (done) return;
+    done = true;
+    if (prevId != null && prevId !== tabId) {
+      try {
+        await chrome.tabs.update(prevId, { active: true });
+      } catch {
+        // the previous tab may have been closed — ignore
+      }
+    }
+  };
+}
+
+async function findUploadButtonCoords(tabId) {
+  const expr = `(() => {
+    const sels = [
+      'button[aria-label="Upload & tools"]',
+      'gem-icon-button[aria-label="Upload & tools"] button',
+      'gem-icon-button[aria-label="Upload & tools"]',
+      'button[aria-label*="Upload" i]',
+      'button[aria-label*="attach" i]',
+      'button[aria-label*="add file" i]',
+      'button[aria-label*="add photos" i]',
+      'button[aria-label*="insert" i]',
+      'button[aria-label*="plus" i]',
+      'button[aria-label*="Add" i]',
+      'button[aria-label*="file" i]'
+    ];
+    const visible = (el) => el && el.getClientRects && el.getClientRects().length > 0;
+    let btn = null, sel = null;
+    for (const s of sels) {
+      try {
+        for (const el of document.querySelectorAll(s)) {
+          if (visible(el)) { btn = el; sel = s; break; }
+        }
+      } catch (e) {}
+      if (btn) break;
+    }
+    if (!btn) return null;
+    const r = btn.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, label: btn.getAttribute('aria-label') || '', sel };
+  })()`;
+  const res = await cdp(tabId, 'Runtime.evaluate', { expression: expr, returnByValue: true });
+  return res?.result?.value ?? null;
+}
+
+// Enumerate visible clickable elements (piercing open shadow roots) so we can
+// robustly find "Upload files" and dump the menu if we can't.
+async function collectMenuCandidates(tabId) {
+  const expr = `(() => {
+    const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+    const out = [];
+    const seen = new Set();
+    const visit = (root) => {
+      let els;
+      try { els = root.querySelectorAll('*'); } catch (e) { return; }
+      for (const el of els) {
+        if (el.shadowRoot) visit(el.shadowRoot);
+        const tag = el.tagName ? el.tagName.toLowerCase() : '';
+        const role = (el.getAttribute && el.getAttribute('role')) || '';
+        const isCandidate =
+          role === 'menuitem' || role === 'option' || role === 'menuitemradio' ||
+          tag === 'button' || tag === 'a' || tag === 'li';
+        if (!isCandidate) continue;
+        if (!el.getClientRects || !el.getClientRects().length) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 2 || r.height < 2) continue;
+        const text = norm(el.textContent);
+        const aria = norm(el.getAttribute('aria-label'));
+        if (!text && !aria) continue;
+        const key = tag + '|' + text + '|' + aria + '|' + Math.round(r.left) + ',' + Math.round(r.top);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ text, aria, tag, role, x: r.left + r.width / 2, y: r.top + r.height / 2, len: text.length });
+      }
+    };
+    visit(document);
+    return out;
+  })()`;
+  const res = await cdp(tabId, 'Runtime.evaluate', { expression: expr, returnByValue: true });
+  return res?.result?.value ?? [];
+}
+
+// Score candidates to find the local-file "Upload files" item, tolerant of
+// icon-ligature text, label variants, and aria-only labels.
+function pickUploadItem(candidates) {
+  const scoreOf = (c) => {
+    const t = (c.text || '').toLowerCase();
+    const a = (c.aria || '').toLowerCase();
+    const hay = t + ' ' + a;
+    const hasUpload = /upload|attach|choose file|from (computer|your (device|computer))|browse/.test(hay);
+    const hasFile = /\bfiles?\b|documents?|photos?/.test(hay);
+    if (/\bdrive\b|\burl\b|\blink\b|camera|take a photo|screen/.test(hay) && !hasUpload) return -1;
+    let s = -1;
+    if (t === 'upload files' || a === 'upload files') s = 100;
+    else if (hasUpload && hasFile) s = 90;
+    else if (hasUpload) s = 70;
+    else if (hasFile && (c.role === 'menuitem' || c.role === 'option')) s = 45;
+    if (s < 0) return -1;
+    if (c.role === 'menuitem' || c.role === 'option') s += 5;
+    s -= Math.min(20, Math.floor((c.len || 0) / 8));
+    return s;
+  };
+  let best = null;
+  let bestScore = 0;
+  for (const c of candidates) {
+    const s = scoreOf(c);
+    if (s > bestScore) {
+      bestScore = s;
+      best = c;
+    }
+  }
+  return best;
+}
+
+async function cdpTrustedClick(tabId, x, y) {
+  await cdp(tabId, 'Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  await cdp(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1,
+  });
+  await cdp(tabId, 'Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x, y, button: 'left', buttons: 1, clickCount: 1,
+  });
+}
+
+async function waitForGeminiFileChip(tabId, stem, maxMs = 15000) {
+  const needle = JSON.stringify((stem || '').toLowerCase());
+  const expr = `(() => {
+    const needle = ${needle};
+    if (!needle) return false;
+    const els = [...document.querySelectorAll('div,span,button,li')];
+    for (const el of els) {
+      const t = (el.textContent || '').trim().toLowerCase();
+      if (t && t.length < 60 && t.includes(needle) && el.getClientRects().length) return true;
+    }
+    return false;
+  })()`;
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const res = await cdp(tabId, 'Runtime.evaluate', { expression: expr, returnByValue: true });
+    if (res?.result?.value === true) return true;
+    await sleep(400);
+  }
+  return false;
+}
+
+async function runCdpFileChooser(tabId, absPath, filename, appTabId, appRequestId) {
+  let chooserBackendNodeId = null;
+  let gotEvent = false;
+
+  const onEvent = (source, method, params) => {
+    if (source.tabId !== tabId) return;
+    if (method === 'Page.fileChooserOpened') {
+      gotEvent = true;
+      chooserBackendNodeId = params?.backendNodeId ?? null;
+    }
+  };
+  chrome.debugger.onEvent.addListener(onEvent);
+
+  try {
+    await cdp(tabId, 'Page.enable', {});
+    await cdp(tabId, 'DOM.enable', {});
+    await cdp(tabId, 'Runtime.enable', {});
+    await cdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: true });
+
+    const plus = await findUploadButtonCoords(tabId);
+    await reportDebug('gemini_attach_plus', { plus }, appTabId, appRequestId);
+    if (!plus) throw new Error('Gemini attach: "+" upload button not found.');
+    await cdpTrustedClick(tabId, plus.x, plus.y);
+
+    // Poll for the "Upload files" item — the menu animates in and its label
+    // varies across Gemini UI revisions.
+    let item = null;
+    let candidates = [];
+    for (let i = 0; i < 12 && !item; i++) {
+      await sleep(300);
+      candidates = await collectMenuCandidates(tabId);
+      item = pickUploadItem(candidates);
+    }
+    if (!item) {
+      await reportDebug(
+        'gemini_attach_menu_miss',
+        { candidates: candidates.map((c) => ({ text: c.text, aria: c.aria, tag: c.tag, role: c.role })) },
+        appTabId,
+        appRequestId,
+      );
+      throw new Error('Gemini attach: "Upload files" menu item not found.');
+    }
+    await reportDebug(
+      'gemini_attach_item',
+      { text: item.text, aria: item.aria, role: item.role },
+      appTabId,
+      appRequestId,
+    );
+    await cdpTrustedClick(tabId, item.x, item.y);
+
+    for (let i = 0; i < 25 && !gotEvent; i++) await sleep(200);
+    if (!gotEvent) {
+      throw new Error(
+        'Gemini attach: no fileChooserOpened — Gemini may have used the File System Access API (unscriptable).',
+      );
+    }
+    if (chooserBackendNodeId == null) {
+      throw new Error('Gemini attach: fileChooserOpened fired without a backendNodeId.');
+    }
+
+    await cdp(tabId, 'DOM.setFileInputFiles', {
+      files: [absPath],
+      backendNodeId: chooserBackendNodeId,
+    });
+
+    // Wait for the file chip to render/upload before the prompt is pasted +
+    // submitted, so the file rides WITH the message (avoids the race where the
+    // prompt sends before the upload finishes).
+    const stem = (filename || '').replace(/\.[^.]+$/, '').slice(0, 24);
+    const chipReady = await waitForGeminiFileChip(tabId, stem);
+    await reportDebug('gemini_attach_chip', { chipReady, stem }, appTabId, appRequestId);
+    await sleep(3000);
+  } finally {
+    chrome.debugger.onEvent.removeListener(onEvent);
+    try {
+      await cdp(tabId, 'Page.setInterceptFileChooserDialog', { enabled: false });
+    } catch {
+      // best-effort teardown
+    }
+  }
+}
+
+// Full Gemini file attach: foreground the tab, attach the debugger, run the
+// intercept-attach, then detach + restore focus. Throws on failure so callers
+// can fall back to the paste/markdown path.
+async function attachGeminiFileViaCdp(tabId, { absPath, filename, appTabId, appRequestId }) {
+  if (!chrome.debugger?.attach) {
+    throw new Error('chrome.debugger unavailable for Gemini attach.');
+  }
+  const target = debuggerTarget(tabId);
+  const restoreFocus = await foregroundTab(tabId);
+  let attached = false;
+  try {
+    await chromeDebuggerAttach(target);
+    attached = true;
+    await reportProgress('attaching_file', 'Attaching file to Gemini…');
+    await runCdpFileChooser(tabId, absPath, filename, appTabId, appRequestId);
+  } finally {
+    if (attached) {
+      try {
+        await chromeDebuggerDetach(target);
+      } catch {
+        // ignore detach errors
+      }
+    }
+    await restoreFocus();
+  }
+}
+
 async function startLlmCapture(tabId, message) {
   await ensureLlmBridge(tabId);
   await startProviderCdpWake(tabId, message);
@@ -1159,6 +1444,7 @@ async function startBackupCapturePoll(tabId, message) {
     timeoutMs: BACKUP_CAPTURE_TIMEOUT_MS,
     lastDebugAt: 0,
     attemptCount: 0,
+    closeTabOnDone: message.closeTabOnDone === true,
   };
 
   chrome.tabs.update(tabId, { autoDiscardable: false }).catch(() => {});
@@ -1376,6 +1662,9 @@ async function runBackupCaptureTick(key, reason = 'manual') {
         rawResponse: result.rawResponse,
         session,
       });
+      if (state.closeTabOnDone) {
+        chrome.tabs.remove(tabId).catch(() => {});
+      }
       return;
     }
 
@@ -1482,7 +1771,7 @@ async function handleConnect(provider) {
   return { ok: true };
 }
 
-async function handleSendPrompt({ provider, prompt }) {
+async function handleSendPrompt({ provider, prompt, incognito }) {
   const tabId = await openNewChat(provider);
   await sleep(800);
 
@@ -1493,6 +1782,7 @@ async function handleSendPrompt({ provider, prompt }) {
       provider,
       prompt,
       skipAttach: true,
+      incognito,
     },
   );
 
@@ -1515,7 +1805,7 @@ async function handleSendPrompt({ provider, prompt }) {
   };
 }
 
-async function startSendPrompt({ provider, prompt, appRequestId, appTabId }) {
+async function startSendPrompt({ provider, prompt, incognito, appRequestId, appTabId }) {
   const tabId = await openNewChat(provider);
   await sleep(800);
 
@@ -1524,15 +1814,17 @@ async function startSendPrompt({ provider, prompt, appRequestId, appTabId }) {
     provider,
     prompt,
     skipAttach: true,
+    incognito,
     appRequestId,
     appTabId,
+    closeTabOnDone: true,
   });
 
   return { ok: true, async: true };
 }
 
 async function handleSendPdf(
-  { provider, prompt, pdfBase64, filename, forceNewChat },
+  { provider, prompt, pdfBase64, filename, forceNewChat, incognito },
 ) {
   const tabId = forceNewChat
     ? await openNewChat(provider)
@@ -1549,6 +1841,7 @@ async function handleSendPdf(
       pdfBase64,
       filename,
       skipAttach: false,
+      incognito,
     },
   );
 
@@ -1577,6 +1870,8 @@ async function startSendPdf({
   pdfBase64,
   filename,
   forceNewChat,
+  geminiFilePath,
+  incognito,
   appRequestId,
   appTabId,
 }) {
@@ -1586,6 +1881,42 @@ async function startSendPdf({
 
   await sleep(800);
 
+  // Gemini: real file attach via CDP file-chooser interception (the content-
+  // script attach fails on Gemini). Attach the file first, then paste + submit
+  // the cover prompt with skipAttach:true. On any attach failure, throw so the
+  // app's caller falls back to its paste / markdown path — no silent regression.
+  if (provider === 'gemini' && geminiFilePath) {
+    await ensureLlmBridge(tabId);
+    try {
+      await attachGeminiFileViaCdp(tabId, {
+        absPath: geminiFilePath,
+        filename,
+        appTabId,
+        appRequestId,
+      });
+    } catch (error) {
+      // Close the orphaned tab, then rethrow so the app falls back to its
+      // paste path (no leaked Gemini tab, no silent regression).
+      try {
+        await chrome.tabs.remove(tabId);
+      } catch {
+        // tab already gone
+      }
+      throw error;
+    }
+    await startLlmCapture(tabId, {
+      type: 'INJECT_PDF',
+      provider,
+      prompt,
+      skipAttach: true,
+      incognito,
+      appRequestId,
+      appTabId,
+      closeTabOnDone: true,
+    });
+    return { ok: true, async: true };
+  }
+
   await startLlmCapture(tabId, {
     type: 'INJECT_PDF',
     provider,
@@ -1593,8 +1924,10 @@ async function startSendPdf({
     pdfBase64,
     filename,
     skipAttach: false,
+    incognito,
     appRequestId,
     appTabId,
+    closeTabOnDone: true,
   });
 
   return { ok: true, async: true };
@@ -1710,6 +2043,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
 
         if (captureResponse.ok && tabId != null) {
+          const pendingState = await getPendingBackupCapture(key);
+          const shouldCloseTab = pendingState?.closeTabOnDone === true;
           const session = {
             ...buildSession({
               provider,
@@ -1726,6 +2061,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
             rawResponse: captureResponse.rawResponse ?? '',
             session,
           });
+          if (shouldCloseTab) {
+            chrome.tabs.remove(tabId).catch(() => {});
+          }
         } else if (looksLikeDetectionError(captureResponse.error)) {
           await reportDebug(
             'content_detection_error_deferred_to_backup_poll',

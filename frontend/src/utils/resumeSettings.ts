@@ -43,7 +43,6 @@ export interface ResumeRenderSettings {
   dateBold: boolean;
   dateItalic: boolean;
   skillLabelBold: boolean;
-  keywordTerms: string[];
   specialInstructions: string;
 }
 
@@ -57,8 +56,9 @@ export const RESUME_RENDER_TEMPLATES: ResumeRenderTemplate[] = [
   },
   {
     id: 'keyword',
-    name: 'Keyword emphasis',
-    summary: 'Same structure, with selected terms bolded in bullets and skills.',
+    name: 'Bold emphasis',
+    summary:
+      'Same structure, showing the bold emphasis the model chose inside bullets.',
   },
 ];
 
@@ -68,8 +68,8 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   bodyFontFamily: 'Times New Roman',
   nameFontFamily: 'Times New Roman',
   headingFontFamily: 'Times New Roman',
-  minBulletsPerExperience: 1,
-  maxBulletsPerExperience: 3,
+  minBulletsPerExperience: 2,
+  maxBulletsPerExperience: 5,
   nameFontSize: 22,
   headingFontSize: 11,
   bodyFontSize: 10.5,
@@ -97,7 +97,6 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   dateBold: true,
   dateItalic: true,
   skillLabelBold: true,
-  keywordTerms: ['Python', 'React', 'SQL', 'Docker', 'AWS', 'LLM', 'API'],
   specialInstructions: [
     'Hard one page only.',
     'Do not include entries with thin source detail.',
@@ -105,7 +104,7 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   ].join('\n'),
 };
 
-function asStringArray(value: unknown, fallback: string[], allowEmpty = false) {
+function asStringArray(value: unknown, fallback: string[]) {
   if (!Array.isArray(value)) {
     return fallback;
   }
@@ -113,7 +112,7 @@ function asStringArray(value: unknown, fallback: string[], allowEmpty = false) {
     .filter((item): item is string => typeof item === 'string')
     .map((item) => item.trim())
     .filter(Boolean);
-  return cleaned.length > 0 || allowEmpty ? cleaned : fallback;
+  return cleaned.length > 0 ? cleaned : fallback;
 }
 
 function asNumber(value: unknown, fallback: number, min: number, max: number) {
@@ -226,7 +225,6 @@ export function mergeResumeRenderSettings(
     dateBold: asBoolean(value?.dateBold, defaults.dateBold),
     dateItalic: asBoolean(value?.dateItalic, defaults.dateItalic),
     skillLabelBold: asBoolean(value?.skillLabelBold, defaults.skillLabelBold),
-    keywordTerms: asStringArray(value?.keywordTerms, defaults.keywordTerms, true),
     specialInstructions:
       typeof value?.specialInstructions === 'string'
         ? value.specialInstructions
@@ -234,13 +232,36 @@ export function mergeResumeRenderSettings(
   };
 }
 
+/**
+ * Bumped when a shipped default changes in a way that must reach existing
+ * users. Without this, a saved settings blob keeps the old bullet range forever
+ * and the new defaults only ever apply to fresh installs. Only the fields
+ * listed in MIGRATED_FIELDS are reset; everything the user tuned is preserved.
+ */
+const SETTINGS_VERSION = 2;
+const MIGRATED_FIELDS = [
+  'minBulletsPerExperience',
+  'maxBulletsPerExperience',
+] as const;
+
 export function loadResumeRenderSettings(): ResumeRenderSettings {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) {
       return DEFAULT_RESUME_RENDER_SETTINGS;
     }
-    return mergeResumeRenderSettings(JSON.parse(stored));
+    const parsed = JSON.parse(stored) as Partial<ResumeRenderSettings> & {
+      settingsVersion?: number;
+    };
+    if (parsed.settingsVersion !== SETTINGS_VERSION) {
+      for (const field of MIGRATED_FIELDS) {
+        delete parsed[field];
+      }
+      const migrated = mergeResumeRenderSettings(parsed);
+      saveResumeRenderSettings(migrated);
+      return migrated;
+    }
+    return mergeResumeRenderSettings(parsed);
   } catch {
     return DEFAULT_RESUME_RENDER_SETTINGS;
   }
@@ -248,7 +269,13 @@ export function loadResumeRenderSettings(): ResumeRenderSettings {
 
 export function saveResumeRenderSettings(settings: ResumeRenderSettings) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(mergeResumeRenderSettings(settings)));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        ...mergeResumeRenderSettings(settings),
+        settingsVersion: SETTINGS_VERSION,
+      }),
+    );
   } catch {
     // Local persistence is best-effort.
   }
@@ -270,25 +297,34 @@ export function settingsToBuildTemplateId(
   return 'jake';
 }
 
-export function buildSettingsInstructions(settings: ResumeRenderSettings): string {
+export interface SettingsInstructionOptions {
+  /**
+   * Entry-count targets ("4-5 substantial entries") only make sense when the
+   * model is choosing entries from the repository. The optimize path tailors a
+   * resume that already has its own structure, so imposing a count there could
+   * force it to delete real entries the candidate had.
+   */
+  includeEntryCountDensity?: boolean;
+}
+
+export function buildSettingsInstructions(
+  settings: ResumeRenderSettings,
+  options: SettingsInstructionOptions = {},
+): string {
+  const { includeEntryCountDensity = true } = options;
   const minBullets = settings.minBulletsPerExperience;
   const maxBullets = Math.max(settings.maxBulletsPerExperience, minBullets);
-  const keywordInstruction =
-    settings.keywordTerms.length > 0
-      ? `Use restrained <strong> tags for genuinely important keywords you choose from the job/source context, with special attention to: ${settings.keywordTerms.join(', ')}. The JSON text itself must contain the <strong> tags; the renderer will not color, highlight, or guess keyword emphasis after generation.`
-      : 'Use restrained <strong> tags only for genuinely important keywords you choose from the job/source context. The JSON text itself must contain the <strong> tags; the renderer will not color, highlight, or guess keyword emphasis after generation.';
 
+  // This block is the SINGLE authority for page limit, section order, entry
+  // density, bullet counts, and renderer style. Templates and the build prompt
+  // deliberately no longer restate any of it.
   return [
-    'Hard one page only.',
+    'Hard one page only. If the resume would spill, drop a lower-signal ENTRY rather than thinning every entry down to its minimum bullet count.',
     `Use these section headings, in this order when supported by source material: ${settings.sectionHeadings.join(', ')}.`,
-    'Density contract: if source quality supports it, target 4-5 substantial experience/project entries and 11-13 total experience/project bullets. Do not underfill with only 2-3 entries or fewer than 10 bullets unless the selected source material is genuinely thin or irrelevant.',
-    'Use mostly 1-2 bullets per selected entry. Reserve 3 bullets only for the strongest and most job-relevant entry. Prefer adding one more source-supported high-signal bullet over leaving the resume sparse.',
-    `Bullet-count contract for selected experience/project entries: use ${minBullets}-${maxBullets} bullet${maxBullets === 1 ? '' : 's'} per entry. This explicit setting overrides generic template guidance. If the resume would not fit one page, omit or merge lower-signal entries instead of exceeding ${maxBullets} bullet${maxBullets === 1 ? '' : 's'} on an entry.`,
-    settings.defaultTemplate === 'keyword'
-      ? keywordInstruction
-      : 'Do not bold arbitrary buzzwords.',
-    'Experience format is company-first: put the employer/company/org name in the top entry label on the same baseline as the date; put the job title/role first in the subtitle line below.',
-    'Hard layout constraint: never put a tech stack beside an entry name/title. If tools are useful, keep them in the subtitle line below the title or in bullets/skills.',
+    includeEntryCountDensity
+      ? 'Entry density: target 4-5 substantial experience/project entries when the source supports it. Do not underfill with only 2-3 entries unless the selected source material is genuinely thin or irrelevant.'
+      : '',
+    `Bullet count per selected experience/project entry: ${minBullets}-${maxBullets} bullet${maxBullets === 1 ? '' : 's'}. Give the strongest, most job-relevant entries the higher counts and weaker entries the lower ones. This is the only bullet-count instruction that applies; ignore any other count you may infer.`,
     'Education convention: keep the degree/major line clean. Put GPA and honors/awards together in their own compact bullet, e.g. "GPA: 3.96/4.00; President\'s Honor Roll (Fall 2025)". Put coursework in a separate "Relevant Coursework:" bullet only when useful.',
     `Renderer style preferences: section headings ${settings.sectionHeadingUppercase ? 'uppercase' : 'title case'}, ${settings.sectionHeadingBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.sectionHeadingItalic ? 'italic' : 'not italic'}; entry titles ${settings.entryTitleBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.entryTitleItalic ? 'italic' : 'not italic'}; subtitles ${settings.subtitleItalic ? 'italic' : 'not italic'}; dates ${settings.dateBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.dateItalic ? 'italic' : 'not italic'}; skill labels ${settings.skillLabelBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}; overall PDF ink intensity ${settings.textIntensity}%.`,
     settings.specialInstructions.trim(),

@@ -1,4 +1,4 @@
-import { Check, GitBranch, GitMerge, X } from 'lucide-react';
+import { Check, GitBranch, GitMerge, Sparkles, X } from 'lucide-react';
 import {
   councilMilestoneStates,
   councilStatusLabel,
@@ -19,6 +19,8 @@ const ACTIVE_STATUSES: CouncilSlotStatus[] = [
   'generating',
   'parsing',
 ];
+
+// ── Council tree helpers ───────────────────────────────────────────────────
 
 function dotModifier(status: CouncilSlotStatus): string {
   if (status === 'done') return 'complete';
@@ -65,13 +67,31 @@ function MiniSteps({ slot }: { slot: CouncilSlotState }) {
   );
 }
 
-function Rail({ first, last }: { first?: boolean; last?: boolean }) {
+function Rail({
+  first,
+  last,
+  flowing,
+}: {
+  first?: boolean;
+  last?: boolean;
+  flowing?: boolean;
+}) {
   return (
     <div className="council-rail">
       <span
-        className={`council-rail-line${first ? ' council-rail-line--hidden' : ''}`}
+        className={`council-rail-line${first ? ' council-rail-line--hidden' : ''}${
+          flowing ? ' council-rail-line--flowing' : ''
+        }`}
         aria-hidden
-      />
+      >
+        {flowing ? (
+          <>
+            <span className="council-rail-packet" />
+            <span className="council-rail-packet" />
+            <span className="council-rail-packet" />
+          </>
+        ) : null}
+      </span>
       <span className="council-rail-slot" aria-hidden />
       <span
         className={`council-rail-line${last ? ' council-rail-line--hidden' : ''}`}
@@ -84,14 +104,16 @@ function Rail({ first, last }: { first?: boolean; last?: boolean }) {
 function SlotNode({
   slot,
   last,
+  flowing,
 }: {
   slot: CouncilSlotState;
   last?: boolean;
+  flowing?: boolean;
 }) {
   const provider = getProviderConfig(slot.provider).label;
   return (
     <div className={`council-node council-node--${slot.role}`}>
-      <Rail last={last} />
+      <Rail last={last} flowing={flowing} />
       <span
         className={`council-node-dot pipeline-step-circle pipeline-step-circle--${dotModifier(
           slot.status,
@@ -126,23 +148,75 @@ function SlotNode({
   );
 }
 
+function MergeNode({
+  feeders,
+  judge,
+  merging,
+}: {
+  feeders: number;
+  judge: CouncilSlotState;
+  merging: boolean;
+}) {
+  const judgeDone   = judge.status === 'done';
+  const judgeFailed = judge.status === 'failed';
+  const draftWord = `draft${feeders === 1 ? '' : 's'}`;
+
+  const caption = judgeFailed
+    ? 'Merge halted — judge did not finish'
+    : judgeDone
+      ? `Synthesized ${feeders} ${draftWord} into one final resume`
+      : merging
+        ? `Feeding ${feeders} candidate ${draftWord} into the judge…`
+        : 'Candidate drafts converge into the judge';
+
+  const captionClass = merging
+    ? ' council-merge-caption--active'
+    : judgeDone
+      ? ' council-merge-caption--done'
+      : judgeFailed
+        ? ' council-merge-caption--failed'
+        : '';
+
+  return (
+    <div className="council-node council-node--merge">
+      <Rail />
+      <span
+        className={`council-node-dot council-node-dot--merge${
+          merging ? ' council-node-dot--merge-active' : ''
+        }${judgeDone ? ' council-node-dot--merge-done' : ''}`}
+        aria-hidden
+      >
+        {judgeDone ? <Sparkles size={12} /> : <GitMerge size={12} />}
+      </span>
+      <div className="council-node-body council-node-body--merge">
+        <span className={`council-merge-caption${captionClass}`}>{caption}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Main export ────────────────────────────────────────────────────────────
+
 export function CouncilProgress({
   slots,
   onCancel,
   canceling = false,
 }: CouncilProgressProps) {
-  if (slots.length === 0) {
-    return null;
-  }
+  if (slots.length === 0) return null;
 
-  const candidates = slots.filter((slot) => slot.role === 'candidate');
-  const judge = slots.find((slot) => slot.role === 'judge') ?? null;
-  const running = slots.some((slot) => ACTIVE_STATUSES.includes(slot.status));
+  const candidates   = slots.filter((s) => s.role === 'candidate');
+  const judge        = slots.find((s) => s.role === 'judge') ?? null;
+  const running      = slots.some((s) => ACTIVE_STATUSES.includes(s.status));
+  const doneCandidates = candidates.filter((s) => s.status === 'done').length;
+  const merging      = Boolean(
+    judge && ACTIVE_STATUSES.includes(judge.status) && doneCandidates > 0,
+  );
 
   return (
     <div className="council-progress">
+      {/* Header */}
       <div className="council-progress-head">
-        <span className="council-progress-title">LLM Council run</span>
+        <span className="council-progress-title">LLM Council</span>
         {onCancel ? (
           <button
             type="button"
@@ -156,8 +230,8 @@ export function CouncilProgress({
         ) : null}
       </div>
 
+      {/* Council tree — branching progress view */}
       <div className={`council-tree${running ? ' council-tree--running' : ''}`}>
-        {/* Trunk root */}
         <div className="council-node council-node--root">
           <Rail first />
           <span className="council-node-dot council-node-dot--root" aria-hidden>
@@ -173,24 +247,14 @@ export function CouncilProgress({
           </div>
         </div>
 
-        {/* Parallel candidate branches */}
         {candidates.map((slot) => (
           <SlotNode key={slot.slotId} slot={slot} />
         ))}
 
-        {/* Convergence + judge */}
         {judge ? (
           <>
-            <div className="council-node council-node--merge">
-              <Rail />
-              <span className="council-node-dot council-node-dot--merge" aria-hidden>
-                <GitMerge size={12} />
-              </span>
-              <div className="council-node-body council-node-body--merge">
-                <span>Candidates converge into the judge</span>
-              </div>
-            </div>
-            <SlotNode slot={judge} last />
+            <MergeNode feeders={doneCandidates} judge={judge} merging={merging} />
+            <SlotNode slot={judge} last flowing={merging} />
           </>
         ) : null}
       </div>

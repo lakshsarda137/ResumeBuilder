@@ -1,4 +1,4 @@
-import type { OngoingItem, RepoItem } from '../types/repository';
+import type { RepoItem } from '../types/repository';
 import type {
   RepoImportEntry,
   RepoImportLineDiff,
@@ -533,148 +533,6 @@ export function planRepoImportMerge(
   return { create, patch, skipped };
 }
 
-const ONGOING_END_MARKERS = new Set(['present', 'ongoing', 'current', 'now']);
-
-export function isOngoingImportEntry(entry: RepoImportEntry): boolean {
-  if (entry.type !== 'experience' && entry.type !== 'project') {
-    return false;
-  }
-
-  const end = entry.end_date?.trim().toLowerCase();
-  if (!end) {
-    return true;
-  }
-
-  return ONGOING_END_MARKERS.has(end);
-}
-
-function reflectionAlreadyIncludes(
-  reflections: OngoingItem['reflections'],
-  freewrite: string,
-): boolean {
-  return reflections.some((reflection) =>
-    contentAlreadyIncluded(reflection.content, freewrite),
-  );
-}
-
-function buildImportReflection(freewrite: string, sourceLabel: string): string {
-  return `Imported (${sourceLabel})\n\n${freewrite.trim()}`;
-}
-
-export async function syncOngoingFromImport(
-  incoming: RepoImportEntry[],
-  sourceLabel: string,
-): Promise<Pick<RepoImportMergeResult, 'ongoingCreated' | 'ongoingUpdated' | 'ongoingSkipped'>> {
-  const res = await fetch('/api/ongoing');
-  if (!res.ok) {
-    throw new Error('Failed to load ongoing items.');
-  }
-
-  const existing = (await res.json()) as OngoingItem[];
-  const candidates = [...existing];
-
-  let ongoingCreated = 0;
-  let ongoingUpdated = 0;
-  let ongoingSkipped = 0;
-
-  for (const entry of incoming) {
-    if (!isOngoingImportEntry(entry) || !entry.title?.trim()) {
-      continue;
-    }
-
-    const freewrite = entry.freewrite?.trim();
-    const match = findImportMatch(candidates, entry);
-
-    if (match) {
-      if (match.status !== 'active') {
-        ongoingSkipped += 1;
-        continue;
-      }
-
-      let touched = false;
-      const body: Partial<OngoingItem> = {};
-
-      if (!match.company?.trim() && entry.company?.trim()) {
-        body.company = entry.company.trim();
-      }
-      if (!match.position?.trim() && entry.position?.trim()) {
-        body.position = entry.position.trim();
-      }
-      if (!match.start_date?.trim() && entry.start_date?.trim()) {
-        body.start_date = entry.start_date.trim();
-      }
-
-      if (Object.keys(body).length > 0) {
-        const patchRes = await fetch(`/api/ongoing/${match.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
-        if (!patchRes.ok) {
-          throw new Error('Failed to update linked ongoing item during import.');
-        }
-        touched = true;
-      }
-
-      if (freewrite && !reflectionAlreadyIncludes(match.reflections, freewrite)) {
-        const reflectionRes = await fetch(`/api/ongoing/${match.id}/reflection`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            content: buildImportReflection(freewrite, sourceLabel),
-          }),
-        });
-        if (!reflectionRes.ok) {
-          throw new Error('Failed to add reflection to linked ongoing item.');
-        }
-        touched = true;
-      }
-
-      if (touched) {
-        ongoingUpdated += 1;
-      } else {
-        ongoingSkipped += 1;
-      }
-      continue;
-    }
-
-    const createRes = await fetch('/api/ongoing', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: entry.type,
-        title: entry.title.trim(),
-        company: entry.company?.trim() || null,
-        position: entry.position?.trim() || null,
-        start_date: entry.start_date?.trim() || null,
-      }),
-    });
-    if (!createRes.ok) {
-      throw new Error('Failed to create ongoing item during import.');
-    }
-
-    const createdItem = (await createRes.json()) as OngoingItem;
-    ongoingCreated += 1;
-
-    if (freewrite) {
-      const reflectionRes = await fetch(`/api/ongoing/${createdItem.id}/reflection`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: buildImportReflection(freewrite, sourceLabel),
-        }),
-      });
-      if (!reflectionRes.ok) {
-        throw new Error('Failed to seed reflection on new ongoing item.');
-      }
-    }
-
-    candidates.push({ ...createdItem, reflections: createdItem.reflections ?? [] });
-  }
-
-  return { ongoingCreated, ongoingUpdated, ongoingSkipped };
-}
-
 export async function applyRepoImportMerge(
   existing: RepoItem[],
   incoming: RepoImportEntry[],
@@ -709,7 +567,6 @@ export async function applyRepoImportMerge(
     merged += 1;
   }
 
-  const ongoing = await syncOngoingFromImport(incoming, sourceLabel);
   const education = await syncEducationFromImport(profile, sourceLabel);
 
   return {
@@ -717,7 +574,6 @@ export async function applyRepoImportMerge(
     merged,
     skipped: plan.skipped,
     mergeDiffs: plan.patch.map(({ diff }) => diff),
-    ...ongoing,
     ...education,
   };
 }

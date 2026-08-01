@@ -526,6 +526,54 @@
   flex-wrap: wrap;
 }
 
+.rb-wizard-incognito {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  background: var(--surface-2, #1e1e1e);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-1, #e6e6e6);
+}
+
+.rb-wizard-incognito:hover {
+  border-color: var(--accent, #e8d5b7);
+}
+
+.rb-wizard-incognito input[type='checkbox'] {
+  margin-top: 2px;
+  accent-color: var(--accent, #e8d5b7);
+  cursor: pointer;
+}
+
+.rb-wizard-incognito svg {
+  margin-top: 1px;
+  color: var(--accent, #e8d5b7);
+  flex-shrink: 0;
+}
+
+.rb-wizard-incognito-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-weight: 500;
+}
+
+.rb-wizard-incognito-text small {
+  font-weight: 400;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2, #a0a0a0);
+}
+
+.rb-wizard-incognito input:disabled ~ * {
+  opacity: 0.6;
+}
+
 .rb-wizard-provider-row {
   display: flex;
   align-items: flex-end;
@@ -983,4 +1031,78 @@
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-3, #666);
+}
+
+
+/* ── Subsection labels ──────────────────────────────── */
+.rb-wizard-subsection-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  margin: 16px 0 8px;
+}
+
+/* ── Typography details accordion ──────────────────── */
+.rb-wizard-details {
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.rb-wizard-details-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  padding: 4px 0;
+  transition: color 0.12s;
+}
+
+.rb-wizard-details-summary::-webkit-details-marker {
+  display: none;
+}
+
+.rb-wizard-details-summary::after {
+  content: '▸';
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+  transition: transform 0.15s;
+}
+
+.rb-wizard-details[open] .rb-wizard-details-summary::after {
+  transform: rotate(90deg);
+}
+
+.rb-wizard-details-summary:hover {
+  color: var(--text-1);
+}
+
+.rb-wizard-details .rb-wizard-settings-grid--inner {
+  margin-top: 14px;
+}
+
+/* ── Cover letter opt-in (repository path only) ───────────────────────────── */
+
+.rb-wizard-coverletter {
+  margin-bottom: 14px;
+}
+
+.rb-wizard-coverletter .rb-wizard-incognito {
+  margin-bottom: 0;
+}
+
+/* Matches the width of the "Web AI provider" select directly below it — a
+   full-bleed select reads as a different kind of control. */
+.rb-wizard-coverletter-provider {
+  margin-top: 10px;
+  padding-left: 12px;
+  max-width: 220px;
 }

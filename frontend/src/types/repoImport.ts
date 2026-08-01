@@ -78,9 +78,6 @@ export interface RepoImportMergeResult {
   merged: number;
   skipped: number;
   mergeDiffs: RepoImportMergeDiff[];
-  ongoingCreated: number;
-  ongoingUpdated: number;
-  ongoingSkipped: number;
   educationCreated: number;
   educationMerged: number;
   educationSkipped: number;

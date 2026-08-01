@@ -11,7 +11,7 @@ function snapshotsEqual(a: ResumeData, b: ResumeData) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-export function useResumeState() {
+export function useResumeState({ undoShortcutEnabled = true }: { undoShortcutEnabled?: boolean } = {}) {
   const [data, setDataState] = useState<ResumeData>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -108,6 +108,10 @@ export function useResumeState() {
   }, [data]);
 
   useEffect(() => {
+    if (!undoShortcutEnabled) {
+      return;
+    }
+
     const handleKeyDown = (event: KeyboardEvent) => {
       const isUndo =
         (event.metaKey || event.ctrlKey) &&
@@ -122,7 +126,7 @@ export function useResumeState() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo]);
+  }, [undo, undoShortcutEnabled]);
 
   useEffect(() => {
     return () => {

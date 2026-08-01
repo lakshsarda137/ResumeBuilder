@@ -1,4 +1,5 @@
 import type { ResumeData } from '../types/resume';
+import type { CoverLetterData } from '../types/coverLetter';
 
 export interface JdNote {
   id: string;
@@ -57,4 +58,27 @@ export function collectJdNotes(data: ResumeData): JdNote[] {
 
 export function resumeHasJdNotes(data: ResumeData): boolean {
   return collectJdNotes(data).length > 0;
+}
+
+/**
+ * Same shape as the resume's notes so `JdNotesPanel` renders both unchanged.
+ * Anchor ids are prefixed `cl-paragraph-` and keyed by paragraph id, since a
+ * letter has no sections or entries to qualify them with.
+ */
+export function collectCoverLetterJdNotes(data: CoverLetterData): JdNote[] {
+  return data.paragraphs.flatMap((paragraph, index) =>
+    paragraph.jdComment?.trim()
+      ? [
+          {
+            id: `cl-paragraph-${paragraph.id}`,
+            label: `Paragraph ${index + 1}`,
+            comment: paragraph.jdComment.trim(),
+          },
+        ]
+      : [],
+  );
+}
+
+export function coverLetterHasJdNotes(data: CoverLetterData): boolean {
+  return collectCoverLetterJdNotes(data).length > 0;
 }

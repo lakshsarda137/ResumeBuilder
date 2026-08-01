@@ -20,7 +20,7 @@ function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function cssFontFamily(name: string) {
+export function cssFontFamily(name: string) {
   const normalized = name.trim();
   if (!normalized) {
     return "'Times New Roman', Times, 'Liberation Serif', serif";
@@ -36,44 +36,6 @@ function cssFontFamily(name: string) {
     return `'${normalized.replace(/'/g, '')}', Arial, Helvetica, sans-serif`;
   }
   return `'${normalized.replace(/'/g, '')}', Times, 'Liberation Serif', serif`;
-}
-
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function emphasizeKeywords(html: string, keywords: string[]) {
-  if (!html || html.includes('<strong')) {
-    return html;
-  }
-
-  const terms = keywords
-    .map((term) => term.trim())
-    .filter((term) => term.length >= 2)
-    .sort((a, b) => b.length - a.length);
-
-  if (terms.length === 0) {
-    return html;
-  }
-
-  const matcher = new RegExp(`\\b(${terms.map(escapeRegExp).join('|')})\\b`, 'gi');
-  return html
-    .split(/(<[^>]+>)/g)
-    .map((part) =>
-      part.startsWith('<') ? part : part.replace(matcher, '<strong>$1</strong>'),
-    )
-    .join('');
-}
-
-function editableValue(
-  value: string,
-  settings: ResumeRenderSettings,
-  enableKeywords = false,
-) {
-  if (settings.defaultTemplate !== 'keyword' || !enableKeywords) {
-    return value;
-  }
-  return emphasizeKeywords(value, settings.keywordTerms);
 }
 
 function grayscaleFromIntensity(intensity: number) {
@@ -514,11 +476,6 @@ export function ResumeDocument({
                     tag="span"
                     className="resume-skill-items"
                     value={skill.items}
-                    displayValue={editableValue(
-                      skill.items,
-                      effectiveSettings,
-                      true,
-                    )}
                     onChange={(v) =>
                       updateSection(section.id, (s) => ({
                         ...s,
@@ -719,11 +676,6 @@ export function ResumeDocument({
                           tag="span"
                           className="resume-bullet-text"
                           value={bulletText(bullet)}
-                          displayValue={editableValue(
-                            bulletText(bullet),
-                            effectiveSettings,
-                            true,
-                          )}
                           onChange={(v) =>
                             updateEntry(section.id, entry.id, (e) => ({
                               ...e,

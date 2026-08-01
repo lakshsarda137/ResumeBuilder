@@ -4,18 +4,20 @@ import {
   Clipboard,
   Database,
   Eye,
+  FileText,
   FileUp,
   Link2,
   Loader2,
   Plug,
-  Plus,
   SlidersHorizontal,
   Users,
+  VenetianMask,
   X,
 } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
+import type { BridgeDebugEvent } from '../hooks/useAiBridge';
 import type { EducationData } from '../types/education';
-import type { OngoingItem, RepoItem, RepositorySource } from '../types/repository';
+import type { RepoItem, RepositorySource } from '../types/repository';
 import type { ResumeData } from '../types/resume';
 import type {
   CouncilCandidateFailure,
@@ -25,7 +27,6 @@ import type {
   CouncilRunResult,
   CouncilSlotState,
   CouncilSnapshot,
-  RubricDimension,
 } from '../types/council';
 import { CANDIDATE_LABELS } from '../types/council';
 import {
@@ -33,6 +34,12 @@ import {
   getProviderConfig,
   getSavedProvider,
   saveProvider,
+  getSavedIncognito,
+  saveIncognito,
+  getSavedCoverLetterEnabled,
+  saveCoverLetterEnabled,
+  getSavedCoverLetterProvider,
+  saveCoverLetterProvider,
   type AiProvider,
 } from '../utils/aiProviders';
 import {
@@ -40,14 +47,11 @@ import {
   buildResumeFromRepositoryPrompt,
   buildImprovementPrompt,
   buildCouncilJudgePrompt,
-  buildCouncilRubricSummary,
+  buildCouncilJudgeCoverPrompt,
+  buildResumeBuildCoverPrompt,
   estimateWizardPromptTokens,
 } from '../utils/aiPrompt';
-import {
-  createRubricDimension,
-  keyRubric,
-  loadDefaultRubric,
-} from '../utils/councilSettings';
+import { sendLargePromptAndWait } from '../utils/promptDelivery';
 import {
   getResumeBuildTemplate,
 } from '../utils/resumeBuildStyle';
@@ -65,12 +69,12 @@ import {
   parseStrictGeneratedResume,
   parseCouncilJudgeResponse,
 } from '../utils/parseResumeResponse';
+import type { CoverLetterRequest } from '../utils/coverLetterRun';
 import { readPdfFileAsBase64 } from '../utils/pdf';
 import {
   fetchRepositorySources,
   dedupeRepositorySources,
   filterSendableSources,
-  isOngoingOlderThanMonths,
   isRepoWithinYears,
   sourceLabel,
   estimateSourceMaterialTokens,
@@ -91,6 +95,10 @@ type SelectionMode = 'manual' | 'filter';
 type GenerationMode = 'solitary' | 'council';
 
 const EMPTY_RESUME: ResumeData = { contact: { name: '', links: [] }, sections: [] };
+
+/** Attachment names for tasks delivered as files on truncating providers. */
+const RESUME_TASK_FILENAME = 'resume-task.txt';
+const JUDGE_TASK_FILENAME = 'judge-task.txt';
 
 type CandidateOutcome =
   | { ok: true; result: CouncilCandidateResult }
@@ -157,6 +165,7 @@ interface ResumeBuilderWizardProps {
     pdfBase64: string;
     filename: string;
     forceNewChat?: boolean;
+    incognito?: boolean;
   }) => Promise<{
     ok: boolean;
     rawResponse?: string;
@@ -166,12 +175,33 @@ interface ResumeBuilderWizardProps {
   sendPromptAndWait: (args: {
     provider: AiProvider;
     prompt: string;
+    incognito?: boolean;
   }) => Promise<{
     ok: boolean;
     rawResponse?: string;
     session?: AiChatSession;
     error?: string;
   }>;
+  sendPromptAsFileAndWait: (args: {
+    provider: AiProvider;
+    coverPrompt: string;
+    fileText: string;
+    filename: string;
+    forceNewChat?: boolean;
+    incognito?: boolean;
+  }) => Promise<{
+    ok: boolean;
+    rawResponse?: string;
+    session?: AiChatSession;
+    error?: string;
+  }>;
+  /**
+   * Extension diagnostics. next_steps.md calls for watching the
+   * gemini_attach_* events when the CDP file-chooser attach misbehaves
+   * (gemini_attach_menu_miss dumps the live menu if a label changed), but the
+   * wizard had no way to show them during a council run.
+   */
+  debugEvents?: BridgeDebugEvent[];
   sendImprovementAndWait: (args: {
     session: AiChatSession;
     prompt: string;
@@ -190,6 +220,13 @@ interface ResumeBuilderWizardProps {
     session: AiChatSession | null,
     renderSettings?: ResumeRenderSettings,
     council?: CouncilSnapshot,
+    /**
+     * Set when the user asked for a cover letter too. The editor runs it in
+     * the background against the resume it just received — the letter is
+     * always written AFTER the final resume exists, because the resume is one
+     * of its inputs.
+     */
+    coverLetterRequest?: CoverLetterRequest,
   ) => void;
   onSkipToEditor: () => void;
   jobDescription: string;
@@ -204,25 +241,17 @@ function sourceKey(source: RepositorySource) {
 function selectFilteredSources({
   selectionMode,
   repoSources,
-  ongoingSources,
   repoRaw,
-  ongoingRaw,
   selectedKeys,
   repoMaxYears,
-  includeOngoing,
-  ongoingMinMonths,
 }: {
   selectionMode: SelectionMode;
   repoSources: RepositorySource[];
-  ongoingSources: RepositorySource[];
   repoRaw: RepoItem[];
-  ongoingRaw: OngoingItem[];
   selectedKeys: Set<string>;
   repoMaxYears: number;
-  includeOngoing: boolean;
-  ongoingMinMonths: number;
 }) {
-  const allSources = dedupeRepositorySources([...repoSources, ...ongoingSources]);
+  const allSources = dedupeRepositorySources(repoSources);
 
   if (selectionMode === 'manual') {
     return filterSendableSources(
@@ -236,17 +265,7 @@ function selectFilteredSources({
     .map((item) => repoSources.find((source) => source.id === item.id))
     .filter((source): source is RepositorySource => Boolean(source?.sendable));
 
-  let ongoingFiltered: RepositorySource[] = [];
-  if (includeOngoing) {
-    ongoingFiltered = ongoingRaw
-      .filter((item) => isOngoingOlderThanMonths(item, ongoingMinMonths))
-      .map((item) => ongoingSources.find((source) => source.id === item.id))
-      .filter((source): source is RepositorySource => Boolean(source?.sendable));
-  }
-
-  return filterSendableSources(
-    dedupeRepositorySources([...repoFiltered, ...ongoingFiltered]),
-  );
+  return filterSendableSources(dedupeRepositorySources(repoFiltered));
 }
 
 interface PromptEstimate {
@@ -352,6 +371,8 @@ export function ResumeBuilderWizard({
   connectProvider,
   sendPdfAndWait,
   sendPromptAndWait,
+  sendPromptAsFileAndWait,
+  debugEvents = [],
   sendImprovementAndWait,
   pushPipeline,
   startPipeline,
@@ -365,6 +386,22 @@ export function ResumeBuilderWizard({
 }: ResumeBuilderWizardProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [provider, setProvider] = useState<AiProvider>(getSavedProvider);
+  const [incognito, setIncognito] = useState<boolean>(getSavedIncognito);
+  // Cover letter is opt-in, repository path only, and always written by a
+  // single model — there is no council variant.
+  const [coverLetterEnabled, setCoverLetterEnabled] = useState<boolean>(
+    getSavedCoverLetterEnabled,
+  );
+  const [coverLetterProvider, setCoverLetterProvider] = useState<AiProvider>(
+    getSavedCoverLetterProvider,
+  );
+  /**
+   * The freewrite sources the last repository build actually sent. Captured at
+   * send time rather than read from `filteredSources` at apply time, so the
+   * cover letter is written from exactly the material the resume was built
+   * from even if the user touches the selection while the run is in flight.
+   */
+  const coverLetterSourcesRef = useRef<RepositorySource[]>([]);
   const [connecting, setConnecting] = useState(false);
   const [working, setWorking] = useState(false);
   const [refining, setRefining] = useState(false);
@@ -375,17 +412,13 @@ export function ResumeBuilderWizard({
   const [pdfFile, setPdfFile] = useState<File | null>(null);
 
   const [repoSources, setRepoSources] = useState<RepositorySource[]>([]);
-  const [ongoingSources, setOngoingSources] = useState<RepositorySource[]>([]);
   const [repoRaw, setRepoRaw] = useState<RepoItem[]>([]);
-  const [ongoingRaw, setOngoingRaw] = useState<OngoingItem[]>([]);
   const [educationData, setEducationData] = useState<EducationData | null>(null);
   const [loadingSources, setLoadingSources] = useState(false);
 
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('manual');
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [repoMaxYears, setRepoMaxYears] = useState(5);
-  const [includeOngoing, setIncludeOngoing] = useState(true);
-  const [ongoingMinMonths, setOngoingMinMonths] = useState(3);
   const [draftSettings, setDraftSettings] = useState(() =>
     mergeResumeRenderSettings(renderSettings),
   );
@@ -415,15 +448,23 @@ export function ResumeBuilderWizard({
     'claude',
     'chatgpt',
   ]);
-  const [judgeProvider, setJudgeProvider] = useState<AiProvider>('gemini');
-  const [rubric, setRubric] = useState<RubricDimension[]>(loadDefaultRubric);
+  const [judgeProvider, setJudgeProvider] = useState<AiProvider>('claude');
   const [councilSlots, setCouncilSlots] = useState<CouncilSlotState[]>([]);
   const [councilActive, setCouncilActive] = useState(false);
+  /**
+   * Attach failures for truncating providers. A pasted prompt this large is
+   * silently decapitated, so the run must not look healthy when this happens.
+   */
+  const [attachWarnings, setAttachWarnings] = useState<string[]>([]);
+  /** Extension-side attach diagnostics, shown when an attach actually fails. */
+  const attachTrace = useMemo(
+    () => debugEvents.filter((entry) => entry.event.startsWith('gemini_attach')),
+    [debugEvents],
+  );
   const [councilResult, setCouncilResult] = useState<CouncilRunResult | null>(null);
   const [councilView, setCouncilView] = useState<string>('final');
   const councilRunIdRef = useRef(0);
 
-  const keyedRubric = useMemo(() => keyRubric(rubric), [rubric]);
 
   useEffect(() => {
     const next = mergeResumeRenderSettings(renderSettings);
@@ -559,17 +600,15 @@ export function ResumeBuilderWizard({
           return (await res.json()) as EducationData;
         }),
       ])
-        .then(([{ repo, ongoing, repoRaw, ongoingRaw }, education]) => {
+        .then(([{ repo, repoRaw }, education]) => {
           if (cancelled) {
             return;
           }
           setRepoSources(repo);
-          setOngoingSources(ongoing);
           setRepoRaw(repoRaw);
-          setOngoingRaw(ongoingRaw);
           setEducationData(education);
           const defaults = new Set<string>();
-          [...repo, ...ongoing]
+          repo
             .filter((source) => source.sendable)
             .forEach((source) => defaults.add(sourceKey(source)));
           setSelectedKeys(defaults);
@@ -593,30 +632,22 @@ export function ResumeBuilderWizard({
   }, [mode]);
 
   const allSources = useMemo(
-    () => dedupeRepositorySources([...repoSources, ...ongoingSources]),
-    [repoSources, ongoingSources],
+    () => dedupeRepositorySources(repoSources),
+    [repoSources],
   );
 
   const filteredSources = useMemo(() => selectFilteredSources({
     selectionMode,
     repoSources,
-    ongoingSources,
     repoRaw,
-    ongoingRaw,
     selectedKeys,
     repoMaxYears,
-    includeOngoing,
-    ongoingMinMonths,
   }), [
     selectionMode,
     repoSources,
-    ongoingSources,
     repoRaw,
-    ongoingRaw,
     selectedKeys,
     repoMaxYears,
-    includeOngoing,
-    ongoingMinMonths,
   ]);
 
   const selectedTemplate = useMemo(
@@ -629,9 +660,20 @@ export function ResumeBuilderWizard({
     [draftSettings],
   );
 
+  // The optimize path tailors a resume that already has its own structure, so
+  // it gets every setting except the entry-count targets, which could otherwise
+  // push the model to drop real entries just to hit "4-5".
+  const optimizeInstructions = useMemo(
+    () =>
+      buildSettingsInstructions(draftSettings, {
+        includeEntryCountDensity: false,
+      }),
+    [draftSettings],
+  );
+
   const promptEstimate = useMemo(() => {
     if (mode === 'optimize') {
-      const prompt = buildOptimizePdfPrompt(jobDescription);
+      const prompt = buildOptimizePdfPrompt(jobDescription, optimizeInstructions);
       const { promptTokens } = estimateWizardPromptTokens(
         prompt,
         true,
@@ -676,6 +718,7 @@ export function ResumeBuilderWizard({
     educationData,
     selectedTemplate,
     generationInstructions,
+    optimizeInstructions,
   ]);
 
   const toggleSource = (source: RepositorySource) => {
@@ -705,7 +748,7 @@ export function ResumeBuilderWizard({
 
   const buildFreshRepositoryPrompt = useCallback(async (): Promise<RepositoryPromptDraft> => {
     const [
-      { repo, ongoing, repoRaw: freshRepoRaw, ongoingRaw: freshOngoingRaw },
+      { repo, repoRaw: freshRepoRaw },
       freshEducationData,
     ] = await Promise.all([
       fetchRepositorySources(),
@@ -718,26 +761,20 @@ export function ResumeBuilderWizard({
     ]);
 
     setRepoSources(repo);
-    setOngoingSources(ongoing);
     setRepoRaw(freshRepoRaw);
-    setOngoingRaw(freshOngoingRaw);
     setEducationData(freshEducationData);
 
     const latestFilteredSources = selectFilteredSources({
       selectionMode,
       repoSources: repo,
-      ongoingSources: ongoing,
       repoRaw: freshRepoRaw,
-      ongoingRaw: freshOngoingRaw,
       selectedKeys,
       repoMaxYears,
-      includeOngoing,
-      ongoingMinMonths,
     });
 
     if (latestFilteredSources.length === 0) {
       throw new Error(
-        'No sendable freewrite sources selected. Add freewrite entries in Repository/Ongoing or adjust filters.',
+        'No sendable freewrite sources selected. Add freewrite entries in Repository or adjust filters.',
       );
     }
 
@@ -754,9 +791,7 @@ export function ResumeBuilderWizard({
     };
   }, [
     generationInstructions,
-    includeOngoing,
     jobDescription,
-    ongoingMinMonths,
     repoMaxYears,
     selectedKeys,
     selectedTemplate,
@@ -775,10 +810,11 @@ export function ResumeBuilderWizard({
 
     const response = await sendPdfAndWait({
       provider: activeProvider,
-      prompt: buildOptimizePdfPrompt(jobDescription),
+      prompt: buildOptimizePdfPrompt(jobDescription, optimizeInstructions),
       pdfBase64: base64,
       filename,
       forceNewChat: true,
+      incognito,
     });
 
     pushPipeline('parsing_json', 'Parsing extracted and optimized resume…');
@@ -798,7 +834,9 @@ export function ResumeBuilderWizard({
     pushPipeline('preview_ready', 'Optimized resume preview ready');
   }, [
     connectedProvider,
+    incognito,
     jobDescription,
+    optimizeInstructions,
     pdfFile,
     provider,
     pushPipeline,
@@ -807,14 +845,23 @@ export function ResumeBuilderWizard({
 
   const runRepositoryFlow = useCallback(async () => {
     pushPipeline('reading_sources', 'Refreshing saved repository sources…');
-    const { prompt } = await buildFreshRepositoryPrompt();
+    const { prompt, sources } = await buildFreshRepositoryPrompt();
+    coverLetterSourcesRef.current = sources;
 
     const activeProvider = connectedProvider ?? provider;
 
     pushPipeline('importing_pdf', 'Sending repository sources to Web AI…');
-    const response = await sendPromptAndWait({
+    // Same prompt the council candidates get, so it needs the same protection
+    // from Gemini's composer truncation.
+    const response = await sendLargePromptAndWait({
       provider: activeProvider,
       prompt,
+      coverPrompt: buildResumeBuildCoverPrompt(RESUME_TASK_FILENAME),
+      filename: RESUME_TASK_FILENAME,
+      incognito,
+      senders: { sendPromptAndWait, sendPromptAsFileAndWait },
+      onAttachFailed: (message) =>
+        pushPipeline('error', `${activeProvider} file attach failed, pasting instead (the prompt may be truncated): ${message}`),
     });
 
     pushPipeline('parsing_json', 'Parsing generated resume…');
@@ -835,9 +882,11 @@ export function ResumeBuilderWizard({
   }, [
     buildFreshRepositoryPrompt,
     connectedProvider,
+    incognito,
     provider,
     pushPipeline,
     sendPromptAndWait,
+    sendPromptAsFileAndWait,
   ]);
 
   const handlePreviewPrompt = async () => {
@@ -855,7 +904,7 @@ export function ResumeBuilderWizard({
       let text = '';
 
       if (mode === 'optimize') {
-        text = buildOptimizePdfPrompt(jobDescription);
+        text = buildOptimizePdfPrompt(jobDescription, optimizeInstructions);
       } else {
         const { prompt, selectedCount } = await buildFreshRepositoryPrompt();
         title = `Prompt Preview · ${selectedCount} source${selectedCount === 1 ? '' : 's'}`;
@@ -864,7 +913,7 @@ export function ResumeBuilderWizard({
 
       if (genMode === 'council') {
         title = `${title} · Council`;
-        text = `CANDIDATE PROMPT — sent to each of the ${candidateProviders.length} candidate providers:\n\n${text}\n\n${'='.repeat(48)}\nRUBRIC SUMMARY SENT TO THE JUDGE\n${'='.repeat(48)}\n${buildCouncilRubricSummary(keyedRubric)}`;
+        text = `CANDIDATE PROMPT — sent to each of the ${candidateProviders.length} candidate providers:\n\n${text}`;
       }
 
       setPromptPreview({ title, text });
@@ -1017,6 +1066,27 @@ export function ResumeBuilderWizard({
     }
   };
 
+  /**
+   * The cover letter request handed to the editor on apply, or undefined when
+   * the user did not ask for one. Only the repository path offers it — the
+   * optimize path has no freewrite warehouse, and without material beyond the
+   * resume itself the letter would have nothing to say that the resume does
+   * not already say.
+   */
+  const buildCoverLetterRequest = (): CoverLetterRequest | undefined => {
+    if (!coverLetterEnabled || mode !== 'repository') {
+      return undefined;
+    }
+    return {
+      provider: coverLetterProvider,
+      jobDescription,
+      sources: coverLetterSourcesRef.current,
+      educationData,
+      settingsInstructions: generationInstructions,
+      incognito,
+    };
+  };
+
   const handleApply = () => {
     if (councilResult && councilDisplay) {
       onComplete(
@@ -1024,6 +1094,7 @@ export function ResumeBuilderWizard({
         councilDisplay.session,
         draftSettings,
         buildCouncilSnapshotFromRun(councilResult),
+        buildCoverLetterRequest(),
       );
       resetCouncil();
       setPreviewData(null);
@@ -1034,7 +1105,13 @@ export function ResumeBuilderWizard({
     if (!previewData) {
       return;
     }
-    onComplete(previewData, activeSession, draftSettings);
+    onComplete(
+      previewData,
+      activeSession,
+      draftSettings,
+      undefined,
+      buildCoverLetterRequest(),
+    );
     setPreviewData(null);
     setBaselineData(null);
     setRawResponse('');
@@ -1088,26 +1165,6 @@ export function ResumeBuilderWizard({
     [],
   );
 
-  const updateRubricDimension = useCallback(
-    (id: string, patch: Partial<RubricDimension>) => {
-      setRubric((prev) =>
-        prev.map((dim) => (dim.id === id ? { ...dim, ...patch } : dim)),
-      );
-    },
-    [],
-  );
-
-  const removeRubricDimension = useCallback((id: string) => {
-    setRubric((prev) => prev.filter((dim) => dim.id !== id));
-  }, []);
-
-  const addRubricDimension = useCallback(() => {
-    setRubric((prev) => [...prev, createRubricDimension()]);
-  }, []);
-
-  const resetRubricToDefaults = useCallback(() => {
-    setRubric(loadDefaultRubric());
-  }, []);
 
   // --- Council: orchestration ----------------------------------------------
   const setCouncilSlot = useCallback(
@@ -1181,6 +1238,7 @@ export function ResumeBuilderWizard({
             pdfBase64: pdf!.base64,
             filename: pdf!.filename,
             forceNewChat: true,
+            incognito,
           });
           if (runId !== councilRunIdRef.current) {
             return cancelled();
@@ -1195,9 +1253,22 @@ export function ResumeBuilderWizard({
           rawResponse = response.rawResponse;
           session = response.session ?? null;
         } else {
-          const response = await sendPromptAndWait({
+          // The repository build prompt is large enough that Gemini's composer
+          // truncates it, decapitating the JSON contract at the tail. Deliver
+          // it as an attachment there; every other provider still pastes.
+          const response = await sendLargePromptAndWait({
             provider,
             prompt: candidatePrompt,
+            coverPrompt: buildResumeBuildCoverPrompt(RESUME_TASK_FILENAME),
+            filename: RESUME_TASK_FILENAME,
+            incognito,
+            senders: { sendPromptAndWait, sendPromptAsFileAndWait },
+            onAttachFailed: (message) => {
+              setAttachWarnings((prev) => [
+                ...prev,
+                `${provider} candidate: file attach failed, pasted instead (prompt likely truncated). ${message}`,
+              ]);
+            },
           });
           if (runId !== councilRunIdRef.current) {
             return cancelled();
@@ -1238,7 +1309,13 @@ export function ResumeBuilderWizard({
         window.clearTimeout(advanceTimer);
       }
     },
-    [sendPdfAndWait, sendPromptAndWait, setCouncilSlot],
+    [
+      incognito,
+      sendPdfAndWait,
+      sendPromptAndWait,
+      sendPromptAsFileAndWait,
+      setCouncilSlot,
+    ],
   );
 
   const runCouncilFlow = useCallback(async () => {
@@ -1253,11 +1330,6 @@ export function ResumeBuilderWizard({
     const providers = candidateProviders;
     if (new Set(providers).size !== providers.length) {
       setError('Each council candidate must use a different provider.');
-      return;
-    }
-    const keyed = keyRubric(rubric);
-    if (keyed.length === 0) {
-      setError('Add at least one rubric dimension for the judge.');
       return;
     }
     if (mode === 'optimize' && !pdfFile) {
@@ -1287,6 +1359,7 @@ export function ResumeBuilderWizard({
       title: 'Judge',
       status: 'waiting',
     });
+    setAttachWarnings([]);
     setCouncilActive(true);
     setCouncilSlots(initialSlots);
 
@@ -1299,18 +1372,22 @@ export function ResumeBuilderWizard({
       if (path === 'optimize') {
         const { base64, filename } = await readPdfFileAsBase64(pdfFile!);
         pdf = { base64, filename };
-        candidatePrompt = buildOptimizePdfPrompt(jobDescription);
+        candidatePrompt = buildOptimizePdfPrompt(jobDescription, optimizeInstructions);
+        styleInstructions = optimizeInstructions;
       } else {
         const draft = await buildFreshRepositoryPrompt();
         candidatePrompt = draft.prompt;
         styleInstructions = generationInstructions;
         repositorySources = draft.sources;
+        coverLetterSourcesRef.current = draft.sources;
       }
       if (runId !== councilRunIdRef.current) {
         return;
       }
 
-      // Phase 1 — candidates in parallel.
+      // Phase 1 — candidates in parallel. The attach now prefers the
+      // content-script DOM path, which needs no debugger and no foreground tab,
+      // so it is safe to run concurrently with other provider tabs loading.
       const outcomes = await Promise.all(
         providers.map((provider, index) =>
           runCouncilCandidate({
@@ -1374,7 +1451,6 @@ export function ResumeBuilderWizard({
           judge: null,
           judgeError:
             'The council needs at least 2 successful candidates before the judge can run. You can apply the one candidate that succeeded.',
-          rubric: keyed,
           judgeProvider,
           hadJobDescription: jobDescription.trim().length > 0,
         });
@@ -1400,7 +1476,6 @@ export function ResumeBuilderWizard({
         const judgePrompt = buildCouncilJudgePrompt({
           path,
           jobDescription,
-          rubric: keyed,
           candidates: labeled.map((item) => ({
             label: item.label,
             resume: item.resume,
@@ -1408,9 +1483,19 @@ export function ResumeBuilderWizard({
           styleInstructions,
           sources: path === 'repository' ? repositorySources : undefined,
         });
-        const response = await sendPromptAndWait({
+        const response = await sendLargePromptAndWait({
           provider: judgeProvider,
           prompt: judgePrompt,
+          coverPrompt: buildCouncilJudgeCoverPrompt(JUDGE_TASK_FILENAME),
+          filename: JUDGE_TASK_FILENAME,
+          incognito,
+          senders: { sendPromptAndWait, sendPromptAsFileAndWait },
+          onAttachFailed: (message) => {
+            setAttachWarnings((prev) => [
+              ...prev,
+              `${judgeProvider} judge: file attach failed, pasted instead (prompt likely truncated). ${message}`,
+            ]);
+          },
         });
         window.clearTimeout(judgeTimer);
         if (runId !== councilRunIdRef.current) {
@@ -1451,7 +1536,6 @@ export function ResumeBuilderWizard({
         failures,
         judge,
         judgeError,
-        rubric: keyed,
         judgeProvider,
         hadJobDescription: jobDescription.trim().length > 0,
       });
@@ -1479,14 +1563,16 @@ export function ResumeBuilderWizard({
     bridgeReady,
     mode,
     candidateProviders,
-    rubric,
     pdfFile,
     judgeProvider,
     jobDescription,
     buildFreshRepositoryPrompt,
     generationInstructions,
+    optimizeInstructions,
     runCouncilCandidate,
+    incognito,
     sendPromptAndWait,
+    sendPromptAsFileAndWait,
     setCouncilSlot,
   ]);
 
@@ -1504,11 +1590,6 @@ export function ResumeBuilderWizard({
         candidates: candidateProviders,
         judge: judgeProvider,
       },
-      rubricUsed: rubric.map((dim) => ({
-        id: dim.id,
-        title: dim.title,
-        description: dim.description,
-      })),
       candidateOutputs: result.candidates.map((candidate) => ({
         provider: candidate.provider,
         label: candidate.label,
@@ -1522,7 +1603,7 @@ export function ResumeBuilderWizard({
         : null,
       failures: result.failures,
     }),
-    [candidateProviders, judgeProvider, rubric],
+    [candidateProviders, judgeProvider],
   );
 
   const councilDisplay = computeCouncilDisplay(councilResult, councilView);
@@ -1552,11 +1633,13 @@ export function ResumeBuilderWizard({
         selected = {
           providerLabel: getProviderConfig(candidate.provider).label,
           candidateLabel: candidate.label,
-          scores: councilResult.rubric.map((dim) => ({
-            title: dim.title,
-            score: labelScores?.scores[dim.key] ?? null,
-            rationale: labelScores?.rationales[dim.key] ?? '',
-          })),
+          scores: [
+            {
+              title: 'ATS score',
+              score: labelScores?.atsScore ?? null,
+              rationale: labelScores?.justification ?? '',
+            },
+          ],
         };
       }
     }
@@ -1584,7 +1667,9 @@ export function ResumeBuilderWizard({
     const path: CouncilPath = mode === 'optimize' ? 'optimize' : 'repository';
     const perCandidate =
       mode === 'optimize'
-        ? estimateInputTokens(buildOptimizePdfPrompt(jobDescription))
+        ? estimateInputTokens(
+            buildOptimizePdfPrompt(jobDescription, optimizeInstructions),
+          )
         : promptEstimate.total;
     const candidateCount = candidateProviders.length;
     const candidateTotal = perCandidate * candidateCount;
@@ -1592,8 +1677,7 @@ export function ResumeBuilderWizard({
       buildCouncilJudgePrompt({
         path,
         jobDescription,
-        rubric: keyedRubric,
-        candidates: [],
+          candidates: [],
       }),
     );
     return {
@@ -1608,9 +1692,9 @@ export function ResumeBuilderWizard({
     genMode,
     mode,
     jobDescription,
+    optimizeInstructions,
     promptEstimate.total,
     candidateProviders.length,
-    keyedRubric,
   ]);
 
   const renderTypographyControls = () => (
@@ -1695,7 +1779,7 @@ export function ResumeBuilderWizard({
           >
             <Database size={22} />
             <strong>Build from repository</strong>
-            <span>Generate a resume from freewrite notes in Repository & Ongoing.</span>
+            <span>Generate a resume from freewrite notes in your Repository.</span>
           </button>
         </div>
       </section>
@@ -1727,17 +1811,18 @@ export function ResumeBuilderWizard({
 
       {mode === 'optimize' && (
         <section className="rb-wizard-section rb-wizard-panel">
-          <h3>
-            <SlidersHorizontal size={15} />
-            PDF typography
-          </h3>
-          <p className="rb-wizard-note">
-            These render settings carry into the optimized preview and final downloaded
-            PDF.
-          </p>
-          <div className="rb-wizard-settings-grid">
-            {renderTypographyControls()}
-          </div>
+          <details className="rb-wizard-details">
+            <summary className="rb-wizard-details-summary">
+              <SlidersHorizontal size={13} />
+              Typography &amp; style
+            </summary>
+            <p className="rb-wizard-note">
+              These render settings carry into the optimized preview and final downloaded PDF.
+            </p>
+            <div className="rb-wizard-settings-grid">
+              {renderTypographyControls()}
+            </div>
+          </details>
         </section>
       )}
 
@@ -1766,6 +1851,7 @@ export function ResumeBuilderWizard({
               ))}
             </div>
 
+            <p className="rb-wizard-subsection-label">Content</p>
             <div className="rb-wizard-settings-grid">
               <label className="rb-wizard-label">
                 <span>Section headings</span>
@@ -1775,18 +1861,6 @@ export function ResumeBuilderWizard({
                   onChange={(event) =>
                     updateDraftSettings({
                       sectionHeadings: parseCommaList(event.target.value),
-                    })
-                  }
-                />
-              </label>
-              <label className="rb-wizard-label">
-                <span>Keyword emphasis terms</span>
-                <input
-                  className="rb-wizard-input"
-                  value={draftSettings.keywordTerms.join(', ')}
-                  onChange={(event) =>
-                    updateDraftSettings({
-                      keywordTerms: parseCommaList(event.target.value),
                     })
                   }
                 />
@@ -1827,55 +1901,63 @@ export function ResumeBuilderWizard({
                   onBlur={syncBulletDrafts}
                 />
               </label>
-              {renderTypographyControls()}
             </div>
 
-            <div className="rb-wizard-style-toggles">
-              <label>
-                <input
-                  type="checkbox"
-                  className="rb-wizard-checkbox"
-                  checked={draftSettings.sectionHeadingItalic}
-                  onChange={(event) =>
-                    updateDraftSettings({ sectionHeadingItalic: event.target.checked })
-                  }
-                />
-                <span>Italic section headings</span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  className="rb-wizard-checkbox"
-                  checked={draftSettings.entryTitleItalic}
-                  onChange={(event) =>
-                    updateDraftSettings({ entryTitleItalic: event.target.checked })
-                  }
-                />
-                <span>Italic entry titles</span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  className="rb-wizard-checkbox"
-                  checked={draftSettings.subtitleItalic}
-                  onChange={(event) =>
-                    updateDraftSettings({ subtitleItalic: event.target.checked })
-                  }
-                />
-                <span>Italic subtitles</span>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  className="rb-wizard-checkbox"
-                  checked={draftSettings.dateItalic}
-                  onChange={(event) =>
-                    updateDraftSettings({ dateItalic: event.target.checked })
-                  }
-                />
-                <span>Italic dates</span>
-              </label>
-            </div>
+            <details className="rb-wizard-details">
+              <summary className="rb-wizard-details-summary">
+                <SlidersHorizontal size={13} />
+                Typography &amp; style
+              </summary>
+              <div className="rb-wizard-settings-grid rb-wizard-settings-grid--inner">
+                {renderTypographyControls()}
+              </div>
+              <div className="rb-wizard-style-toggles">
+                <label>
+                  <input
+                    type="checkbox"
+                    className="rb-wizard-checkbox"
+                    checked={draftSettings.sectionHeadingItalic}
+                    onChange={(event) =>
+                      updateDraftSettings({ sectionHeadingItalic: event.target.checked })
+                    }
+                  />
+                  <span>Italic section headings</span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    className="rb-wizard-checkbox"
+                    checked={draftSettings.entryTitleItalic}
+                    onChange={(event) =>
+                      updateDraftSettings({ entryTitleItalic: event.target.checked })
+                    }
+                  />
+                  <span>Italic entry titles</span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    className="rb-wizard-checkbox"
+                    checked={draftSettings.subtitleItalic}
+                    onChange={(event) =>
+                      updateDraftSettings({ subtitleItalic: event.target.checked })
+                    }
+                  />
+                  <span>Italic subtitles</span>
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    className="rb-wizard-checkbox"
+                    checked={draftSettings.dateItalic}
+                    onChange={(event) =>
+                      updateDraftSettings({ dateItalic: event.target.checked })
+                    }
+                  />
+                  <span>Italic dates</span>
+                </label>
+              </div>
+            </details>
 
             <label className="rb-wizard-label rb-wizard-style-field">
               <span>Special notes for this build</span>
@@ -1897,8 +1979,8 @@ export function ResumeBuilderWizard({
           <section className="rb-wizard-section rb-wizard-panel">
             <h3>Source material</h3>
             <p className="rb-wizard-note">
-              Only <strong>freewrite</strong> repository entries are sent. Ongoing items use
-              reflections (active) or compiled freewrite (done).
+              Only <strong>freewrite</strong> repository entries are sent. Items with no end
+              date are treated as ongoing (“present”).
             </p>
 
             <div className="rb-wizard-tabs">
@@ -1925,7 +2007,7 @@ export function ResumeBuilderWizard({
             ) : selectionMode === 'manual' ? (
               <div className="rb-wizard-source-list">
                 {allSources.length === 0 ? (
-                  <p className="rb-wizard-empty">No repository or ongoing items yet.</p>
+                  <p className="rb-wizard-empty">No repository items yet.</p>
                 ) : (
                   allSources.map((source) => {
                     const key = sourceKey(source);
@@ -1969,30 +2051,6 @@ export function ResumeBuilderWizard({
                   />
                   <span>years old</span>
                 </label>
-                <label className="rb-wizard-filter-row">
-                  <input
-                    type="checkbox"
-                    className="rb-wizard-checkbox"
-                    checked={includeOngoing}
-                    onChange={(e) => setIncludeOngoing(e.target.checked)}
-                  />
-                  <span>Include ongoing items</span>
-                </label>
-                {includeOngoing && (
-                  <label className="rb-wizard-filter-row">
-                    <span>Ongoing: include if active for more than</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={120}
-                      value={ongoingMinMonths}
-                      onChange={(e) =>
-                        setOngoingMinMonths(Number(e.target.value) || 0)
-                      }
-                    />
-                    <span>months</span>
-                  </label>
-                )}
                 <p className="rb-wizard-filter-summary">
                   {filteredSources.length} source
                   {filteredSources.length === 1 ? '' : 's'} selected after filters
@@ -2049,7 +2107,7 @@ export function ResumeBuilderWizard({
             <div className="rb-council-config">
               <p className="rb-wizard-note">
                 Each candidate provider generates in parallel in its own background
-                chat. A judge then scores the anonymized drafts on your rubric and
+                chat. A judge then gives each anonymized draft an ATS score and
                 merges the best into a final resume.
               </p>
 
@@ -2119,76 +2177,6 @@ export function ResumeBuilderWizard({
                 </p>
               )}
 
-              <details className="rb-council-rubric">
-                <summary>
-                  Judge rubric · {keyedRubric.length} dimension
-                  {keyedRubric.length === 1 ? '' : 's'} — override for this run
-                </summary>
-                <div className="rb-council-rubric-body">
-                  <p className="rb-wizard-hint">
-                    Overrides apply to this run only. Edit permanent defaults on the
-                    Settings page. Each dimension is scored 1–10 with equal weight.
-                  </p>
-                  <div className="rb-council-rubric-header" aria-hidden="true">
-                    <span>Title</span>
-                    <span>Description (sent to the judge)</span>
-                    <span />
-                  </div>
-                  {rubric.map((dimension) => (
-                    <div className="rb-council-rubric-row" key={dimension.id}>
-                      <input
-                        className="rb-wizard-input"
-                        placeholder="e.g. JD alignment"
-                        aria-label="Dimension title"
-                        value={dimension.title}
-                        onChange={(event) =>
-                          updateRubricDimension(dimension.id, {
-                            title: event.target.value,
-                          })
-                        }
-                      />
-                      <input
-                        className="rb-wizard-input"
-                        placeholder="What the judge should look for"
-                        aria-label="Dimension description"
-                        value={dimension.description}
-                        onChange={(event) =>
-                          updateRubricDimension(dimension.id, {
-                            description: event.target.value,
-                          })
-                        }
-                      />
-                      <button
-                        type="button"
-                        className="rb-council-rubric-remove"
-                        onClick={() => removeRubricDimension(dimension.id)}
-                        aria-label={`Remove ${dimension.title || 'dimension'}`}
-                        disabled={rubric.length <= 1}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                  <div className="rb-council-rubric-actions">
-                    <button
-                      type="button"
-                      className="rb-wizard-btn rb-wizard-btn--secondary"
-                      onClick={addRubricDimension}
-                    >
-                      <Plus size={14} />
-                      Add dimension
-                    </button>
-                    <button
-                      type="button"
-                      className="rb-wizard-link"
-                      onClick={resetRubricToDefaults}
-                    >
-                      Reset to saved defaults
-                    </button>
-                  </div>
-                </div>
-              </details>
-
               {councilEstimate && (
                 <div className="rb-council-estimate" aria-label="Council token estimate">
                   <div className="rb-council-estimate-total">
@@ -2230,6 +2218,74 @@ export function ResumeBuilderWizard({
       )}
 
       <section className="rb-wizard-section rb-wizard-actions">
+        <label className="rb-wizard-incognito" title="Generate in a private chat that the provider does not save to your history or use for training.">
+          <input
+            type="checkbox"
+            checked={incognito}
+            disabled={working || refining || councilActive}
+            onChange={(e) => {
+              setIncognito(e.target.checked);
+              saveIncognito(e.target.checked);
+            }}
+          />
+          <VenetianMask size={15} />
+          <span className="rb-wizard-incognito-text">
+            Incognito mode
+            <small>
+              Builds in a private / temporary chat (Claude incognito, Gemini
+              temporary) that isn't saved to history.
+            </small>
+          </span>
+        </label>
+
+        {mode === 'repository' && (
+          <div className="rb-wizard-coverletter">
+            <label
+              className="rb-wizard-incognito"
+              title="Write a matching cover letter once the resume is generated. It runs in the background in the editor."
+            >
+              <input
+                type="checkbox"
+                checked={coverLetterEnabled}
+                disabled={working || refining || councilActive}
+                onChange={(e) => {
+                  setCoverLetterEnabled(e.target.checked);
+                  saveCoverLetterEnabled(e.target.checked);
+                }}
+              />
+              <FileText size={15} />
+              <span className="rb-wizard-incognito-text">
+                Also write a cover letter
+                <small>
+                  Runs after the resume is applied, using that resume plus your
+                  repository notes so the letter doesn't repeat it. Always a
+                  single model.
+                </small>
+              </span>
+            </label>
+
+            {coverLetterEnabled && (
+              <label className="rb-wizard-field rb-wizard-coverletter-provider">
+                <span>Cover letter model</span>
+                <select
+                  value={coverLetterProvider}
+                  disabled={working || refining || councilActive}
+                  onChange={(e) => {
+                    setCoverLetterProvider(e.target.value as AiProvider);
+                    saveCoverLetterProvider(e.target.value as AiProvider);
+                  }}
+                >
+                  {AI_PROVIDERS.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
+
         {genMode === 'solitary' && (
           <div className="rb-wizard-provider-row">
             <label className="rb-wizard-field">
@@ -2317,6 +2373,35 @@ export function ResumeBuilderWizard({
             slots={councilSlots}
             onCancel={councilActive ? handleCancelCouncil : undefined}
           />
+        ) : null}
+
+        {attachWarnings.length > 0 ? (
+          <div className="rb-wizard-error" role="alert">
+            <Plug size={13} />
+            <div>
+              <strong>Prompt was pasted, not attached.</strong> The task is large
+              enough that a pasted prompt gets cut off, which usually produces a
+              broken or low-quality resume. Re-run after fixing the cause below.
+              <ul>
+                {attachWarnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+              {attachTrace.length > 0 ? (
+                <details>
+                  <summary>Attach trace ({attachTrace.length} events)</summary>
+                  <ul>
+                    {attachTrace.map((entry, index) => (
+                      <li key={`${entry.at}-${index}`}>
+                        <code>{entry.event}</code>{' '}
+                        {entry.detail ? JSON.stringify(entry.detail) : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
+            </div>
+          </div>
         ) : null}
 
         {!bridgeReady && (

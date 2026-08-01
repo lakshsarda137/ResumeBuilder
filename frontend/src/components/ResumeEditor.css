@@ -39,9 +39,9 @@
   align-items: center;
   gap: 12px;
   padding: 12px 24px;
-  background: #181818;
-  color: #fff;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--surface);
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
   flex-shrink: 0;
   z-index: 10;
@@ -76,7 +76,7 @@
 .editor-subtitle {
   font-size: 12px;
   margin: 0;
-  color: #94a3b8;
+  color: var(--text-2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -88,14 +88,14 @@
   padding: 0;
   border: none;
   background: none;
-  color: #7dd3fc;
+  color: var(--accent);
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
 .editor-council-link:hover {
-  color: #bae6fd;
+  color: var(--text-1);
 }
 
 .editor-toolbar-center {
@@ -111,33 +111,38 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #94a3b8;
+  color: var(--text-2);
   font-size: 12px;
   white-space: nowrap;
+}
+
+/* `display: inline-flex` outranks the [hidden] attribute's UA `display: none`. */
+.toolbar-template[hidden] {
+  display: none;
 }
 
 .toolbar-template select {
   height: 32px;
   width: clamp(160px, 18vw, 260px);
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  border: 1px solid var(--border-2);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
   padding: 0 28px 0 10px;
   font-size: 12px;
   outline: none;
 }
 
 .toolbar-template option {
-  background: #181818;
-  color: #e2e8f0;
+  background: var(--surface);
+  color: var(--text-1);
 }
 
 .toolbar-zoom {
   font-size: 13px;
   min-width: 42px;
   text-align: center;
-  color: #cbd5e1;
+  color: var(--text-2);
 }
 
 .editor-page-fit {
@@ -168,6 +173,12 @@
   color: #fbbf24;
 }
 
+.editor-page-fit--tight {
+  border-color: rgba(251, 146, 60, 0.4);
+  background: rgba(251, 146, 60, 0.1);
+  color: #fdba74;
+}
+
 .editor-page-fit--over {
   border-color: rgba(248, 113, 113, 0.35);
   background: rgba(248, 113, 113, 0.1);
@@ -189,7 +200,7 @@
   position: static;
   display: inline-flex;
   align-items: center;
-  max-width: min(360px, 100%);
+  max-width: min(480px, 100%);
   padding: 5px 10px;
   border-radius: 6px;
   background: rgba(74, 222, 128, 0.15);
@@ -197,9 +208,7 @@
   color: #86efac;
   font-size: 11px;
   font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.4;
   pointer-events: none;
 }
 
@@ -235,18 +244,18 @@
 }
 
 .toolbar-btn--toggle-on {
-  background: var(--accent-dim, rgba(232, 213, 183, 0.12));
-  color: var(--accent, #e8d5b7);
-  border: 1px solid rgba(232, 213, 183, 0.28);
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid rgba(173, 197, 179, 0.25);
 }
 
 .toolbar-btn--primary {
-  background: var(--accent, #e8d5b7);
-  color: #0f0f0f;
+  background: var(--accent);
+  color: #0a0a0a;
 }
 
 .toolbar-btn--primary:hover:not(:disabled) {
-  background: #f0dfc8;
+  background: #c3d9c9;
 }
 
 .toolbar-btn--primary:disabled {
@@ -274,12 +283,18 @@
   color: #fecaca;
 }
 
+.toolbar-btn--expand {
+  padding-inline: 10px;
+  border: 1px solid rgba(173, 197, 179, 0.25);
+  color: var(--accent);
+}
+
 .editor-style-panel {
   display: block;
   padding: 12px 24px;
-  border-bottom: 1px solid #2a2a2a;
-  background: #151515;
-  color: #e5e7eb;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-1);
   flex-shrink: 0;
   z-index: 9;
 }
@@ -287,9 +302,9 @@
 .editor-style-group {
   min-width: 0;
   padding: 10px;
-  border: 1px solid #2f2f2f;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: #1d1d1d;
+  background: var(--surface-2);
   overflow: hidden;
 }
 
@@ -297,7 +312,7 @@
 .editor-style-field span {
   display: block;
   margin-bottom: 7px;
-  color: #94a3b8;
+  color: var(--text-3);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.02em;
@@ -312,10 +327,10 @@
 
 .editor-style-template {
   min-width: 0;
-  border: 1px solid #383838;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #242424;
-  color: #cbd5e1;
+  background: var(--surface-3);
+  color: var(--text-2);
   padding: 7px 8px;
   font-size: 12px;
   font-weight: 550;
@@ -342,10 +357,10 @@
 .editor-style-field input {
   width: 100%;
   height: 32px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #242424;
-  color: #e2e8f0;
+  background: var(--surface-3);
+  color: var(--text-1);
   padding: 0 11px;
   font-size: 12px;
   text-align: left;
@@ -357,8 +372,8 @@
 }
 
 .editor-style-field option {
-  background: #1d1d1d;
-  color: #e2e8f0;
+  background: var(--surface-2);
+  color: var(--text-1);
 }
 
 .editor-style-field--number input {
@@ -383,10 +398,10 @@
   gap: 6px;
   min-height: 32px;
   padding: 6px 8px;
-  border: 1px solid #373737;
+  border: 1px solid var(--border);
   border-radius: 7px;
-  background: #242424;
-  color: #cbd5e1;
+  background: var(--surface-3);
+  color: var(--text-2);
   font-size: 12px;
   white-space: normal;
   line-height: 1.25;
@@ -397,7 +412,7 @@
   width: 14px;
   height: 14px;
   margin: 0;
-  accent-color: #93c5fd;
+  accent-color: var(--accent);
 }
 
 .editor-canvas {
@@ -440,6 +455,66 @@
   width: 100%;
   transform-origin: top center;
   transition: transform 0.2s ease;
+  position: relative;
+}
+
+/* ── Page fit bar ────────────────────────────────────── */
+.editor-fit-bar {
+  position: absolute;
+  left: calc(var(--resume-rail-width) - 22px);
+  top: 0;
+  height: 11in;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-fit-bar-track {
+  width: 6px;
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+}
+
+.editor-fit-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-radius: 3px;
+  transition: height 0.3s ease, background 0.3s ease;
+}
+
+.editor-fit-bar-fill--fit {
+  background: rgba(82, 196, 120, 0.7);
+}
+
+.editor-fit-bar-fill--under {
+  background: rgba(240, 180, 41, 0.55);
+}
+
+.editor-fit-bar-fill--tight {
+  background: rgba(240, 130, 50, 0.7);
+}
+
+.editor-fit-bar-fill--over {
+  background: rgba(240, 112, 112, 0.75);
+}
+
+.editor-fit-bar-fill--checking {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.editor-fit-bar-pct {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  writing-mode: horizontal-tb;
 }
 
 .resume-export-container {
@@ -455,10 +530,10 @@
 
 .editor-hint {
   padding: 10px 24px;
-  background: #f1f5f9;
-  border-top: 1px solid #e2e8f0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-3);
   text-align: center;
   flex-shrink: 0;
 }
@@ -542,4 +617,82 @@
   font-size: 12px;
   line-height: 1.4;
   flex-shrink: 0;
+}
+
+/* ── Resume / cover letter switcher ───────────────────────────────────────── */
+
+.editor-doc-switch {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 1px solid #3a3a3a;
+  border-radius: 999px;
+  background: #1e1e1e;
+}
+
+.editor-doc-switch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 13px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #a0a0a0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.editor-doc-switch-btn:hover:not(:disabled) {
+  color: #e6e6e6;
+}
+
+.editor-doc-switch-btn--on {
+  background: #333;
+  color: #e6e6e6;
+}
+
+.editor-doc-switch-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Cover letter background-run status. Long provider errors would otherwise
+   stretch the toolbar row, so the failed variant is width-capped and clipped —
+   the full text stays available in the title attribute and the banner. */
+.editor-cl-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid #3a3a3a;
+  background: #242424;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.editor-cl-status--running {
+  color: #cbd5e1;
+}
+
+.editor-cl-status--failed {
+  max-width: 340px;
+  border-color: #7f3b3b;
+  background: #2a1d1d;
+  color: #f0b4b4;
+  overflow: hidden;
+}
+
+.editor-cl-status--failed .toolbar-btn {
+  min-height: 24px;
+  padding: 3px 9px;
+  font-size: 11px;
 }

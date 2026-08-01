@@ -3,6 +3,7 @@ import { bulletText } from '../types/resume';
 
 export type DiffChangeKind = 'added' | 'removed' | 'modified';
 
+/** Generic change-card shape — also used by `coverLetterDiff.ts` / `ResumeDiffView`. */
 export interface ResumeDiffChange {
   id: string;
   kind: DiffChangeKind;
@@ -53,7 +54,7 @@ function tokenize(value: string): Set<string> {
   );
 }
 
-function textSimilarity(a: string, b: string): number {
+export function textSimilarity(a: string, b: string): number {
   const left = normalizeDiffText(a);
   const right = normalizeDiffText(b);
 

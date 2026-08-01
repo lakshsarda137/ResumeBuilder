@@ -182,6 +182,18 @@
   font-weight: var(--resume-strong-weight, 700);
 }
 
+/*
+ * Bold emphasis is always written into the resume JSON by the model. Classic
+ * renders it flat rather than stripping it, so the tags survive in the data and
+ * resurface the moment the emphasis template is selected. The PDF exporter
+ * reads computed font-weight off this same DOM, so export follows the preview
+ * without a second code path. Scoped to --classic so cover letters, which
+ * borrow .resume-page without a template modifier, keep their own bold.
+ */
+.resume-page--classic strong {
+  font-weight: inherit;
+}
+
 .resume-page--keyword strong {
   font-weight: var(--resume-strong-weight, 800);
 }
