@@ -1,10 +1,12 @@
 import { type CSSProperties, useCallback, useMemo } from 'react';
 import type { CoverLetterData } from '../types/coverLetter';
 import { makeCoverLetterParagraph } from '../types/coverLetter';
+import type { ContactLink } from '../types/resume';
 import {
   mergeCoverLetterRenderSettings,
   type CoverLetterRenderSettings,
 } from '../utils/coverLetterSettings';
+import { ContactLinkText } from './ContactLinkText';
 import { EditableText } from './EditableText';
 import { cssFontFamily } from './ResumeDocument';
 import './CoverLetterDocument.css';
@@ -82,12 +84,12 @@ export function CoverLetterDocument({
   );
 
   const updateContactLink = useCallback(
-    (linkId: string, value: string) =>
+    (linkId: string, patch: Partial<ContactLink>) =>
       emitChange({
         ...data,
         contact: {
           ...data.contact,
-          links: data.contact.links.map((link) => (link.id === linkId ? { ...link, value } : link)),
+          links: data.contact.links.map((link) => (link.id === linkId ? { ...link, ...patch } : link)),
         },
       }),
     [data, emitChange],
@@ -185,13 +187,10 @@ export function CoverLetterDocument({
                     {' | '}
                   </span>
                 )}
-                <EditableText
-                  tag="span"
-                  className="resume-contact-text"
-                  value={link.value}
-                  onChange={(v) => updateContactLink(link.id, v)}
-                  placeholder="email, phone, or URL"
+                <ContactLinkText
+                  link={link}
                   editing={editing}
+                  onChange={(patch) => updateContactLink(link.id, patch)}
                 />
                 {editing && data.contact.links.length > 1 && (
                   <button

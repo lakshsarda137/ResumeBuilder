@@ -221,7 +221,7 @@ function educationMatchScore(education: RepoImportEducation, incomingValue: unkn
   return score;
 }
 
-type EducationPatchKey = 'school' | 'degree' | 'major' | 'grad_date' | 'gpa' | 'location' | 'coursework';
+type EducationPatchKey = 'school' | 'degree' | 'major' | 'start_date' | 'grad_date' | 'gpa' | 'location' | 'coursework';
 
 function educationPatchKeyForField(field: string | undefined): EducationPatchKey | null {
   const normalized = normalizedText(field);
@@ -234,6 +234,7 @@ function educationPatchKeyForField(field: string | undefined): EducationPatchKey
   if (normalized.includes('coursework') || normalized.includes('honor') || normalized.includes('note')) {
     return 'coursework';
   }
+  if (normalized.includes('start') || normalized.includes('enrol')) return 'start_date';
   if (normalized.includes('grad') || normalized.includes('date')) return 'grad_date';
   return null;
 }
@@ -284,6 +285,7 @@ function buildEducationPatchBody(
   if (incoming.school?.trim()) body.school = incoming.school.trim();
   if (incoming.degree !== undefined) body.degree = incoming.degree?.trim() || null;
   if (incoming.major !== undefined) body.major = incoming.major?.trim() || null;
+  if (incoming.start_date !== undefined) body.start_date = incoming.start_date?.trim() || null;
   if (incoming.grad_date !== undefined) body.grad_date = incoming.grad_date?.trim() || null;
   if (incoming.gpa !== undefined) body.gpa = incoming.gpa?.trim() || null;
   if (incoming.location !== undefined) body.location = incoming.location?.trim() || null;
@@ -320,7 +322,7 @@ function existingEducationScore(
   }
 
   if (isRecord(contradiction.existing_value)) {
-    const fields: EducationPatchKey[] = ['school', 'degree', 'major', 'grad_date', 'gpa', 'location', 'coursework'];
+    const fields: EducationPatchKey[] = ['school', 'degree', 'major', 'start_date', 'grad_date', 'gpa', 'location', 'coursework'];
     for (const field of fields) {
       const existingValue = contradictionValueForPatchKey(contradiction.existing_value, field);
       if (

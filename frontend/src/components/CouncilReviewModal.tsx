@@ -4,6 +4,8 @@ import type { CouncilSnapshot } from '../types/council';
 import type { ResumeData } from '../types/resume';
 import type { ResumeRenderSettings } from '../utils/resumeSettings';
 import { getProviderConfig } from '../utils/aiProviders';
+import { councilAngleLabel } from '../utils/councilAngles';
+import { readAtsScore } from '../utils/parseResumeResponse';
 import { inspectResumePageFit, type ResumePageFit } from '../utils/pdf';
 import { ResumeWithJdNotes } from './ResumeWithJdNotes';
 import './AiResultModal.css';
@@ -56,10 +58,15 @@ export function CouncilReviewModal({
   const tabs = useMemo(
     () => [
       { id: APPLIED_VIEW, label: 'Applied result' },
-      ...snapshot.candidateOutputs.map((candidate) => ({
-        id: candidate.label,
-        label: `Candidate ${candidate.label} · ${getProviderConfig(candidate.provider).label}`,
-      })),
+      ...snapshot.candidateOutputs.map((candidate) => {
+        const angleLabel = councilAngleLabel(candidate.angle);
+        return {
+          id: candidate.label,
+          label: `Candidate ${candidate.label} · ${getProviderConfig(candidate.provider).label}${
+            angleLabel ? ` · ${angleLabel}` : ''
+          }`,
+        };
+      }),
     ],
     [snapshot.candidateOutputs],
   );
@@ -98,9 +105,17 @@ export function CouncilReviewModal({
     return null;
   }
 
-  const candidateScores = selectedCandidate
-    ? snapshot.judgeOutput?.scores[selectedCandidate.label] ?? null
-    : null;
+  /**
+   * Normalize on read, not just on parse. Sessions saved before the
+   * rubric → single-ATS-score migration persisted the judge's raw
+   * multi-dimension shape into the snapshot, so reading `.atsScore` off them
+   * gives undefined and every historical build renders "—". readAtsScore
+   * understands both shapes.
+   */
+  const scoreFor = (label: string) =>
+    snapshot.judgeOutput ? readAtsScore(snapshot.judgeOutput.scores[label]) : null;
+
+  const candidateScores = selectedCandidate ? scoreFor(selectedCandidate.label) : null;
 
   return (
     <div className="ai-result-overlay" role="dialog" aria-modal="true">
@@ -175,6 +190,37 @@ export function CouncilReviewModal({
             ) : null}
           </div>
 
+          {/* Overview on the Applied result tab. The per-candidate block below
+              only renders inside a candidate tab, so without this the modal
+              opened on a view that showed no scores at all — which reads as the
+              build not having produced any. */}
+          {!selectedCandidate && snapshot.judgeOutput ? (
+            <section className="ai-council-scores">
+              <h3>Judge&rsquo;s recruiter scores</h3>
+              <div className="ai-council-score-grid">
+                {snapshot.candidateOutputs.map((candidate) => {
+                  const s = scoreFor(candidate.label);
+                  return (
+                    <div key={candidate.label} className="ai-council-score-row">
+                      <div className="ai-council-score-head">
+                        <span className="ai-council-score-title">
+                          Candidate {candidate.label} ·{' '}
+                          {getProviderConfig(candidate.provider).label}
+                        </span>
+                        <span className="ai-council-score-value">
+                          {s?.atsScore != null ? `${s.atsScore}/100` : '—'}
+                        </span>
+                      </div>
+                      {s?.justification ? (
+                        <p className="ai-council-score-rationale">{s.justification}</p>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
+
           {selectedCandidate ? (
             <section className="ai-council-scores">
               <h3>
@@ -185,7 +231,7 @@ export function CouncilReviewModal({
                 <div className="ai-council-score-grid">
                   <div className="ai-council-score-row">
                     <div className="ai-council-score-head">
-                      <span className="ai-council-score-title">ATS score</span>
+                      <span className="ai-council-score-title">Recruiter score</span>
                       <span className="ai-council-score-value">
                         {candidateScores?.atsScore != null
                           ? `${candidateScores.atsScore}/100`

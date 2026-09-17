@@ -122,9 +122,9 @@ const NUMBER_FIELDS: Array<{
   { key: 'strongTextWeight', label: 'Strong weight (CSS)', min: 500, max: 800, step: 25, help: 'Thickness of bold words inside bullets, like a bolded number or keyword.', group: 'type' },
   { key: 'bulletIndent', label: 'Bullet indent (pt)', min: 5, max: 16, step: 0.5, help: 'Space from the bullet marker to the start of the bullet text.', group: 'spacing' },
   { key: 'pagePaddingTop', label: 'Top margin (in)', min: 0.35, max: 0.8, step: 0.01, help: 'Empty space above the resume content.', group: 'spacing' },
-  { key: 'pagePaddingRight', label: 'Right margin (in)', min: 0.4, max: 0.8, step: 0.01, help: 'Empty space on the right side of the page.', group: 'spacing' },
+  { key: 'pagePaddingRight', label: 'Right margin (in)', min: 0.3, max: 0.8, step: 0.01, help: 'Empty space on the right side of the page.', group: 'spacing' },
   { key: 'pagePaddingBottom', label: 'Bottom margin (in)', min: 0.35, max: 0.8, step: 0.01, help: 'Empty space below the resume content.', group: 'spacing' },
-  { key: 'pagePaddingLeft', label: 'Left margin (in)', min: 0.4, max: 0.8, step: 0.01, help: 'Empty space on the left side of the page.', group: 'spacing' },
+  { key: 'pagePaddingLeft', label: 'Left margin (in)', min: 0.3, max: 0.8, step: 0.01, help: 'Empty space on the left side of the page.', group: 'spacing' },
   { key: 'sectionSpacing', label: 'Before section gap (pt)', min: 3, max: 10, step: 0.5, help: 'Space above each section title.', group: 'spacing' },
   { key: 'sectionHeaderSpacing', label: 'Title gap (pt)', min: 1, max: 6, step: 0.5, help: 'Space between a section title and the content under it.', group: 'spacing' },
   { key: 'entrySpacing', label: 'Entry gap (pt)', min: 1, max: 8, step: 0.5, help: 'Space between two entries, like two jobs.', group: 'spacing' },
@@ -342,6 +342,23 @@ export function ResumeRenderSettingsControls({
         ) : null}
 
         {activeTab === 'sections' ? (
+          <>
+          <section className="resume-settings-controls__group resume-settings-controls__group--toggles resume-settings-controls__toggles">
+            <span className="resume-settings-controls__label">
+              Header
+              <InfoDot text="Turn off to remove your name and contact line (email, LinkedIn, GitHub, etc.). Sections move up to fill the space." />
+            </span>
+            <label>
+              <input
+                type="checkbox"
+                checked={settings.showHeader}
+                onChange={(event) => update({ showHeader: event.target.checked })}
+              />
+              <span>
+                Show name &amp; contact details <InfoDot text="Hides the title (name) and the subtitle line of links when unchecked." />
+              </span>
+            </label>
+          </section>
           <section className="resume-settings-controls__group resume-settings-controls__group--section-order">
             <span className="resume-settings-controls__label">
               Section order
@@ -407,6 +424,7 @@ export function ResumeRenderSettingsControls({
               placeholder="e.g. Education, Experience, Projects"
             />
           </section>
+          </>
         ) : null}
 
         {activeTab === 'emphasis' ? (

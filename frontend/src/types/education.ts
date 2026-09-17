@@ -3,6 +3,8 @@ export interface EducationItem {
   school: string;
   degree: string | null;
   major: string | null;
+  /** Enrolment month, so the resume can show "Mon YYYY – Mon YYYY". */
+  start_date: string | null;
   grad_date: string | null;
   gpa: string | null;
   location: string | null;

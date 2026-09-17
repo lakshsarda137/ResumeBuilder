@@ -1,7 +1,11 @@
+/* A flat 55%-black scrim on a light app reads as a bruise. Lighter, tinted
+   with the neutral, and blurred — the page behind stops competing for
+   attention without being blacked out. */
 .expand-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(22, 26, 21, 0.34);
+  backdrop-filter: blur(3px);
   z-index: 200;
   display: flex;
   align-items: center;
@@ -13,7 +17,7 @@
   background: var(--surface);
   border: 1px solid var(--border-2);
   border-radius: var(--radius-lg, 14px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 520px;
   max-height: 80vh;
@@ -65,6 +69,34 @@
   flex-shrink: 0;
 }
 
+.expand-modal-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 18px 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.expand-modal-search:focus-within {
+  border-color: var(--accent);
+}
+
+.expand-modal-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 13px;
+}
+
 .expand-modal-list {
   flex: 1;
   overflow-y: auto;
@@ -72,6 +104,9 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  /* The list scrolls straight under the footer with no signal that there is
+     more; a fade at the bottom edge says "keep going". */
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
 }
 
 .expand-modal-loading {
@@ -95,7 +130,7 @@
 }
 
 .expand-modal-error {
-  color: #fca5a5;
+  color: var(--red);
 }
 
 /* ── Item ──────────────────────────────────────────── */
@@ -198,22 +233,22 @@
 }
 
 .expand-modal-btn--cancel {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--raise-2);
   color: var(--text-2);
 }
 
 .expand-modal-btn--cancel:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--raise-3);
   color: var(--text-1);
 }
 
 .expand-modal-btn--add {
   background: var(--accent);
-  color: #0a0a0a;
+  color: var(--accent-ink);
 }
 
 .expand-modal-btn--add:hover:not(:disabled) {
-  background: #c3d9c9;
+  background: var(--accent);
 }
 
 .expand-modal-btn--add:disabled {

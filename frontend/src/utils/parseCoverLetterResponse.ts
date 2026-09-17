@@ -12,6 +12,14 @@ import {
   isRecord,
 } from './parseResumeResponse';
 import { ensureContactProfile } from './contactProfile';
+import type { ResumeData } from '../types/resume';
+import {
+  looksLikeResumePayload,
+  normalizeAiResume,
+  resumeHasSubstantiveContent,
+} from './parseResumeResponse';
+
+const EMPTY_RESUME: ResumeData = { contact: { name: '', links: [] }, sections: [] };
 
 export const EMPTY_COVER_LETTER: CoverLetterData = {
   contact: { name: '', links: [] },
@@ -81,6 +89,9 @@ export function normalizeAiCoverLetter(
                   ? entry.id
                   : fallback.contact.links[index]?.id ?? generateId(`link-${index}`),
               value: typeof entry.value === 'string' ? cleanGeneratedProseText(entry.value) : '',
+              ...(typeof entry.label === 'string' && entry.label.trim()
+                ? { label: cleanGeneratedProseText(entry.label) }
+                : {}),
             };
           })
         : fallback.contact.links,
@@ -175,4 +186,49 @@ export function parseCoverLetterFromLlmResponse(
   }
 
   return normalizeAiCoverLetter(parsed, fallback);
+}
+
+/**
+ * Parse the "cover letter from an uploaded resume PDF" response: a top-level
+ * cover letter object carrying an optional "resume" key with the faithful
+ * extraction of the PDF. The letter is required; the resume is best-effort,
+ * since the letter is the deliverable and an extraction the model fumbled
+ * should not cost the user the letter.
+ */
+export function parseCoverLetterWithResumeResponse(rawResponse: string): {
+  coverLetter: CoverLetterData;
+  resume: ResumeData | null;
+} {
+  const candidates = collectJsonCandidates(rawResponse);
+  let sawCoverLetterShape = false;
+
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const parsed = parseJsonCandidate(candidates[index]);
+    if (!parsed || !looksLikeCoverLetterPayload(parsed)) {
+      continue;
+    }
+    sawCoverLetterShape = true;
+    const coverLetter = normalizeAiCoverLetter(parsed, EMPTY_COVER_LETTER);
+    if (!coverLetterHasSubstantiveContent(coverLetter)) {
+      continue;
+    }
+    const rawResume = isRecord(parsed) ? parsed.resume : undefined;
+    let resume: ResumeData | null = null;
+    if (looksLikeResumePayload(rawResume)) {
+      const normalized = normalizeAiResume(rawResume, EMPTY_RESUME);
+      if (resumeHasSubstantiveContent(normalized)) {
+        resume = normalized;
+      }
+    }
+    return { coverLetter, resume };
+  }
+
+  if (sawCoverLetterShape) {
+    throw new Error(
+      'Captured JSON was a cover-letter-shaped schema or placeholder, not a real generated cover letter. The provider likely returned or exposed prompt text before generation completed.',
+    );
+  }
+  throw new Error(
+    'No complete generated cover letter JSON was detected. Try again from a fresh chat after the provider finishes generating.',
+  );
 }

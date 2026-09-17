@@ -2,11 +2,24 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--surface-2, #1e1e1e);
+  background: var(--surface-2);
 }
 
 .editor--wizard {
-  background: var(--surface-1, #161616);
+  background: var(--surface);
+}
+
+/* App-shell layout for the document view: the editor is exactly the viewport,
+   and the canvas is the only thing that scrolls. Previously the whole page
+   scrolled, so 242px of chrome — the toolbar with Undo / Save / Reset /
+   Download PDF and the page-fit pill, plus the AI panel — left the screen as
+   soon as you reached the Experience section, which is precisely when you need
+   it. min-height: 0 is load-bearing: without it the flex child refuses to
+   shrink below its content and the outer scrollbar comes back. */
+.editor--doc {
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .editor--loading {
@@ -16,23 +29,26 @@
   align-items: center;
   justify-content: center;
   gap: 12px;
-  color: var(--text-2, #a0a0a0);
-  background: var(--surface-2, #1e1e1e);
+  color: var(--text-2);
+  background: var(--surface-2);
 }
 
 .editor-session-error {
   margin: 0;
   padding: 10px 24px;
-  background: rgba(248, 113, 113, 0.1);
-  color: #fca5a5;
+  background: var(--red-bg);
+  color: var(--red);
   font-size: 13px;
-  border-bottom: 1px solid rgba(248, 113, 113, 0.2);
+  border-bottom: 1px solid var(--red);
 }
 
 .editor--wizard .pipeline-status {
   flex-shrink: 0;
 }
 
+/* Fixed chrome. Everything here — the page-fit pill, Undo, Save, Reset,
+   Download PDF, zoom and the Style drawer — is needed *while* you edit, so it
+   sits outside the scrollport entirely (see .editor--doc above). */
 .editor-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -42,9 +58,8 @@
   background: var(--surface);
   color: var(--text-1);
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02);
   flex-shrink: 0;
-  z-index: 10;
+  z-index: 30;
 }
 
 .editor-toolbar-left {
@@ -63,7 +78,7 @@
 }
 
 .editor-logo {
-  color: var(--accent, #e8d5b7);
+  color: var(--accent);
 }
 
 .editor-title {
@@ -126,7 +141,7 @@
   width: clamp(160px, 18vw, 260px);
   border: 1px solid var(--border-2);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--raise-2);
   color: var(--text-1);
   padding: 0 28px 0 10px;
   font-size: 12px;
@@ -153,9 +168,9 @@
   max-width: 260px;
   padding: 7px 13px;
   border-radius: 8px;
-  border: 1px solid #3a3a3a;
-  background: #242424;
-  color: #cbd5e1;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  color: var(--text-1);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.2;
@@ -173,27 +188,27 @@
 }
 
 .editor-page-fit--fit {
-  border-color: rgba(74, 222, 128, 0.3);
-  background: rgba(74, 222, 128, 0.08);
-  color: #86efac;
+  border-color: var(--green);
+  background: var(--green-bg);
+  color: var(--green);
 }
 
 .editor-page-fit--under {
-  border-color: rgba(251, 191, 36, 0.32);
-  background: rgba(251, 191, 36, 0.08);
-  color: #fbbf24;
+  border-color: var(--amber);
+  background: var(--amber-bg);
+  color: var(--amber);
 }
 
 .editor-page-fit--tight {
-  border-color: rgba(251, 146, 60, 0.4);
-  background: rgba(251, 146, 60, 0.1);
-  color: #fdba74;
+  border-color: var(--amber);
+  background: var(--amber-bg);
+  color: var(--amber);
 }
 
 .editor-page-fit--over {
-  border-color: rgba(248, 113, 113, 0.35);
-  background: rgba(248, 113, 113, 0.1);
-  color: #fca5a5;
+  border-color: var(--red);
+  background: var(--red-bg);
+  color: var(--red);
 }
 
 /* Separates view controls / document actions / destructive actions, so the row
@@ -204,7 +219,7 @@
   min-height: 24px;
   margin-inline: 4px;
   /* border-2 (0.14 alpha) is invisible at 1px against this surface. */
-  background: rgba(255, 255, 255, 0.28);
+  background: var(--raise-3);
   flex-shrink: 0;
 }
 
@@ -226,9 +241,9 @@
   max-width: min(480px, 100%);
   padding: 5px 10px;
   border-radius: 6px;
-  background: rgba(74, 222, 128, 0.15);
-  border: 1px solid rgba(74, 222, 128, 0.35);
-  color: #86efac;
+  background: var(--green-bg);
+  border: 1px solid var(--green);
+  color: var(--green);
   font-size: 11px;
   font-weight: 500;
   line-height: 1.4;
@@ -262,7 +277,7 @@
 }
 
 .toolbar-btn--secondary:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--raise-2);
   border-color: var(--text-3);
 }
 
@@ -280,28 +295,28 @@
 /* Destructive actions are visually separated from ordinary ones. */
 .toolbar-btn--danger {
   background: transparent;
-  color: #fca5a5;
-  border: 1px solid rgba(248, 113, 113, 0.28);
+  color: var(--red);
+  border: 1px solid var(--red);
 }
 
 .toolbar-btn--danger:hover:not(:disabled) {
-  background: rgba(248, 113, 113, 0.12);
-  border-color: rgba(248, 113, 113, 0.5);
+  background: var(--red-bg);
+  border-color: var(--red);
 }
 
 .toolbar-btn--toggle-on {
   background: var(--accent-dim);
   color: var(--accent);
-  border: 1px solid rgba(173, 197, 179, 0.25);
+  border: 1px solid var(--accent);
 }
 
 .toolbar-btn--primary {
   background: var(--accent);
-  color: #0a0a0a;
+  color: var(--accent-ink);
 }
 
 .toolbar-btn--primary:hover:not(:disabled) {
-  background: #c3d9c9;
+  background: var(--accent);
 }
 
 .toolbar-btn--primary:disabled {
@@ -310,13 +325,13 @@
 }
 
 .toolbar-btn:not(.toolbar-btn--primary):not(.toolbar-btn--secondary):not(.toolbar-btn--danger) {
-  background: rgba(255, 255, 255, 0.08);
-  color: #e2e8f0;
+  background: var(--raise-2);
+  color: var(--text-1);
   padding: 8px;
 }
 
 .toolbar-btn:not(.toolbar-btn--primary):not(.toolbar-btn--secondary):not(.toolbar-btn--danger):hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--raise-3);
 }
 
 .toolbar-btn--style {
@@ -325,13 +340,13 @@
 
 .toolbar-btn--fit {
   padding-inline: 10px;
-  border: 1px solid rgba(248, 113, 113, 0.28);
-  color: #fecaca;
+  border: 1px solid var(--red);
+  color: var(--red);
 }
 
 .toolbar-btn--expand {
   padding-inline: 10px;
-  border: 1px solid rgba(173, 197, 179, 0.25);
+  border: 1px solid var(--accent);
   color: var(--accent);
 }
 
@@ -396,7 +411,7 @@
 }
 
 .editor-style-drawer__close:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--raise-2);
   color: var(--text-1);
 }
 
@@ -473,9 +488,9 @@
 }
 
 .editor-style-template--active {
-  border-color: var(--accent, #e8d5b7);
-  background: var(--accent-dim, rgba(232, 213, 183, 0.12));
-  color: var(--accent, #e8d5b7);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
 }
 
 .editor-style-group--fonts {
@@ -493,7 +508,7 @@
 .editor-style-field input {
   width: 100%;
   height: 32px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-2);
   border-radius: 7px;
   background: var(--surface-3);
   color: var(--text-1);
@@ -552,11 +567,16 @@
 }
 
 .editor-canvas {
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+  scrollbar-gutter: stable;
   padding: 32px 24px 48px;
   display: block;
   position: relative;
+  /* Deeper than --bg so the white page reads as paper sitting on a worktable
+     rather than as a slightly brighter region of the same surface. */
+  background: var(--surface-3);
 }
 
 .editor-canvas-stack {
@@ -580,13 +600,6 @@
   --canvas-width: calc(
     var(--resume-rail-width) + var(--resume-page-width) + var(--jd-panel-width)
   );
-}
-
-.editor-canvas-stack > .format-toolbar--canvas {
-  width: var(--resume-page-width);
-  max-width: calc(100% - var(--resume-rail-width));
-  margin-left: var(--resume-rail-width);
-  box-sizing: border-box;
 }
 
 .editor-canvas-inner {
@@ -613,7 +626,7 @@
 .editor-fit-bar-track {
   width: 6px;
   flex: 1;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--raise-2);
   border-radius: 3px;
   position: relative;
   overflow: hidden;
@@ -629,23 +642,23 @@
 }
 
 .editor-fit-bar-fill--fit {
-  background: rgba(82, 196, 120, 0.7);
+  background: var(--green);
 }
 
 .editor-fit-bar-fill--under {
-  background: rgba(240, 180, 41, 0.55);
+  background: var(--amber);
 }
 
 .editor-fit-bar-fill--tight {
-  background: rgba(240, 130, 50, 0.7);
+  background: var(--amber);
 }
 
 .editor-fit-bar-fill--over {
-  background: rgba(240, 112, 112, 0.75);
+  background: var(--red);
 }
 
 .editor-fit-bar-fill--checking {
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--raise-3);
 }
 
 .editor-fit-bar-pct {
@@ -666,16 +679,6 @@
   overflow: visible;
   pointer-events: none;
   visibility: hidden;
-}
-
-.editor-hint {
-  padding: 10px 24px;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-3);
-  text-align: center;
-  flex-shrink: 0;
 }
 
 .spin {
@@ -751,9 +754,9 @@
 .import-resume-banner {
   margin: 0;
   padding: 8px 24px;
-  background: rgba(248, 113, 113, 0.12);
-  border-bottom: 1px solid rgba(248, 113, 113, 0.25);
-  color: #fecaca;
+  background: var(--red-bg);
+  border-bottom: 1px solid var(--red);
+  color: var(--red);
   font-size: 12px;
   line-height: 1.4;
   flex-shrink: 0;
@@ -765,9 +768,9 @@
   display: inline-flex;
   flex-shrink: 0;
   padding: 2px;
-  border: 1px solid #3a3a3a;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: #1e1e1e;
+  background: var(--surface-2);
 }
 
 .editor-doc-switch-btn {
@@ -778,7 +781,7 @@
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: #a0a0a0;
+  color: var(--text-2);
   font-family: inherit;
   font-size: 12px;
   font-weight: 600;
@@ -789,12 +792,12 @@
 }
 
 .editor-doc-switch-btn:hover:not(:disabled) {
-  color: #e6e6e6;
+  color: var(--text-1);
 }
 
 .editor-doc-switch-btn--on {
-  background: #333;
-  color: #e6e6e6;
+  background: var(--surface-3);
+  color: var(--text-1);
 }
 
 .editor-doc-switch-btn:disabled {
@@ -812,22 +815,22 @@
   min-height: 28px;
   padding: 5px 11px;
   border-radius: 999px;
-  border: 1px solid #3a3a3a;
-  background: #242424;
+  border: 1px solid var(--border);
+  background: var(--surface-3);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
 }
 
 .editor-cl-status--running {
-  color: #cbd5e1;
+  color: var(--text-1);
 }
 
 .editor-cl-status--failed {
   max-width: 340px;
-  border-color: #7f3b3b;
-  background: #2a1d1d;
-  color: #f0b4b4;
+  border-color: var(--red);
+  background: var(--red-bg);
+  color: var(--red);
   overflow: hidden;
 }
 
@@ -835,4 +838,33 @@
   min-height: 24px;
   padding: 3px 9px;
   font-size: 11px;
+}
+
+/* Autosave status. Replaces the Save button: sessions persist on their own,
+   so this is a read-only indicator that becomes a retry button only when a
+   write fails. */
+.toolbar-autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.toolbar-autosave--saved {
+  color: var(--text-2);
+}
+
+.toolbar-autosave--saving {
+  color: var(--text-2);
+}
+
+.toolbar-autosave--error {
+  color: var(--red);
+  border-color: var(--red);
 }

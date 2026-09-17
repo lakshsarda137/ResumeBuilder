@@ -1,4 +1,5 @@
 import type { ResumeBuildTemplateId } from './resumeBuildStyle';
+import { PERSONAL } from '../personal';
 
 export type ResumeRenderTemplateId = 'classic' | 'keyword';
 
@@ -43,6 +44,8 @@ export interface ResumeRenderSettings {
   dateBold: boolean;
   dateItalic: boolean;
   skillLabelBold: boolean;
+  /** Render the name + contact line at the top. Off hides it and pulls sections up. */
+  showHeader: boolean;
   specialInstructions: string;
 }
 
@@ -56,9 +59,9 @@ export const RESUME_RENDER_TEMPLATES: ResumeRenderTemplate[] = [
   },
   {
     id: 'keyword',
-    name: 'Bold emphasis',
+    name: 'Technical',
     summary:
-      'Same structure, showing the bold emphasis the model chose inside bullets.',
+      'Same structure, with a technical keyword-forward build template.',
   },
 ];
 
@@ -69,7 +72,7 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   nameFontFamily: 'Times New Roman',
   headingFontFamily: 'Times New Roman',
   minBulletsPerExperience: 2,
-  maxBulletsPerExperience: 5,
+  maxBulletsPerExperience: 4,
   nameFontSize: 22,
   headingFontSize: 11,
   bodyFontSize: 10.5,
@@ -94,9 +97,10 @@ export const DEFAULT_RESUME_RENDER_SETTINGS: ResumeRenderSettings = {
   entryTitleBold: true,
   entryTitleItalic: true,
   subtitleItalic: true,
-  dateBold: true,
+  dateBold: false,
   dateItalic: true,
-  skillLabelBold: true,
+  skillLabelBold: false,
+  showHeader: true,
   specialInstructions: [
     'Hard one page only.',
     'Do not include entries with thin source detail.',
@@ -193,13 +197,13 @@ export function mergeResumeRenderSettings(
     pagePaddingLeft: asNumber(
       value?.pagePaddingLeft ?? legacyHorizontalPadding,
       defaults.pagePaddingLeft,
-      0.4,
+      0.3,
       0.8,
     ),
     pagePaddingRight: asNumber(
       value?.pagePaddingRight ?? legacyHorizontalPadding,
       defaults.pagePaddingRight,
-      0.4,
+      0.3,
       0.8,
     ),
     pagePaddingBottom: asNumber(
@@ -225,6 +229,7 @@ export function mergeResumeRenderSettings(
     dateBold: asBoolean(value?.dateBold, defaults.dateBold),
     dateItalic: asBoolean(value?.dateItalic, defaults.dateItalic),
     skillLabelBold: asBoolean(value?.skillLabelBold, defaults.skillLabelBold),
+    showHeader: asBoolean(value?.showHeader, defaults.showHeader),
     specialInstructions:
       typeof value?.specialInstructions === 'string'
         ? value.specialInstructions
@@ -238,7 +243,7 @@ export function mergeResumeRenderSettings(
  * and the new defaults only ever apply to fresh installs. Only the fields
  * listed in MIGRATED_FIELDS are reset; everything the user tuned is preserved.
  */
-const SETTINGS_VERSION = 2;
+const SETTINGS_VERSION = 3;
 const MIGRATED_FIELDS = [
   'minBulletsPerExperience',
   'maxBulletsPerExperience',
@@ -325,7 +330,7 @@ export function buildSettingsInstructions(
       ? 'Entry density: target 4-5 substantial experience/project entries when the source supports it. Do not underfill with only 2-3 entries unless the selected source material is genuinely thin or irrelevant.'
       : '',
     `Bullet count per selected experience/project entry: ${minBullets}-${maxBullets} bullet${maxBullets === 1 ? '' : 's'}. Give the strongest, most job-relevant entries the higher counts and weaker entries the lower ones. This is the only bullet-count instruction that applies; ignore any other count you may infer.`,
-    'Education convention: keep the degree/major line clean. Put GPA and honors/awards together in their own compact bullet, e.g. "GPA: 3.96/4.00; President\'s Honor Roll (Fall 2025)". Put coursework in a separate "Relevant Coursework:" bullet only when useful.',
+    `Education convention: keep the degree/major line clean. Three compact bullets at most, in this order: (1) GPA and honors/awards together, e.g. "${PERSONAL.promptExamples.educationHonors}"; (2) "Relevant Coursework:" with YOU choosing the courses most relevant to this job description so the bullet fits on one line, dropping the rest; (3) involvement recorded in the education notes (teaching assistant roles, teams, clubs, organizations) as one line, e.g. "${PERSONAL.promptExamples.educationInvolvement}". Never spread these across more lines than that.`,
     `Renderer style preferences: section headings ${settings.sectionHeadingUppercase ? 'uppercase' : 'title case'}, ${settings.sectionHeadingBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.sectionHeadingItalic ? 'italic' : 'not italic'}; entry titles ${settings.entryTitleBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.entryTitleItalic ? 'italic' : 'not italic'}; subtitles ${settings.subtitleItalic ? 'italic' : 'not italic'}; dates ${settings.dateBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}, ${settings.dateItalic ? 'italic' : 'not italic'}; skill labels ${settings.skillLabelBold ? `bold around ${settings.boldTextWeight}` : 'not bold'}; overall PDF ink intensity ${settings.textIntensity}%.`,
     settings.specialInstructions.trim(),
   ]

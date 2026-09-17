@@ -167,7 +167,7 @@ export function BulkResumeBuilderPage() {
     saved.provider ?? getSavedProvider(),
   );
   const [candidateProviders, setCandidateProviders] = useState<AiProvider[]>(
-    saved.candidateProviders ?? ['claude', 'chatgpt'],
+    saved.candidateProviders ?? ['claude', 'gemini'],
   );
   const [judgeProvider, setJudgeProvider] = useState<AiProvider>(
     saved.judgeProvider ?? 'claude',
@@ -341,11 +341,7 @@ export function BulkResumeBuilderPage() {
   };
 
   // ── Readiness ───────────────────────────────────────────────────────────────
-  const candidatesUnique =
-    new Set(candidateProviders).size === candidateProviders.length;
-  const generationValid =
-    genMode === 'solitary' ||
-    (candidateProviders.length >= 2 && candidatesUnique);
+  const generationValid = genMode === 'solitary' || candidateProviders.length >= 2;
   const ready =
     jobs.length > 0 && selectedSources.length > 0 && generationValid;
 
@@ -425,19 +421,21 @@ export function BulkResumeBuilderPage() {
         patchJob(index, { status: 'running' });
         setOpenJobs((prev) => new Set(prev).add(index));
         try {
-          const candidatePrompt = buildResumeFromRepositoryPrompt(
-            job.text,
-            sources,
-            styleProfile,
-            styleInstructions,
-            education ?? undefined,
-          );
           const result = await runJob({
             config,
-            candidatePrompt,
+            buildCandidatePrompt: (angle) =>
+              buildResumeFromRepositoryPrompt(
+                job.text,
+                sources,
+                styleProfile,
+                styleInstructions,
+                education ?? undefined,
+                angle,
+              ),
             jobDescription: job.text,
             styleInstructions,
             sources,
+            education,
             senders,
             onSlot: (slotId, slotPatch) => patchSlot(index, slotId, slotPatch),
             isCancelled: () => cancelRef.current,
@@ -496,7 +494,7 @@ export function BulkResumeBuilderPage() {
   const pct = total ? Math.round((generated / total) * 100) : 0;
 
   return (
-    <div className="page bulk-page">
+    <div className="page page--wide bulk-page">
       <div className="page-header">
         <div>
           <h1 className="page-title">
@@ -699,14 +697,10 @@ export function BulkResumeBuilderPage() {
                     ))}
                   </select>
                 </label>
-                {!candidatesUnique ? (
-                  <p className="bulk-error">Each candidate must use a different model.</p>
-                ) : (
-                  <p className="bulk-muted bulk-rubric-note">
-                    The judge gives each candidate an ATS score out of 100, then
-                    writes the final resume.
-                  </p>
-                )}
+                <p className="bulk-muted bulk-rubric-note">
+                  The judge gives each candidate a recruiter score out of 100 (would they interview this person), then
+                  writes the final resume.
+                </p>
               </>
             )}
           </section>

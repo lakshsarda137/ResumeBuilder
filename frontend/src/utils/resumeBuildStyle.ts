@@ -57,8 +57,6 @@ export const RESUME_BUILD_TEMPLATES: ResumeBuildStyleProfile[] = [
     ],
     formattingRules: [
       'Use very compact titles and subtitles.',
-      'Use semicolon-separated skill categories where possible.',
-      'Stay at the low end of the bold emphasis budget; this density cannot absorb visual noise.',
     ],
   },
   {

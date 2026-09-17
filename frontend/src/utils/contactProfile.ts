@@ -7,25 +7,30 @@
  * told these are the contact facts, and `ensureContactProfile` guarantees it
  * afterwards regardless of what the model returned.
  *
- * URLs are stored in DISPLAY form (no scheme, no trailing slash). A header line
- * has to carry five facts on one line, and "https://www." is pure cost there.
+ * Profile URLs never appear on the page: LinkedIn and GitHub carry a `label`,
+ * and the header shows that word ("LinkedIn", "GitHub") hyperlinked to the
+ * URL in `value`.
  *
- * To change a value, edit it here — this is the single authority, and both
- * documents pick it up on the next build.
+ * The values come from the personal profile (src/personal): the real ones
+ * live in the gitignored personal.local.ts. Edit them there; both documents
+ * pick them up on the next build.
  */
 import type { ContactInfo, ContactLink } from '../types/resume';
+import { PERSONAL } from '../personal';
 
-export const CONTACT_PROFILE_NAME = 'Laksh Sarda';
+export const CONTACT_PROFILE_NAME = PERSONAL.contact.name;
 
 /**
  * One canonical contact fact. `matches` identifies the same fact already
  * present in a header under a different spelling, so a resume that already
- * says "linkedin.com/in/lakshsarda" is left alone rather than gaining a
+ * says "linkedin.com/in/<handle>" is left alone rather than gaining a
  * duplicate LinkedIn entry.
  */
 export interface ContactProfileEntry {
   id: string;
   value: string;
+  /** Anchor text shown instead of the URL. */
+  label?: string;
   matches: (existing: string) => boolean;
 }
 
@@ -36,12 +41,12 @@ function digitCount(value: string): number {
 export const CONTACT_PROFILE: ContactProfileEntry[] = [
   {
     id: 'contact-email',
-    value: 'lakshsarda137@gmail.com',
+    value: PERSONAL.contact.email,
     matches: (existing) => existing.includes('@'),
   },
   {
     id: 'contact-phone',
-    value: '(979) 327-8075',
+    value: PERSONAL.contact.phone,
     // A phone is the only header fact that is mostly digits; 7+ of them in a
     // value that is not an email or URL is unambiguous.
     matches: (existing) =>
@@ -49,19 +54,21 @@ export const CONTACT_PROFILE: ContactProfileEntry[] = [
   },
   {
     id: 'contact-linkedin',
-    value: 'linkedin.com/in/lakshsarda',
+    value: PERSONAL.contact.linkedin,
+    label: 'LinkedIn',
     matches: (existing) => /linkedin\./i.test(existing),
   },
   {
     id: 'contact-github',
-    value: 'github.com/lakshsarda137',
+    value: PERSONAL.contact.github,
+    label: 'GitHub',
     matches: (existing) => /github\./i.test(existing),
   },
 ];
 
 /**
  * Format a raw phone number the way a US resume header displays one.
- * "+1 9793278075" and "9793278075" both become "(979) 327-8075". The country
+ * "+1 5555550100" and "5555550100" both become "(555) 555-0100". The country
  * code is dropped: it is noise on a resume aimed at the US market, and the
  * user's existing resume already omits it.
  */
@@ -76,16 +83,29 @@ export function formatUsPhone(raw: string): string {
 
 /**
  * Append any canonical contact fact the header is missing, preserving whatever
- * is already there (including extras like "Houston, TX", and including values
- * the user has hand-edited). Never reorders and never overwrites — the only
- * operation is "add what is absent".
+ * is already there (including extras like a "City, ST" location, and including values
+ * the user has hand-edited). Never reorders and never overwrites a value; the
+ * only other change is giving a profile link its canonical label when it has
+ * none, so a header never shows a bare LinkedIn/GitHub URL.
  */
 export function ensureContactProfile(contact: ContactInfo): ContactInfo {
-  const links: ContactLink[] = contact.links.filter((link) => link.value.trim().length > 0);
+  const links: ContactLink[] = contact.links
+    .filter((link) => link.value.trim().length > 0)
+    .map((link) => {
+      if (link.label?.trim()) {
+        return link;
+      }
+      const label = CONTACT_PROFILE.find((entry) => entry.label && entry.matches(link.value))?.label;
+      return label ? { ...link, label } : link;
+    });
 
   const missing = CONTACT_PROFILE.filter(
     (entry) => !links.some((link) => entry.matches(link.value)),
-  ).map((entry) => ({ id: entry.id, value: entry.value }));
+  ).map((entry) => ({
+    id: entry.id,
+    value: entry.value,
+    ...(entry.label ? { label: entry.label } : {}),
+  }));
 
   return {
     name: contact.name.trim() || CONTACT_PROFILE_NAME,
@@ -97,7 +117,11 @@ export function ensureContactProfile(contact: ContactInfo): ContactInfo {
 export function describeContactProfile(): string {
   return [
     `Name: ${CONTACT_PROFILE_NAME}`,
-    ...CONTACT_PROFILE.map((entry) => `- ${entry.value}`),
+    ...CONTACT_PROFILE.map((entry) =>
+      entry.label
+        ? `- ${entry.value} (shown as the hyperlinked word "${entry.label}": set "label": "${entry.label}")`
+        : `- ${entry.value}`,
+    ),
   ].join('\n');
 }
 

@@ -25,3 +25,13 @@ __pycache__/
 *.njsproj
 *.sln
 *.sw?
+
+# Personal data — real contact details, starter resume, and prompt examples.
+# See frontend/src/personal/personal.example.ts for the committed stand-in.
+frontend/src/personal/personal.local.ts
+*.local.ts
+.env*
+*.db
+*.sqlite*
+*.docx
+.claude/

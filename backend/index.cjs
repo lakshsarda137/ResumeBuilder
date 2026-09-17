@@ -67,6 +67,21 @@ db.exec(`
   );
 `);
 
+// Optional project/experience links (added later): hyperlinked on the resume
+// as "Title | GitHub | Website" with per-item editable labels.
+for (const col of ['github_url', 'github_label', 'website_url', 'website_label']) {
+  const has = db.prepare("SELECT 1 FROM pragma_table_info('repo_items') WHERE name = ?").get(col);
+  if (!has) db.exec(`ALTER TABLE repo_items ADD COLUMN ${col} TEXT`);
+}
+
+// Education start date (added later): the resume must always show the school as a
+// "Mon YYYY – Mon YYYY" range, so the enrolment date is stored alongside graduation.
+{
+  const has = db.prepare("SELECT 1 FROM pragma_table_info('education_items') WHERE name = ?").get('start_date');
+  if (!has) db.exec('ALTER TABLE education_items ADD COLUMN start_date TEXT');
+}
+
+
 db.prepare(`INSERT OR IGNORE INTO education_meta (id) VALUES ('default')`).run();
 
 const app = express();
@@ -414,6 +429,92 @@ app.post('/api/docx/text', (req, res) => {
 const GEMINI_ATTACH_DIR = path.join(os.tmpdir(), 'resume-gemini-attach');
 const GEMINI_ATTACH_TTL_MS = 10 * 60 * 1000;
 
+/* ── LATEX PDF ──────────────────────────────────────────────────────────── */
+
+const LATEX_BUILD_DIR = path.join(DATA_DIR, 'latex-build');
+
+function findTectonic() {
+  const candidates = [
+    process.env.TECTONIC_PATH,
+    '/opt/homebrew/bin/tectonic',
+    '/usr/local/bin/tectonic',
+    'tectonic',
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    if (path.isAbsolute(candidate)) {
+      if (fs.existsSync(candidate)) return candidate;
+      continue;
+    }
+    const result = spawnSync(candidate, ['--version'], { encoding: 'utf8', stdio: 'ignore' });
+    if (!result.error && result.status === 0) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Compile a LaTeX source string to PDF with Tectonic. The .tex is written to a
+ * fresh temp dir so concurrent downloads never collide; the dir is removed
+ * after the response. Page count comes from the engine log, which is the only
+ * reliable source once the PDF's object streams are compressed.
+ */
+app.post('/api/latex/pdf', (req, res) => {
+  const { tex, filename } = req.body ?? {};
+  if (typeof tex !== 'string' || !tex.trim()) {
+    return res.status(400).json({ error: 'tex required' });
+  }
+  const tectonic = findTectonic();
+  if (!tectonic) {
+    return res.status(503).json({
+      error:
+        'Tectonic (LaTeX engine) is not installed. Install it with `brew install tectonic`, then restart the API server.',
+    });
+  }
+
+  fs.mkdirSync(LATEX_BUILD_DIR, { recursive: true });
+  const dir = fs.mkdtempSync(path.join(LATEX_BUILD_DIR, 'b-'));
+  const texPath = path.join(dir, 'resume.tex');
+  fs.writeFileSync(texPath, tex, 'utf8');
+
+  try {
+    const result = spawnSync(
+      tectonic,
+      ['-X', 'compile', '--keep-logs', '--outdir', dir, texPath],
+      { encoding: 'utf8', timeout: 120_000 },
+    );
+    const log = (() => {
+      try {
+        return fs.readFileSync(path.join(dir, 'resume.log'), 'utf8');
+      } catch {
+        return '';
+      }
+    })();
+    const pdfPath = path.join(dir, 'resume.pdf');
+    if (result.status !== 0 || !fs.existsSync(pdfPath)) {
+      // Surface the first real TeX error line, which is what the user needs
+      // to fix the source in Overleaf, rather than the whole log.
+      const errorLine =
+        log.split('\n').find((line) => line.startsWith('!')) ||
+        (result.stderr || '').split('\n').find((line) => line.trim()) ||
+        'LaTeX compile failed.';
+      return res.status(422).json({ error: errorLine.trim(), log: log.slice(-6000) });
+    }
+    const pageMatch = log.match(/Output written on [^(]*\((\d+) pages?/);
+    const pages = pageMatch ? Number(pageMatch[1]) : null;
+    const pdf = fs.readFileSync(pdfPath);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safePdfFilename(filename)}"`);
+    res.setHeader('X-Page-Count', pages == null ? '' : String(pages));
+    res.setHeader('Access-Control-Expose-Headers', 'X-Page-Count');
+    res.send(pdf);
+  } finally {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* already gone */
+    }
+  }
+});
+
 app.post('/api/tmpfile', (req, res) => {
   const { base64, text, filename } = req.body ?? {};
   if (!filename || typeof filename !== 'string') {
@@ -458,14 +559,17 @@ app.get('/api/repo', (_req, res) => {
 });
 
 app.post('/api/repo', (req, res) => {
-  const { type, title, company, position, start_date, end_date, mode, content } = req.body;
+  const { type, title, company, position, start_date, end_date, mode, content,
+    github_url, github_label, website_url, website_label } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'title required' });
   const id = nowId();
   db.prepare(`
-    INSERT INTO repo_items (id, type, title, company, position, start_date, end_date, mode, content)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO repo_items (id, type, title, company, position, start_date, end_date, mode, content,
+      github_url, github_label, website_url, website_label)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, type ?? 'experience', title.trim(), company ?? null, position ?? null,
-    start_date ?? null, end_date ?? null, mode ?? 'optimized', content ?? '');
+    start_date ?? null, end_date ?? null, mode ?? 'optimized', content ?? '',
+    github_url || null, github_label || null, website_url || null, website_label || null);
   res.json(db.prepare('SELECT * FROM repo_items WHERE id = ?').get(id));
 });
 
@@ -477,7 +581,8 @@ app.delete('/api/repo', (_req, res) => {
 app.patch('/api/repo/:id', (req, res) => {
   const item = db.prepare('SELECT * FROM repo_items WHERE id = ?').get(req.params.id);
   if (!item) return res.status(404).json({ error: 'not found' });
-  const fields = ['type','title','company','position','start_date','end_date','mode','content'];
+  const fields = ['type','title','company','position','start_date','end_date','mode','content',
+    'github_url','github_label','website_url','website_label'];
   const updates = {};
   for (const f of fields) {
     if (req.body[f] !== undefined) updates[f] = req.body[f];
@@ -504,17 +609,18 @@ app.get('/api/education', (_req, res) => {
 });
 
 app.post('/api/education', (req, res) => {
-  const { school, degree, major, grad_date, gpa, location, coursework } = req.body;
+  const { school, degree, major, start_date, grad_date, gpa, location, coursework } = req.body;
   if (!school?.trim()) return res.status(400).json({ error: 'school required' });
   const id = nowId();
   db.prepare(`
-    INSERT INTO education_items (id, school, degree, major, grad_date, gpa, location, coursework)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO education_items (id, school, degree, major, start_date, grad_date, gpa, location, coursework)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     school.trim(),
     degree ?? null,
     major ?? null,
+    start_date ?? null,
     grad_date ?? null,
     gpa ?? null,
     location ?? null,
@@ -551,7 +657,7 @@ app.patch('/api/education/meta', (req, res) => {
 app.patch('/api/education/:id', (req, res) => {
   const item = db.prepare('SELECT * FROM education_items WHERE id = ?').get(req.params.id);
   if (!item) return res.status(404).json({ error: 'not found' });
-  const fields = ['school', 'degree', 'major', 'grad_date', 'gpa', 'location', 'coursework'];
+  const fields = ['school', 'degree', 'major', 'start_date', 'grad_date', 'gpa', 'location', 'coursework'];
   const updates = {};
   for (const f of fields) {
     if (req.body[f] !== undefined) updates[f] = req.body[f];

@@ -1,17 +1,22 @@
+/* Fully tokenised. This file used to carry its own parallel dark palette —
+   #333 #444 #555 #363636 #666 #777 #c8c8c8 #f0f0f0 and the *previous* accent
+   #e8d5b7 — so the strip stayed dark grey with a beige active state no matter
+   what the rest of the app did. Nothing here may hardcode a colour. */
+
 .format-toolbar {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 8px 24px;
-  background: #1d1d1d;
-  border-bottom: 1px solid #2a2a2a;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .format-toolbar-label {
   font-size: 11px;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-right: 4px;
@@ -24,38 +29,37 @@
   justify-content: center;
   width: 30px;
   height: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #cbd5e1;
+  background: var(--surface-2);
+  color: var(--text-1);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
   flex-shrink: 0;
 }
 
 .format-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  background: var(--surface-3);
 }
 
 .format-btn:disabled {
-  opacity: 0.35;
+  opacity: 0.38;
   cursor: not-allowed;
 }
 
 .format-btn--active {
-  background: var(--accent-dim, rgba(232, 213, 183, 0.12));
-  border-color: rgba(232, 213, 183, 0.35);
-  color: var(--accent, #e8d5b7);
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .format-select {
   height: 28px;
   min-width: 118px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-2);
   border-radius: 6px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #e2e8f0;
+  background: var(--surface-2);
+  color: var(--text-1);
   font-size: 12px;
   font-family: inherit;
   padding: 0 8px;
@@ -63,7 +67,7 @@
 }
 
 .format-select:disabled {
-  opacity: 0.35;
+  opacity: 0.38;
   cursor: not-allowed;
 }
 
@@ -74,7 +78,9 @@
 .format-toolbar-hint {
   margin-left: 4px;
   font-size: 11px;
-  color: #64748b;
+  /* Was #777 — 3.64:1, under AA. --text-3 is measured to clear it on every
+     surface in the set. */
+  color: var(--text-3);
   white-space: nowrap;
 }
 
@@ -90,66 +96,37 @@
   flex-shrink: 0;
 }
 
-/* Canvas toolbar — dark bar above the resume page */
+/* Dock toolbar — the editor's own formatting bar. It is a sibling of the
+   scrolling canvas, not a child, so it stays put without any sticky trickery
+   and never overlaps the document. The earlier version was a rounded tab
+   attached to the top of the page *inside* the scrollport; sticking it there
+   was the only way to keep it reachable, and the cost was that it floated over
+   the résumé and hid the top of whatever you were reading. */
+.format-toolbar--dock {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 7px 24px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Canvas toolbar — a tab attached to the top of a preview page. Only the result
+   modal uses it now, where the stack is static, so it needs no sticky and never
+   covers anything. */
 .format-toolbar--canvas {
-  background: #202020;
-  border: 1px solid #3a3a3a;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-bottom: none;
   border-radius: 6px 6px 0 0;
   padding: 7px 10px;
   gap: 6px;
 }
 
-.format-toolbar--canvas .format-toolbar-label {
-  color: #888;
-}
-
-.format-toolbar--canvas .format-btn {
-  border-color: #555;
-  background: #363636;
-  color: #f0f0f0;
-}
-
-.format-toolbar--canvas .format-btn:hover:not(:disabled) {
-  background: #454545;
-  border-color: #666;
-  color: #fff;
-}
-
-.format-toolbar--canvas .format-btn:disabled {
-  opacity: 1;
-  color: #666;
-  background: #333;
-  border-color: #444;
-}
-
-.format-toolbar--canvas .format-btn--active {
-  background: rgba(232, 213, 183, 0.15);
-  border-color: #e8d5b7;
-  color: #e8d5b7;
-}
-
-.format-toolbar--canvas .format-select {
-  border-color: #555;
-  background: #363636;
-  color: #f0f0f0;
-}
-
-.format-toolbar--canvas .format-select:disabled {
-  opacity: 1;
-  color: #666;
-  background: #333;
-}
-
-.format-toolbar--canvas .format-toolbar-hint {
-  color: #777;
-}
-
 .format-toolbar-jd-btn {
-  border: 1px solid #555;
+  border: 1px solid var(--border-2);
   border-radius: 6px;
-  background: #363636;
-  color: #c8c8c8;
+  background: var(--surface-2);
+  color: var(--text-2);
   font-size: 12px;
   font-weight: 500;
   font-family: inherit;
@@ -160,13 +137,12 @@
 }
 
 .format-toolbar-jd-btn:hover {
-  background: #454545;
-  border-color: #666;
-  color: #f0f0f0;
+  background: var(--surface-3);
+  color: var(--text-1);
 }
 
 .format-toolbar-jd-btn--on {
-  background: rgba(232, 213, 183, 0.12);
-  border-color: #e8d5b7;
-  color: #e8d5b7;
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
 }

@@ -18,6 +18,10 @@ interface RepoItem {
   end_date: string | null;
   mode: Mode;
   content: string;
+  github_url?: string | null;
+  github_label?: string | null;
+  website_url?: string | null;
+  website_label?: string | null;
   created_at: string;
 }
 
@@ -30,11 +34,16 @@ interface FormState {
   end_date: string;
   mode: Mode;
   content: string;
+  github_url: string;
+  github_label: string;
+  website_url: string;
+  website_label: string;
 }
 
 const EMPTY_FORM: FormState = {
   type: 'experience', title: '', company: '', position: '',
   start_date: '', end_date: '', mode: 'optimized', content: '',
+  github_url: '', github_label: '', website_url: '', website_label: '',
 };
 
 const OPTIMIZED_TIPS = [
@@ -49,7 +58,62 @@ function itemToForm(item: RepoItem): FormState {
     type: item.type, title: item.title, company: item.company ?? '',
     position: item.position ?? '', start_date: item.start_date ?? '',
     end_date: item.end_date ?? '', mode: item.mode, content: item.content,
+    github_url: item.github_url ?? '', github_label: item.github_label ?? '',
+    website_url: item.website_url ?? '', website_label: item.website_label ?? '',
   };
+}
+
+/** Shared GitHub / Website link fields for the create and edit forms. */
+function LinkFields({ form, setForm }: {
+  form: FormState;
+  setForm: React.Dispatch<React.SetStateAction<FormState>>;
+}) {
+  const set = (key: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [key]: e.target.value }));
+  return (
+    <>
+      <div className="form-row">
+        <div className="field">
+          <label>GitHub URL <span className="field-hint">(optional)</span></label>
+          <input value={form.github_url} onChange={set('github_url')} placeholder="https://github.com/you/repo" />
+        </div>
+        <div className="field">
+          <label>GitHub link text</label>
+          <input value={form.github_label} onChange={set('github_label')} placeholder="GitHub" disabled={!form.github_url.trim()} />
+        </div>
+      </div>
+      <div className="form-row">
+        <div className="field">
+          <label>Website URL <span className="field-hint">(optional)</span></label>
+          <input value={form.website_url} onChange={set('website_url')} placeholder="https://your-project.app" />
+        </div>
+        <div className="field">
+          <label>Website link text</label>
+          <input value={form.website_label} onChange={set('website_label')} placeholder="Website — e.g. Play Online, Live Demo" disabled={!form.website_url.trim()} />
+        </div>
+      </div>
+      <p className="field-hint repo-links-hint">
+        On the resume these render after the title as <em>Title | GitHub | Website</em>, each a clickable link. Leave a URL blank to omit it; change the link text to whatever fits (e.g. "Play Online").
+      </p>
+    </>
+  );
+}
+
+function withNullLinks(form: FormState) {
+  return {
+    ...form,
+    github_url: form.github_url.trim() || null,
+    github_label: form.github_url.trim() ? form.github_label.trim() || null : null,
+    website_url: form.website_url.trim() || null,
+    website_label: form.website_url.trim() ? form.website_label.trim() || null : null,
+  };
+}
+
+function itemLinks(item: RepoItem): Array<{ label: string; url: string }> {
+  const out: Array<{ label: string; url: string }> = [];
+  if (item.github_url?.trim()) out.push({ label: item.github_label?.trim() || 'GitHub', url: item.github_url.trim() });
+  if (item.website_url?.trim()) out.push({ label: item.website_label?.trim() || 'Website', url: item.website_url.trim() });
+  return out;
 }
 
 export function RepositoryPage() {
@@ -80,7 +144,7 @@ export function RepositoryPage() {
       await fetch('/api/repo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(withNullLinks(form)),
       });
       setForm(EMPTY_FORM);
       setShowForm(false);
@@ -103,7 +167,7 @@ export function RepositoryPage() {
       const r = await fetch(`/api/repo/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(withNullLinks(editForm)),
       });
       const updated: RepoItem = await r.json();
       setItems(prev => prev.map(i => i.id === id ? updated : i));
@@ -191,6 +255,7 @@ export function RepositoryPage() {
                 <input type="month" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} placeholder="Leave blank if ongoing" />
               </div>
             </div>
+            <LinkFields form={form} setForm={setForm} />
             <div className="repo-mode-toggle">
               <button type="button" className={`repo-mode-btn${form.mode === 'optimized' ? ' repo-mode-btn--active' : ''}`} onClick={() => setForm(f => ({ ...f, mode: 'optimized' }))}>Resume-optimized bullets</button>
               <button type="button" className={`repo-mode-btn${form.mode === 'freewrite' ? ' repo-mode-btn--active' : ''}`} onClick={() => setForm(f => ({ ...f, mode: 'freewrite' }))}>Freewrite (AI will optimize later)</button>
@@ -241,6 +306,16 @@ export function RepositoryPage() {
                       <h3 className="repo-item-title">{item.title}</h3>
                       {(item.company || item.position) && (
                         <p className="repo-item-sub">{[item.position, item.company].filter(Boolean).join(' · ')}</p>
+                      )}
+                      {itemLinks(item).length > 0 && (
+                        <p className="repo-item-links">
+                          {itemLinks(item).map((l, i) => (
+                            <span key={l.url}>
+                              {i > 0 && <span className="repo-item-links-sep"> | </span>}
+                              <a href={l.url} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}>{l.label}</a>
+                            </span>
+                          ))}
+                        </p>
                       )}
                     </div>
                     <div className="repo-item-right">
@@ -295,6 +370,7 @@ export function RepositoryPage() {
                             <input type="month" value={editForm.end_date} onChange={e => setEditForm(f => ({ ...f, end_date: e.target.value }))} />
                           </div>
                         </div>
+                        <LinkFields form={editForm} setForm={setEditForm} />
                         <div className="repo-mode-toggle">
                           <button type="button" className={`repo-mode-btn${editForm.mode === 'optimized' ? ' repo-mode-btn--active' : ''}`} onClick={() => setEditForm(f => ({ ...f, mode: 'optimized' }))}>Resume-optimized</button>
                           <button type="button" className={`repo-mode-btn${editForm.mode === 'freewrite' ? ' repo-mode-btn--active' : ''}`} onClick={() => setEditForm(f => ({ ...f, mode: 'freewrite' }))}>Freewrite</button>

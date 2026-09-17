@@ -4,6 +4,7 @@ export interface RepoImportEducation {
   school: string;
   degree?: string;
   major?: string;
+  start_date?: string;
   grad_date?: string;
   gpa?: string;
   location?: string;

@@ -7,7 +7,7 @@ export type DiffChangeKind = 'added' | 'removed' | 'modified';
 export interface ResumeDiffChange {
   id: string;
   kind: DiffChangeKind;
-  /** e.g. "Experience · Checkmate" */
+  /** e.g. "Experience · Acme Labs" */
   location: string;
   /** e.g. "Bullet 2" */
   label: string;
@@ -106,7 +106,7 @@ function flattenResume(data: ResumeData): Map<string, FlatItem> {
       sortKey: `01-contact-link-${String(index).padStart(3, '0')}-${link.id}`,
       location: 'Contact',
       label: 'Link',
-      text: link.value,
+      text: link.label ? `${link.label}: ${link.value}` : link.value,
     });
   });
 
@@ -138,9 +138,11 @@ function flattenResume(data: ResumeData): Map<string, FlatItem> {
 
       const scalarFields: Array<[string, string, string]> = [
         ['title', 'Title', entry.title],
+        ['titleNote', 'Title note', entry.titleNote ?? ''],
         ['subtitle', 'Role / subtitle', entry.subtitle],
         ['date', 'Date', entry.date],
         ['location', 'Location', entry.location],
+        ['links', 'Links', (entry.links ?? []).map((l) => `${l.label}: ${l.url}`).join(' | ')],
       ];
 
       for (const [field, fieldLabel, value] of scalarFields) {

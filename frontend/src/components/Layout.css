@@ -76,15 +76,27 @@
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  /* Reserve the scrollbar track always. Without it, expanding a wizard panel
+     introduces a scrollbar and shifts the entire centred column ~12px left
+     mid-interaction. */
+  scrollbar-gutter: stable;
 }
 
 /* ── Page shell shared styles ────────────────────────── */
 /* Centered rather than flush-left: the max-width already caps the measure, so
-   left-aligning it stranded every short page against a wide empty right half. */
+   left-aligning it stranded every short page against a wide empty right half.
+   One measure for every page. There used to be three — .page 900, the wizard
+   920, Settings 980 — so walking Repository → Resume Builder → Settings shifted
+   the left edge of the content twice for no reason. Surfaces that genuinely
+   need two columns take .page--wide instead of inventing their own number. */
 .page {
   padding: 36px 40px;
-  max-width: 900px;
+  max-width: var(--page-measure, 900px);
   margin-inline: auto;
+}
+
+.page--wide {
+  --page-measure: 1120px;
 }
 
 .page-header {
@@ -140,11 +152,11 @@
 
 .btn--primary {
   background: var(--accent);
-  color: #0f0f0f;
+  color: var(--accent-ink);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: #f0dfc8;
+  background: var(--accent-strong);
 }
 
 .btn--secondary {
@@ -170,13 +182,13 @@
 }
 
 .btn--danger {
-  background: var(--red-bg);
+  background: transparent;
   color: var(--red);
-  border: 1px solid rgba(248,113,113,0.2);
+  border: 1px solid var(--red);
 }
 
 .btn--danger:hover:not(:disabled) {
-  background: rgba(248,113,113,0.15);
+  background: var(--red-bg);
 }
 
 .btn--sm {
@@ -258,7 +270,7 @@
 }
 
 .badge--amber {
-  background: rgba(251,191,36,0.1);
+  background: var(--amber-bg);
   color: var(--amber);
 }
 

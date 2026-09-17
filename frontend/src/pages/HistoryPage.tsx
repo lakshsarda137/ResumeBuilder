@@ -124,7 +124,7 @@ export function HistoryPage() {
               <div className="history-card-actions">
                 <button
                   type="button"
-                  className="btn btn--primary history-open-btn"
+                  className="btn btn--secondary history-open-btn"
                   onClick={() => handleOpen(session.id)}
                 >
                   <ExternalLink size={14} />

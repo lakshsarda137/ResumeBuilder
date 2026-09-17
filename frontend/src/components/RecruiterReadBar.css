@@ -1,0 +1,71 @@
+/* Docked in the fixed chrome above the page, like the session error strip, so
+   the summary stays visible while scrolling the resume it describes. */
+.recruiter-read {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-1);
+  flex-shrink: 0;
+}
+
+.recruiter-read--failed {
+  background: var(--red-bg);
+  border-bottom-color: var(--red);
+  color: var(--red);
+}
+
+.recruiter-read__icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.recruiter-read--failed .recruiter-read__icon {
+  color: var(--red);
+}
+
+.recruiter-read__body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.recruiter-read__label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.recruiter-read__meta {
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.recruiter-read__text {
+  margin: 3px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  max-width: 90ch;
+}
+
+.recruiter-read__text--muted {
+  color: var(--text-2);
+}
+
+.recruiter-read__action {
+  flex-shrink: 0;
+  align-self: center;
+}
+
+@media (max-width: 640px) {
+  .recruiter-read {
+    flex-wrap: wrap;
+    padding: 10px 16px;
+  }
+}

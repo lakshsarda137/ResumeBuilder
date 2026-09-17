@@ -1,4 +1,4 @@
-/* Resume template — matches Laksh Sarda PDF layout (LaTeX-style single column) */
+/* Resume template — matches the reference PDF layout (LaTeX-style single column) */
 
 /* The gutter width is owned by --resume-rail-width, declared on
    .editor-canvas-stack in ResumeEditor.css. It MUST come from that variable and
@@ -69,10 +69,43 @@
   user-select: none;
 }
 
+/* Hyperlinks (contact header + entry titles). Keep the printed look identical
+   to plain text — the href still becomes a clickable annotation in the PDF. */
+.resume-link {
+  /* Real hyperlinks (contact email/LinkedIn/GitHub, entry GitHub/Website) sit
+     in a subtle navy so a reader knows they are clickable, no underline. The
+     LaTeX export colours the same anchors (hyperref urlcolor). */
+  color: #1f497d;
+  text-decoration: none;
+}
+
+.resume-entry-title-link {
+  display: inline;
+}
+
+/* "Title | GitHub | Play Online" — the link labels and the title note
+   ("Acme Labs | LaunchPad Accelerator ...") sit on the title line. House style bolds only
+   the entry name itself, so both stay at body weight. */
+.resume-entry-link-item,
+.resume-entry-title-note-item {
+  display: inline;
+}
+
+.resume-entry-link-label,
+.resume-entry-title-note {
+  font-weight: var(--resume-body-weight, 400);
+  font-style: var(--resume-entry-title-style, italic);
+}
+
 /* Sections */
 .resume-section {
   margin-top: var(--resume-section-spacing, 6pt);
   position: relative;
+}
+
+/* With the header hidden, the first section sits flush at the top margin. */
+.resume-page--no-header > .resume-section:first-child {
+  margin-top: 0;
 }
 
 .resume-section-header {
@@ -213,12 +246,12 @@
 }
 
 .editable:hover {
-  background: rgba(59, 130, 246, 0.06);
+  background: rgba(47, 92, 66, 0.055);
 }
 
 .editable:focus {
-  background: rgba(59, 130, 246, 0.1);
-  box-shadow: 0 0 0 1.5px rgba(59, 130, 246, 0.45);
+  background: rgba(47, 92, 66, 0.10);
+  box-shadow: 0 0 0 1.5px rgba(47, 92, 66, 0.5);
 }
 
 .editable--empty:not(:focus)::before {
@@ -228,13 +261,17 @@
   pointer-events: none;
 }
 
-/* Editor controls — positioned outside page flow */
+/* Editor controls — positioned outside page flow.
+   These sit ON the page, which is white paper in every theme, so they are the
+   one place that legitimately pins its own colours rather than taking tokens.
+   Retinted off slate-blue (#cbd5e1 / #f8fafc / #475569) onto the app's
+   green-grey neutrals so the controls read as part of the same product. */
 .resume-control {
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 10px;
-  border: 1px dashed #cbd5e1;
-  background: #f8fafc;
-  color: #475569;
+  border: 1px dashed #cfd6cd;
+  background: #f4f7f3;
+  color: #4d524b;
   border-radius: 4px;
   padding: 1px 6px;
   cursor: pointer;
@@ -243,9 +280,9 @@
 }
 
 .resume-control:hover {
-  background: #e2e8f0;
-  border-color: #94a3b8;
-  color: #1e293b;
+  background: #e4eae2;
+  border-color: #9aa398;
+  color: #161a15;
 }
 
 /* Add-controls sit WITH the content they act on, revealed on hover, instead of
@@ -281,6 +318,15 @@
 .resume-section:focus-within > .resume-control--rail,
 .resume-skills:hover .resume-control--rail,
 .resume-skills:focus-within .resume-control--rail {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Backstop: a keyboard tab can land on any of these before its container's
+   :focus-within fires (or on one whose container has no such rule), which is how
+   Tab used to walk onto an invisible "×" that deletes a contact line. Anything
+   focused reveals itself, whatever else is or isn't hovered. */
+.resume-control:focus-visible {
   opacity: 1;
   pointer-events: auto;
 }
@@ -354,7 +400,8 @@
   background: #fef2f2;
 }
 
-.resume-contact-inline:hover .resume-control--remove-contact {
+.resume-contact-inline:hover .resume-control--remove-contact,
+.resume-contact-inline:focus-within .resume-control--remove-contact {
   opacity: 1;
 }
 
@@ -374,6 +421,26 @@
   font-size: 9px;
   padding: 0 4px;
   vertical-align: middle;
+}
+
+/* Editing-only URL chip beside an entry title. It carries .resume-control so
+   both PDF export paths strip it from the printed page. */
+.resume-control--url-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 9px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.resume-control--url-chip .resume-entry-url {
+  font-size: 9px;
+  font-weight: 400;
+  font-style: normal;
+  min-width: 60px;
 }
 
 /* Print / PDF export */

@@ -3,6 +3,7 @@ import {
   Bot,
   Clipboard,
   Database,
+  Mail,
   Eye,
   FileText,
   FileUp,
@@ -17,6 +18,7 @@ import {
 import type { AiChatSession } from '../types/aiSession';
 import type { BridgeDebugEvent } from '../hooks/useAiBridge';
 import type { EducationData } from '../types/education';
+import { enforceEducationGraduationDates } from '../utils/educationDates';
 import type { RepoItem, RepositorySource } from '../types/repository';
 import type { ResumeData } from '../types/resume';
 import type {
@@ -40,6 +42,10 @@ import {
   saveCoverLetterEnabled,
   getSavedCoverLetterProvider,
   saveCoverLetterProvider,
+  getSavedCouncilCandidates,
+  saveCouncilCandidates,
+  getSavedCouncilJudge,
+  saveCouncilJudge,
   type AiProvider,
 } from '../utils/aiProviders';
 import {
@@ -52,6 +58,11 @@ import {
   estimateWizardPromptTokens,
 } from '../utils/aiPrompt';
 import { sendLargePromptAndWait } from '../utils/promptDelivery';
+import {
+  councilAngleForSlot,
+  councilAngleLabel,
+  type CouncilDraftAngle,
+} from '../utils/councilAngles';
 import {
   getResumeBuildTemplate,
 } from '../utils/resumeBuildStyle';
@@ -70,6 +81,9 @@ import {
   parseCouncilJudgeResponse,
 } from '../utils/parseResumeResponse';
 import type { CoverLetterRequest } from '../utils/coverLetterRun';
+import type { CoverLetterData } from '../types/coverLetter';
+import { buildCoverLetterFromPdfPrompt } from '../utils/coverLetterPrompt';
+import { parseCoverLetterWithResumeResponse } from '../utils/parseCoverLetterResponse';
 import { readPdfFileAsBase64 } from '../utils/pdf';
 import {
   fetchRepositorySources,
@@ -90,7 +104,7 @@ import { PipelineStatus } from './PipelineStatus';
 import type { PipelineEvent, PipelineVariant } from '../utils/aiPipeline';
 import './ResumeBuilderWizard.css';
 
-type BuildMode = 'optimize' | 'repository';
+type BuildMode = 'optimize' | 'repository' | 'coverLetter';
 type SelectionMode = 'manual' | 'filter';
 type GenerationMode = 'solitary' | 'council';
 
@@ -227,6 +241,11 @@ interface ResumeBuilderWizardProps {
      * of its inputs.
      */
     coverLetterRequest?: CoverLetterRequest,
+    /**
+     * Set by the cover-letter-from-PDF path: the letter is already written, so
+     * the editor applies it directly instead of running a request.
+     */
+    coverLetterResult?: { coverLetter: CoverLetterData; session: AiChatSession | null },
   ) => void;
   onSkipToEditor: () => void;
   jobDescription: string;
@@ -277,6 +296,8 @@ interface PromptEstimate {
 
 interface RepositoryPromptDraft {
   prompt: string;
+  /** Same prompt with a council candidate's angle; `prompt` is the unangled one. */
+  buildPrompt: (angle: CouncilDraftAngle | null) => string;
   selectedCount: number;
   sources: RepositorySource[];
 }
@@ -414,6 +435,12 @@ export function ResumeBuilderWizard({
   const [repoSources, setRepoSources] = useState<RepositorySource[]>([]);
   const [repoRaw, setRepoRaw] = useState<RepoItem[]>([]);
   const [educationData, setEducationData] = useState<EducationData | null>(null);
+  // Read through a ref inside the send callbacks so the education-date backstop
+  // always sees the freshest records without widening every dependency list.
+  const educationDataRef = useRef<EducationData | null>(null);
+  useEffect(() => {
+    educationDataRef.current = educationData;
+  }, [educationData]);
   const [loadingSources, setLoadingSources] = useState(false);
 
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('manual');
@@ -444,11 +471,16 @@ export function ResumeBuilderWizard({
 
   // --- LLM Council state ---------------------------------------------------
   const [genMode, setGenMode] = useState<GenerationMode>('solitary');
-  const [candidateProviders, setCandidateProviders] = useState<AiProvider[]>([
-    'claude',
-    'chatgpt',
-  ]);
-  const [judgeProvider, setJudgeProvider] = useState<AiProvider>('claude');
+  const [candidateProviders, setCandidateProviders] = useState<AiProvider[]>(
+    getSavedCouncilCandidates,
+  );
+  const [judgeProvider, setJudgeProvider] = useState<AiProvider>(getSavedCouncilJudge);
+  useEffect(() => {
+    saveCouncilCandidates(candidateProviders);
+  }, [candidateProviders]);
+  useEffect(() => {
+    saveCouncilJudge(judgeProvider);
+  }, [judgeProvider]);
   const [councilSlots, setCouncilSlots] = useState<CouncilSlotState[]>([]);
   const [councilActive, setCouncilActive] = useState(false);
   /**
@@ -581,7 +613,7 @@ export function ResumeBuilderWizard({
   );
 
   useEffect(() => {
-    if (mode !== 'repository') {
+    if (mode !== 'repository' && mode !== 'coverLetter') {
       return;
     }
 
@@ -650,6 +682,12 @@ export function ResumeBuilderWizard({
     repoMaxYears,
   ]);
 
+  /** Every sendable repository source, for the cover-letter-from-PDF path (no picker there). */
+  const coverLetterPdfSources = useMemo(
+    () => repoSources.filter((source) => source.sendable),
+    [repoSources],
+  );
+
   const selectedTemplate = useMemo(
     () => getResumeBuildTemplate(settingsToBuildTemplateId(draftSettings.defaultTemplate)),
     [draftSettings.defaultTemplate],
@@ -680,8 +718,8 @@ export function ResumeBuilderWizard({
     if (!mode) {
       return 'Choose how you want to start first.';
     }
-    if (mode === 'optimize' && !pdfFile) {
-      return 'Upload your existing resume PDF first.';
+    if ((mode === 'optimize' || mode === 'coverLetter') && !pdfFile) {
+      return 'Upload your resume PDF first.';
     }
     if (mode === 'repository' && filteredSources.length === 0) {
       return 'Select at least one repository source first.';
@@ -700,6 +738,23 @@ export function ResumeBuilderWizard({
         total: promptTokens,
         instructionTokens: promptTokens,
         sourceTokens: 0,
+        note: 'PDF file is counted separately by the provider.',
+      };
+    }
+
+    if (mode === 'coverLetter') {
+      const prompt = buildCoverLetterFromPdfPrompt({
+        jobDescription,
+        sources: coverLetterPdfSources,
+        educationData: educationData ?? undefined,
+        settingsInstructions: optimizeInstructions,
+      });
+      const { promptTokens } = estimateWizardPromptTokens(prompt, true);
+      const sourceTokens = estimateSourceMaterialTokens(coverLetterPdfSources);
+      return {
+        total: promptTokens,
+        instructionTokens: Math.max(0, promptTokens - sourceTokens),
+        sourceTokens,
         note: 'PDF file is counted separately by the provider.',
       };
     }
@@ -731,6 +786,7 @@ export function ResumeBuilderWizard({
     };
   }, [
     mode,
+    coverLetterPdfSources,
     jobDescription,
     filteredSources,
     educationData,
@@ -796,16 +852,21 @@ export function ResumeBuilderWizard({
       );
     }
 
-    return {
-      selectedCount: latestFilteredSources.length,
-      sources: latestFilteredSources,
-      prompt: buildResumeFromRepositoryPrompt(
+    const buildPrompt = (angle: CouncilDraftAngle | null) =>
+      buildResumeFromRepositoryPrompt(
         jobDescription,
         latestFilteredSources,
         selectedTemplate,
         generationInstructions,
         freshEducationData,
-      ),
+        angle,
+      );
+
+    return {
+      selectedCount: latestFilteredSources.length,
+      sources: latestFilteredSources,
+      prompt: buildPrompt(null),
+      buildPrompt,
     };
   }, [
     generationInstructions,
@@ -836,7 +897,12 @@ export function ResumeBuilderWizard({
     });
 
     pushPipeline('parsing_json', 'Parsing extracted and optimized resume…');
-    const { baseline, optimized } = parseOptimizedPdfResponse(response.rawResponse!);
+    const parsedOptimize = parseOptimizedPdfResponse(response.rawResponse!);
+    const baseline = parsedOptimize.baseline;
+    const optimized = enforceEducationGraduationDates(
+      parsedOptimize.optimized,
+      educationDataRef.current,
+    );
     setBaselineData(baseline);
 
     if (!response.session) {
@@ -854,6 +920,68 @@ export function ResumeBuilderWizard({
     connectedProvider,
     incognito,
     jobDescription,
+    optimizeInstructions,
+    pdfFile,
+    provider,
+    pushPipeline,
+    sendPdfAndWait,
+  ]);
+
+  /**
+   * Cover letter from an uploaded resume PDF. One send: the PDF is attached
+   * (or extracted to text for Gemini) with the letter prompt; the response is
+   * the letter plus a faithful extraction of the resume, and both go straight
+   * to the editor, which opens on the letter.
+   */
+  const runCoverLetterFromPdfFlow = useCallback(async () => {
+    if (!pdfFile) {
+      throw new Error('Select the resume PDF the letter should accompany.');
+    }
+
+    const activeProvider = connectedProvider ?? provider;
+    const { base64, filename } = await readPdfFileAsBase64(pdfFile);
+
+    pushPipeline('reading_pdf', `Reading ${filename}…`);
+
+    const response = await sendPdfAndWait({
+      provider: activeProvider,
+      prompt: buildCoverLetterFromPdfPrompt({
+        jobDescription,
+        sources: coverLetterPdfSources,
+        educationData: educationData ?? undefined,
+        settingsInstructions: optimizeInstructions,
+      }),
+      pdfBase64: base64,
+      filename,
+      forceNewChat: true,
+      incognito,
+    });
+
+    pushPipeline('parsing_json', 'Parsing cover letter…');
+    const { coverLetter, resume } = parseCoverLetterWithResumeResponse(response.rawResponse!);
+    const session = response.session ?? null;
+    if (session) {
+      saveAiSession(session);
+    }
+
+    pushPipeline('preview_ready', 'Cover letter ready');
+    onComplete(
+      resume ? enforceEducationGraduationDates(resume, educationDataRef.current) : currentResume,
+      session,
+      draftSettings,
+      undefined,
+      undefined,
+      { coverLetter, session },
+    );
+  }, [
+    connectedProvider,
+    coverLetterPdfSources,
+    currentResume,
+    draftSettings,
+    educationData,
+    incognito,
+    jobDescription,
+    onComplete,
     optimizeInstructions,
     pdfFile,
     provider,
@@ -884,7 +1012,10 @@ export function ResumeBuilderWizard({
 
     pushPipeline('parsing_json', 'Parsing generated resume…');
     const emptyBaseline: ResumeData = { contact: { name: '', links: [] }, sections: [] };
-    const generated = parseStrictGeneratedResume(response.rawResponse!);
+    const generated = enforceEducationGraduationDates(
+      parseStrictGeneratedResume(response.rawResponse!),
+      educationDataRef.current,
+    );
 
     setBaselineData(emptyBaseline);
     setPreviewData(generated);
@@ -921,7 +1052,15 @@ export function ResumeBuilderWizard({
       let title = 'Prompt Preview';
       let text = '';
 
-      if (mode === 'optimize') {
+      if (mode === 'coverLetter') {
+        title = 'Prompt Preview · Cover letter from resume PDF';
+        text = buildCoverLetterFromPdfPrompt({
+          jobDescription,
+          sources: coverLetterPdfSources,
+          educationData: educationData ?? undefined,
+          settingsInstructions: optimizeInstructions,
+        });
+      } else if (mode === 'optimize') {
         text = buildOptimizePdfPrompt(jobDescription, optimizeInstructions);
       } else {
         const { prompt, selectedCount } = await buildFreshRepositoryPrompt();
@@ -985,10 +1124,14 @@ export function ResumeBuilderWizard({
 
     setWorking(true);
     setError(null);
-    startPipeline(mode === 'optimize' ? 'optimize' : 'write');
+    startPipeline(
+      mode === 'coverLetter' ? 'cl_write' : mode === 'repository' ? 'write' : 'optimize',
+    );
 
     try {
-      if (mode === 'optimize') {
+      if (mode === 'coverLetter') {
+        await runCoverLetterFromPdfFlow();
+      } else if (mode === 'optimize') {
         await runOptimizeFlow();
       } else {
         await runRepositoryFlow();
@@ -1157,11 +1300,7 @@ export function ResumeBuilderWizard({
       const all: AiProvider[] = AI_PROVIDERS.map((item) => item.id);
       const next = [...prev];
       while (next.length < count) {
-        const free = all.find((id) => !next.includes(id));
-        if (!free) {
-          break;
-        }
-        next.push(free);
+        next.push(all.find((id) => !next.includes(id)) ?? all[0]);
       }
       return next;
     });
@@ -1169,16 +1308,9 @@ export function ResumeBuilderWizard({
 
   const setCandidateProvider = useCallback(
     (index: number, provider: AiProvider) => {
-      setCandidateProviders((prev) => {
-        const next = [...prev];
-        const existing = next.indexOf(provider);
-        if (existing !== -1 && existing !== index) {
-          // Keep candidates unique by swapping the conflicting slot.
-          next[existing] = next[index];
-        }
-        next[index] = provider;
-        return next;
-      });
+      // Duplicates are allowed: candidates take different angles, so two
+      // drafts from the same provider still diverge.
+      setCandidateProviders((prev) => prev.map((p, i) => (i === index ? provider : p)));
     },
     [],
   );
@@ -1215,6 +1347,7 @@ export function ResumeBuilderWizard({
       path,
       candidatePrompt,
       pdf,
+      angle,
     }: {
       runId: number;
       slotId: string;
@@ -1222,6 +1355,7 @@ export function ResumeBuilderWizard({
       path: CouncilPath;
       candidatePrompt: string;
       pdf: { base64: string; filename: string } | null;
+      angle: CouncilDraftAngle | null;
     }): Promise<CandidateOutcome> => {
       const cancelled = (): CandidateOutcome => ({
         ok: false,
@@ -1266,7 +1400,7 @@ export function ResumeBuilderWizard({
           }
           setCouncilSlot(runId, slotId, { status: 'parsing' });
           const parsed = parseOptimizedPdfResponse(response.rawResponse);
-          resume = parsed.optimized;
+          resume = enforceEducationGraduationDates(parsed.optimized, educationDataRef.current);
           baseline = parsed.baseline;
           rawResponse = response.rawResponse;
           session = response.session ?? null;
@@ -1295,7 +1429,10 @@ export function ResumeBuilderWizard({
             throw new Error(response.error ?? 'No response captured.');
           }
           setCouncilSlot(runId, slotId, { status: 'parsing' });
-          resume = parseStrictGeneratedResume(response.rawResponse);
+          resume = enforceEducationGraduationDates(
+            parseStrictGeneratedResume(response.rawResponse),
+            educationDataRef.current,
+          );
           rawResponse = response.rawResponse;
           session = response.session ?? null;
         }
@@ -1314,6 +1451,7 @@ export function ResumeBuilderWizard({
             baseline,
             rawResponse,
             session,
+            angle,
           },
         };
       } catch (err) {
@@ -1346,10 +1484,6 @@ export function ResumeBuilderWizard({
       return;
     }
     const providers = candidateProviders;
-    if (new Set(providers).size !== providers.length) {
-      setError('Each council candidate must use a different provider.');
-      return;
-    }
     if (mode === 'optimize' && !pdfFile) {
       setError('Select a PDF resume to optimize.');
       return;
@@ -1383,6 +1517,7 @@ export function ResumeBuilderWizard({
 
     try {
       let candidatePrompt = '';
+      let buildAngledPrompt: ((angle: CouncilDraftAngle | null) => string) | null = null;
       let pdf: { base64: string; filename: string } | null = null;
       let styleInstructions = '';
       let repositorySources: RepositorySource[] = [];
@@ -1395,6 +1530,7 @@ export function ResumeBuilderWizard({
       } else {
         const draft = await buildFreshRepositoryPrompt();
         candidatePrompt = draft.prompt;
+        buildAngledPrompt = draft.buildPrompt;
         styleInstructions = generationInstructions;
         repositorySources = draft.sources;
         coverLetterSourcesRef.current = draft.sources;
@@ -1407,16 +1543,20 @@ export function ResumeBuilderWizard({
       // content-script DOM path, which needs no debugger and no foreground tab,
       // so it is safe to run concurrently with other provider tabs loading.
       const outcomes = await Promise.all(
-        providers.map((provider, index) =>
-          runCouncilCandidate({
+        providers.map((provider, index) => {
+          // Angles apply to the repository path only: the optimize path
+          // rewrites an existing resume, so there is no selection to diverge on.
+          const angle = buildAngledPrompt ? councilAngleForSlot(index) : null;
+          return runCouncilCandidate({
             runId,
             slotId: `candidate-${index + 1}`,
             provider,
             path,
-            candidatePrompt,
+            candidatePrompt: buildAngledPrompt ? buildAngledPrompt(angle) : candidatePrompt,
             pdf,
-          }),
-        ),
+            angle,
+          });
+        }),
       );
       if (runId !== councilRunIdRef.current) {
         return;
@@ -1497,6 +1637,7 @@ export function ResumeBuilderWizard({
           candidates: labeled.map((item) => ({
             label: item.label,
             resume: item.resume,
+            angle: item.angle,
           })),
           styleInstructions,
           sources: path === 'repository' ? repositorySources : undefined,
@@ -1533,7 +1674,7 @@ export function ResumeBuilderWizard({
         judge = {
           scores: parsed.scores,
           synthesisNotes: parsed.synthesisNotes,
-          final: parsed.final,
+          final: enforceEducationGraduationDates(parsed.final, educationDataRef.current),
           finalBaseline: optimizeBaseline,
           rawResponse: response.rawResponse,
           session: response.session ?? null,
@@ -1612,6 +1753,7 @@ export function ResumeBuilderWizard({
         provider: candidate.provider,
         label: candidate.label,
         resume: candidate.resume,
+        angle: candidate.angle ?? null,
       })),
       judgeOutput: result.judge
         ? {
@@ -1637,9 +1779,12 @@ export function ResumeBuilderWizard({
       tabs.push({ id: 'final', label: 'Final (Judge)' });
     }
     candidates.forEach((candidate) => {
+      const angleLabel = councilAngleLabel(candidate.angle);
       tabs.push({
         id: candidate.slotId,
-        label: `Candidate: ${getProviderConfig(candidate.provider).label}`,
+        label: `Candidate: ${getProviderConfig(candidate.provider).label}${
+          angleLabel ? ` · ${angleLabel}` : ''
+        }`,
       });
     });
 
@@ -1653,7 +1798,7 @@ export function ResumeBuilderWizard({
           candidateLabel: candidate.label,
           scores: [
             {
-              title: 'ATS score',
+              title: 'Recruiter score',
               score: labelScores?.atsScore ?? null,
               rationale: labelScores?.justification ?? '',
             },
@@ -1666,6 +1811,12 @@ export function ResumeBuilderWizard({
       tabs,
       view: councilView,
       onViewChange: setCouncilView,
+      allScores: candidates.map((candidate) => ({
+        candidateLabel: candidate.label,
+        providerLabel: getProviderConfig(candidate.provider).label,
+        score: judge?.scores[candidate.label]?.atsScore ?? null,
+        justification: judge?.scores[candidate.label]?.justification ?? '',
+      })),
       hasJudgeFinal: Boolean(judge),
       judgeError,
       synthesisNotes: judge?.synthesisNotes ?? '',
@@ -1799,10 +1950,19 @@ export function ResumeBuilderWizard({
             <strong>Build from repository</strong>
             <span>Generate a resume from freewrite notes in your Repository.</span>
           </button>
+          <button
+            type="button"
+            className={`rb-wizard-mode-card ${mode === 'coverLetter' ? 'rb-wizard-mode-card--active' : ''}`}
+            onClick={() => setMode('coverLetter')}
+          >
+            <Mail size={22} />
+            <strong>Cover letter from resume</strong>
+            <span>Upload a finished resume PDF and write a cover letter for this job.</span>
+          </button>
         </div>
       </section>
 
-      {mode === 'optimize' && (
+      {(mode === 'optimize' || mode === 'coverLetter') && (
         <section className="rb-wizard-section rb-wizard-panel rb-wizard-upload">
           <h3>Upload resume PDF</h3>
           <input
@@ -1821,13 +1981,14 @@ export function ResumeBuilderWizard({
             {pdfFile ? pdfFile.name : 'Choose PDF file'}
           </button>
           <p className="rb-wizard-note">
-            We extract your resume, then optimize it for the job description with action
-            verbs, metrics, and honest JD keyword alignment.
+            {mode === 'coverLetter'
+              ? 'The letter is written against this exact resume, so it never restates it. Your Repository notes and Education record are sent alongside as extra material.'
+              : 'We extract your resume, then optimize it for the job description with action verbs, metrics, and honest JD keyword alignment.'}
           </p>
         </section>
       )}
 
-      {mode === 'optimize' && (
+      {(mode === 'optimize' || mode === 'coverLetter') && (
         <section className="rb-wizard-section rb-wizard-panel">
           <details className="rb-wizard-details">
             <summary className="rb-wizard-details-summary">
@@ -2088,7 +2249,7 @@ export function ResumeBuilderWizard({
         </>
       )}
 
-      {mode && (
+      {mode && mode !== 'coverLetter' && (
         <section className="rb-wizard-section rb-wizard-panel rb-council">
           <div className="rb-council-mode" role="tablist" aria-label="Generation mode">
             <button
@@ -2125,7 +2286,7 @@ export function ResumeBuilderWizard({
             <div className="rb-council-config">
               <p className="rb-wizard-note">
                 Each candidate provider generates in parallel in its own background
-                chat. A judge then gives each anonymized draft an ATS score and
+                chat. A judge then gives each anonymized draft a recruiter score and
                 merges the best into a final resume.
               </p>
 
@@ -2359,7 +2520,7 @@ export function ResumeBuilderWizard({
             type="button"
             className="rb-wizard-btn rb-wizard-btn--primary"
             onClick={() => {
-              if (genMode === 'council') {
+              if (genMode === 'council' && mode !== 'coverLetter') {
                 void runCouncilFlow();
               } else {
                 void handleGenerate();
@@ -2381,12 +2542,14 @@ export function ResumeBuilderWizard({
           >
             {working ? <Loader2 size={16} className="spin" /> : null}
             {working
-              ? genMode === 'council'
+              ? genMode === 'council' && mode !== 'coverLetter'
                 ? 'Running council…'
                 : 'Generating…'
-              : genMode === 'council'
-                ? 'Run LLM Council'
-                : 'Generate tailored resume'}
+              : mode === 'coverLetter'
+                ? 'Generate cover letter'
+                : genMode === 'council'
+                  ? 'Run LLM Council'
+                  : 'Generate tailored resume'}
           </button>
         </div>
 

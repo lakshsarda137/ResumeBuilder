@@ -58,6 +58,14 @@ interface RuleRun {
   color: PdfColor;
 }
 
+interface LinkRect {
+  url: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
 interface CaptureState {
   wrapper: HTMLElement;
   container: HTMLElement | null;
@@ -487,6 +495,41 @@ function collectTextRuns(page: HTMLElement) {
   return addExtractionSpaces(sortedRuns);
 }
 
+function collectLinkRects(page: HTMLElement): LinkRect[] {
+  const pageRect = page.getBoundingClientRect();
+  const scale = PDF_WIDTH_PT / pageRect.width;
+  const links: LinkRect[] = [];
+
+  page.querySelectorAll<HTMLAnchorElement>('a[href]').forEach((anchor) => {
+    if (!isVisibleElement(anchor) || anchor.closest('.resume-control')) {
+      return;
+    }
+
+    // anchor.href is the browser-resolved absolute URL, already
+    // percent-encoded, so it is safe to embed in the PDF URI action.
+    const href = anchor.href;
+    if (!/^(https?:|mailto:)/i.test(href)) {
+      return;
+    }
+
+    for (const rect of Array.from(anchor.getClientRects())) {
+      if (rect.width <= 0 || rect.height <= 0) {
+        continue;
+      }
+
+      links.push({
+        url: href,
+        x1: (rect.left - pageRect.left) * scale,
+        x2: (rect.right - pageRect.left) * scale,
+        y1: PDF_HEIGHT_PT - (rect.bottom - pageRect.top) * scale,
+        y2: PDF_HEIGHT_PT - (rect.top - pageRect.top) * scale,
+      });
+    }
+  });
+
+  return links;
+}
+
 function collectRules(page: HTMLElement) {
   const pageRect = page.getBoundingClientRect();
   const scale = PDF_WIDTH_PT / pageRect.width;
@@ -566,7 +609,13 @@ function makeObject(id: number, body: string) {
   return `${id} 0 obj\n${body}\nendobj\n`;
 }
 
-function buildPdfBytes(content: string) {
+function buildPdfBytes(content: string, links: LinkRect[] = []) {
+  const annotIds = links.map((_, index) => 13 + index);
+  const annotsEntry =
+    annotIds.length > 0
+      ? `/Annots [${annotIds.map((id) => `${id} 0 R`).join(' ')}]`
+      : '';
+
   const objects = [
     makeObject(1, '<< /Type /Catalog /Pages 2 0 R >>'),
     makeObject(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>'),
@@ -578,6 +627,7 @@ function buildPdfBytes(content: string) {
         `/MediaBox [0 0 ${PDF_WIDTH_PT} ${PDF_HEIGHT_PT}]`,
         '/Resources << /Font << /F1 4 0 R /F2 5 0 R /F3 6 0 R /F4 7 0 R /F5 8 0 R /F6 9 0 R /F7 10 0 R /F8 11 0 R >> >>',
         '/Contents 12 0 R',
+        ...(annotsEntry ? [annotsEntry] : []),
         '>>',
       ].join('\n'),
     ),
@@ -590,6 +640,18 @@ function buildPdfBytes(content: string) {
     makeObject(10, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique /Encoding /WinAnsiEncoding >>'),
     makeObject(11, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-BoldOblique /Encoding /WinAnsiEncoding >>'),
     makeObject(12, `<< /Length ${content.length} >>\nstream\n${content}\nendstream`),
+    ...links.map((link, index) =>
+      makeObject(
+        13 + index,
+        [
+          '<< /Type /Annot /Subtype /Link',
+          `/Rect [${pdfNumber(link.x1)} ${pdfNumber(link.y1)} ${pdfNumber(link.x2)} ${pdfNumber(link.y2)}]`,
+          '/Border [0 0 0]',
+          `/A << /S /URI /URI ${pdfString(link.url)} >>`,
+          '>>',
+        ].join('\n'),
+      ),
+    ),
   ];
 
   let pdf = '%PDF-1.4\n';
@@ -624,7 +686,9 @@ function buildTextPdfBlob(page: HTMLElement) {
   }
 
   const content = buildContentStream(textRuns, collectRules(page));
-  return new Blob([buildPdfBytes(content)], { type: 'application/pdf' });
+  return new Blob([buildPdfBytes(content, collectLinkRects(page))], {
+    type: 'application/pdf',
+  });
 }
 
 function measurePageFit(page: HTMLElement): ResumePageFit {

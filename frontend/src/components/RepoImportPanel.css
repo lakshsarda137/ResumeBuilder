@@ -95,7 +95,7 @@
   gap: 6px;
   margin: 0;
   font-size: 12px;
-  color: #fbbf24;
+  color: var(--amber);
 }
 
 .repo-import-status {
@@ -107,7 +107,7 @@
 .repo-import-error {
   margin: 0;
   font-size: 13px;
-  color: #fca5a5;
+  color: var(--red);
 }
 
 .repo-import-summary {
@@ -166,15 +166,15 @@
 }
 
 .repo-import-conflicts {
-  border: 1px solid #f59e0b;
+  border: 1px solid var(--amber);
   border-radius: var(--radius-sm);
-  background: rgba(245, 158, 11, 0.08);
+  background: var(--amber-bg);
   overflow: hidden;
 }
 
 .repo-import-conflicts header {
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+  border-bottom: 1px solid var(--amber);
 }
 
 .repo-import-conflicts h3 {
@@ -204,7 +204,7 @@
 .repo-import-conflicts th,
 .repo-import-conflicts td {
   padding: 9px 12px;
-  border-bottom: 1px solid rgba(245, 158, 11, 0.25);
+  border-bottom: 1px solid var(--amber);
   text-align: left;
   vertical-align: top;
 }
@@ -388,13 +388,13 @@
 }
 
 .repo-import-diff-line--added {
-  background: rgba(74, 222, 128, 0.1);
-  color: #bbf7d0;
+  background: var(--green-bg);
+  color: var(--green);
 }
 
 .repo-import-diff-line--removed {
-  background: rgba(248, 113, 113, 0.1);
-  color: #fecaca;
+  background: var(--red-bg);
+  color: var(--red);
 }
 
 .repo-import-diff-line--context {

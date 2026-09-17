@@ -15,6 +15,8 @@ import type { AiProvider } from './aiProviders';
 import type { AiChatSession } from '../types/aiSession';
 import type { ResumeData } from '../types/resume';
 import type { RepositorySource } from '../types/repository';
+import type { EducationData } from '../types/education';
+import { enforceEducationGraduationDates } from './educationDates';
 import type {
   CouncilSlotState,
   CouncilCandidateResult,
@@ -29,6 +31,7 @@ import {
   buildResumeBuildCoverPrompt,
 } from './aiPrompt';
 import { sendLargePromptAndWait } from './promptDelivery';
+import { councilAngleForSlot, type CouncilDraftAngle } from './councilAngles';
 import {
   parseStrictGeneratedResume,
   parseCouncilJudgeResponse,
@@ -103,12 +106,17 @@ export function buildInitialSlots(config: CouncilRunConfig): CouncilSlotState[] 
 
 interface RunJobArgs {
   config: CouncilRunConfig;
-  /** Full repository prompt for this job's JD, built by the caller. */
-  candidatePrompt: string;
+  /**
+   * Full repository prompt for this job's JD, built by the caller. Council
+   * candidates each get their slot's angle; single-model runs pass null.
+   */
+  buildCandidatePrompt: (angle: CouncilDraftAngle | null) => string;
   jobDescription: string;
   /** Style instruction block, reused in the judge prompt. */
   styleInstructions: string;
   sources: RepositorySource[];
+  /** Saved education records, for the education-date range backstop. */
+  education?: EducationData | null;
   senders: CouncilSenders;
   onSlot: (slotId: string, patch: Partial<CouncilSlotState>) => void;
   isCancelled: () => boolean;
@@ -121,6 +129,8 @@ async function runCandidate(
   senders: CouncilSenders,
   onSlot: RunJobArgs['onSlot'],
   isCancelled: () => boolean,
+  education?: EducationData | null,
+  angle: CouncilDraftAngle | null = null,
 ): Promise<CandidateOutcome> {
   onSlot(slotId, { status: 'configuring' });
   let settled = false;
@@ -147,7 +157,10 @@ async function runCandidate(
       throw new Error(res.error ?? 'No response captured.');
     }
     onSlot(slotId, { status: 'parsing' });
-    const resume = parseStrictGeneratedResume(res.rawResponse);
+    const resume = enforceEducationGraduationDates(
+      parseStrictGeneratedResume(res.rawResponse),
+      education,
+    );
     const session = res.session ?? null;
     if (session) saveAiSession(session);
     onSlot(slotId, { status: 'done' });
@@ -161,6 +174,7 @@ async function runCandidate(
         baseline: null,
         rawResponse: res.rawResponse,
         session,
+        angle,
       },
     };
   } catch (err) {
@@ -189,6 +203,7 @@ function snapshotFrom(
       provider: candidate.provider,
       label: candidate.label,
       resume: candidate.resume,
+      angle: candidate.angle ?? null,
     })),
     judgeOutput: judge
       ? { synthesisNotes: judge.synthesisNotes, scores: judge.scores }
@@ -198,18 +213,28 @@ function snapshotFrom(
 }
 
 export async function runJob(args: RunJobArgs): Promise<JobBuildResult> {
-  const { config, candidatePrompt, jobDescription, styleInstructions, sources, senders, onSlot, isCancelled } =
-    args;
+  const {
+    config,
+    buildCandidatePrompt,
+    jobDescription,
+    styleInstructions,
+    sources,
+    education,
+    senders,
+    onSlot,
+    isCancelled,
+  } = args;
 
   // ── Single model ──────────────────────────────────────────────────────────
   if (config.genMode === 'solitary') {
     const outcome = await runCandidate(
       'candidate-1',
       config.provider,
-      candidatePrompt,
+      buildCandidatePrompt(null),
       senders,
       onSlot,
       isCancelled,
+      education,
     );
     if (!outcome.ok) throw new Error(outcome.failure.error);
     return {
@@ -221,16 +246,19 @@ export async function runJob(args: RunJobArgs): Promise<JobBuildResult> {
 
   // ── Council: candidates in parallel ─────────────────────────────────────────
   const outcomes = await Promise.all(
-    config.candidateProviders.map((provider, index) =>
-      runCandidate(
+    config.candidateProviders.map((provider, index) => {
+      const angle = councilAngleForSlot(index);
+      return runCandidate(
         `candidate-${index + 1}`,
         provider,
-        candidatePrompt,
+        buildCandidatePrompt(angle),
         senders,
         onSlot,
         isCancelled,
-      ),
-    ),
+        education,
+        angle,
+      );
+    }),
   );
   if (isCancelled()) throw new Error('Cancelled.');
 
@@ -277,7 +305,11 @@ export async function runJob(args: RunJobArgs): Promise<JobBuildResult> {
     const judgePrompt = buildCouncilJudgePrompt({
       path: 'repository',
       jobDescription,
-      candidates: labeled.map((item) => ({ label: item.label, resume: item.resume })),
+      candidates: labeled.map((item) => ({
+        label: item.label,
+        resume: item.resume,
+        angle: item.angle,
+      })),
       styleInstructions,
       sources,
     });
@@ -298,7 +330,7 @@ export async function runJob(args: RunJobArgs): Promise<JobBuildResult> {
     judge = {
       scores: parsed.scores,
       synthesisNotes: parsed.synthesisNotes,
-      final: parsed.final,
+      final: enforceEducationGraduationDates(parsed.final, education),
       finalBaseline: null,
       rawResponse: response.rawResponse,
       session: response.session ?? null,

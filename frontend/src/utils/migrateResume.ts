@@ -1,3 +1,4 @@
+import { normalizeEntryLinks } from './resumeLinks';
 import type { ResumeBullet, ResumeData, ResumeEntry, ResumeSection } from '../types/resume';
 import { makeBullet } from '../types/resume';
 import { defaultResume } from '../data/defaultResume';
@@ -30,7 +31,18 @@ function migrateEntry(raw: unknown): ResumeEntry {
     location: typeof entry.location === 'string' ? entry.location : '',
     date: typeof entry.date === 'string' ? entry.date : '',
     subtitle: typeof entry.subtitle === 'string' ? entry.subtitle : '',
+    ...(typeof entry.titleNote === 'string' && entry.titleNote.trim()
+      ? { titleNote: entry.titleNote }
+      : {}),
     bullets: migrateBullets(entry.bullets),
+    ...(() => {
+      const legacyUrl = (entry as { url?: unknown }).url;
+      const links = normalizeEntryLinks([
+        ...(Array.isArray(entry.links) ? entry.links : []),
+        ...(typeof legacyUrl === 'string' ? [{ url: legacyUrl }] : []),
+      ]);
+      return links.length > 0 ? { links } : {};
+    })(),
     jdComment: typeof entry.jdComment === 'string' ? entry.jdComment : undefined,
   };
 }

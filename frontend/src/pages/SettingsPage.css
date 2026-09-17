@@ -1,7 +1,3 @@
-.settings-page {
-  max-width: 980px;
-}
-
 .settings-header {
   display: flex;
   align-items: flex-start;
@@ -43,9 +39,20 @@
   background: var(--surface-3);
 }
 
-.settings-template--active {
+/* Selected reads as *lifted*: the resting card is recessed (--surface-2), the
+   chosen one comes up to the panel surface and gains a doubled accent edge.
+   Previously the only difference was a 1px border colour, and on a light ground
+   the accent-dim tint actually made the selected card the paler of the two —
+   the state read backwards. */
+.settings-template--active,
+.settings-template--active:hover {
   border-color: var(--accent);
-  background: var(--accent-dim);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.settings-template--active strong {
+  color: var(--accent);
 }
 
 .settings-template strong {
@@ -122,24 +129,29 @@
   white-space: nowrap;
 }
 
-.settings-preview {
+/* Controls left, preview right. The preview was previously stacked above the
+   sixteen sliders that drive it, so it was off-screen for most of them. */
+.settings-type-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 0.8fr) minmax(0, 1fr);
-  gap: 16px;
+  /* An `auto` second track sizes to the metrics chips' max-content (~640px
+     unwrapped) and starves the controls column until the slider labels
+     overlap. The preview column is a fixed measure; the controls take the
+     rest. */
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
   align-items: start;
-  margin-bottom: 16px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
 }
 
-.settings-preview-toolbar {
+.settings-preview {
+  position: sticky;
+  top: 24px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
 }
 
-.settings-preview-toolbar > span {
+.settings-preview-heading {
   color: var(--text-1);
   font-size: 13px;
   font-weight: 650;
@@ -165,20 +177,19 @@
 }
 
 .settings-preview-frame {
-  width: calc(8.5in * 0.42);
-  height: calc(11in * 0.42);
+  width: calc(8.5in * 0.33);
+  height: calc(11in * 0.33);
   max-width: 100%;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: #2a2a2a;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  background: var(--surface-3);
 }
 
 .settings-preview-scale {
   width: 8.5in;
   height: 11in;
-  transform: scale(0.42);
+  transform: scale(0.33);
   transform-origin: top left;
   pointer-events: none;
 }
@@ -253,8 +264,19 @@
   .settings-template-grid,
   .settings-grid,
   .settings-toggle-grid,
-  .settings-preview {
+  .settings-type-layout {
     grid-template-columns: 1fr;
+  }
+
+  /* Too narrow for a side-by-side; the preview goes back above the controls
+     and stops sticking, since there is nothing to stick beside. */
+  .settings-type-layout {
+    grid-auto-flow: dense;
+  }
+
+  .settings-preview {
+    position: static;
+    grid-row: 1;
   }
 
   .settings-preview-frame {
@@ -321,7 +343,7 @@
 
 .settings-rubric-input {
   width: 100%;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-2);
   border-radius: var(--radius-sm);
   background: var(--surface-2);
   color: var(--text-1);

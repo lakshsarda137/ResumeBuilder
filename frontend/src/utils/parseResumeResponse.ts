@@ -9,6 +9,8 @@ import { makeBullet } from '../types/resume';
 import { migrateResumeData } from './migrateResume';
 import { sanitizeEmDashes } from './emDash';
 import { ensureContactProfile } from './contactProfile';
+import { normalizeEntryLinks } from './resumeLinks';
+import { applyResumeHouseStyle } from './resumeHouseStyle';
 
 export function generateId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -331,7 +333,7 @@ export function resumeHasSubstantiveContent(resume: ResumeData): boolean {
   });
 }
 
-function looksLikeResumePayload(parsed: unknown): boolean {
+export function looksLikeResumePayload(parsed: unknown): boolean {
   if (!isRecord(parsed)) {
     return false;
   }
@@ -374,6 +376,15 @@ function normalizeEntry(raw: Partial<ResumeEntry>, index: number): ResumeEntry {
       ? raw.jdComment.trim()
       : undefined;
 
+  // Keep only links that normalize to a safe http(s) href; a placeholder or
+  // non-URL scheme from the model is dropped rather than rendered. A legacy
+  // single `url` (older prompts / saved sessions) folds into the links list.
+  const legacyUrl = (raw as { url?: unknown }).url;
+  const links = normalizeEntryLinks([
+    ...(Array.isArray(raw.links) ? raw.links : []),
+    ...(typeof legacyUrl === 'string' ? [{ url: legacyUrl }] : []),
+  ]);
+
   return {
     id: typeof raw.id === 'string' ? raw.id : generateId(`entry-${index}`),
     title: typeof raw.title === 'string' ? cleanGeneratedProseText(raw.title) : 'Title',
@@ -381,7 +392,11 @@ function normalizeEntry(raw: Partial<ResumeEntry>, index: number): ResumeEntry {
     // Em dashes are allowed in dates (e.g. "Jan 2023 — Mar 2024") — do not sanitize.
     date: typeof raw.date === 'string' ? cleanGeneratedText(raw.date) : '',
     subtitle: typeof raw.subtitle === 'string' ? cleanGeneratedProseText(raw.subtitle) : '',
+    ...(typeof raw.titleNote === 'string' && raw.titleNote.trim()
+      ? { titleNote: cleanGeneratedProseText(raw.titleNote) }
+      : {}),
     bullets,
+    ...(links.length > 0 ? { links } : {}),
     jdComment,
   };
 }
@@ -452,7 +467,8 @@ export function normalizeAiResume(
   fallback: ResumeData,
   options: {
     /**
-     * Guarantee the header carries every canonical contact fact. Set for
+     * Guarantee the header carries every canonical contact fact, and apply
+     * the deterministic house style (see resumeHouseStyle.ts). Set for
      * resumes the app GENERATES; never set for a faithful transcription (a PDF
      * import, or the optimize path's "baseline"), where adding a link the
      * source document did not have would corrupt the before/after diff and
@@ -477,6 +493,9 @@ export function normalizeAiResume(
                 ? link.id
                 : fallback.contact.links[index]?.id ?? generateId(`link-${index}`),
             value: typeof link.value === 'string' ? cleanGeneratedProseText(link.value) : '',
+            ...(typeof link.label === 'string' && link.label.trim()
+              ? { label: cleanGeneratedProseText(link.label) }
+              : {}),
           }))
         : fallback.contact.links,
   };
@@ -492,10 +511,10 @@ export function normalizeAiResume(
         )
       : fallback.sections;
 
-  return {
-    contact: options.enforceContactProfile ? ensureContactProfile(contact) : contact,
-    sections,
-  };
+  if (!options.enforceContactProfile) {
+    return { contact, sections };
+  }
+  return applyResumeHouseStyle({ contact: ensureContactProfile(contact), sections });
 }
 
 const IMPORT_BASELINE: ResumeData = {
@@ -591,6 +610,47 @@ export function parseOptimizedPdfResponse(rawResponse: string): {
 function readAtsScore(raw: unknown): { atsScore: number | null; justification: string } {
   if (!isRecord(raw)) {
     return { atsScore: null, justification: '' };
+  }
+
+  // Legacy multi-dimension rubric, still sitting in saved history sessions from
+  // before the single-ATS-score migration:
+  //   { scores: { jd_alignment: 6, evidence_fidelity: 9, ... },
+  //     rationales: { jd_alignment: "...", ... } }
+  // Here `raw.score`/`raw.scores` is an OBJECT, so the numeric read below sees
+  // NaN and every one of those sessions renders "—" forever. Rescale the
+  // rubric's overall_quality (0-10) to the 0-100 scale and keep the per-
+  // dimension rationales as the justification, so old builds stay readable
+  // instead of silently losing the judge's analysis.
+  if (isRecord(raw.scores) && !('atsScore' in raw)) {
+    const dims = raw.scores as Record<string, unknown>;
+    const overall = dims.overall_quality ?? dims.overallQuality;
+    const values = Object.values(dims).filter(
+      (v): v is number => typeof v === 'number' && Number.isFinite(v),
+    );
+    const base =
+      typeof overall === 'number' && Number.isFinite(overall)
+        ? overall
+        : values.length
+          ? values.reduce((a, b) => a + b, 0) / values.length
+          : NaN;
+
+    const rationales = isRecord(raw.rationales) ? raw.rationales : {};
+    const justification = Object.entries(dims)
+      .map(([dim, value]) => {
+        const label = dim.replace(/_/g, ' ');
+        const why = rationales[dim];
+        return typeof why === 'string'
+          ? `${label} ${value}/10 — ${why}`
+          : `${label} ${value}/10`;
+      })
+      .join('\n');
+
+    return {
+      atsScore: Number.isFinite(base)
+        ? Math.min(100, Math.max(0, Math.round((base as number) * 10)))
+        : null,
+      justification,
+    };
   }
 
   const rawScore = raw.atsScore ?? raw.ats_score ?? raw.score;
@@ -863,8 +923,10 @@ export function summarizeResumeChanges(before: ResumeData, after: ResumeData) {
       if (
         prevEntry.title !== entry.title ||
         prevEntry.subtitle !== entry.subtitle ||
+        (prevEntry.titleNote ?? '') !== (entry.titleNote ?? '') ||
         prevEntry.date !== entry.date ||
-        prevEntry.location !== entry.location
+        prevEntry.location !== entry.location ||
+        JSON.stringify(prevEntry.links ?? []) !== JSON.stringify(entry.links ?? [])
       ) {
         changes.push(`Entry metadata updated: ${entryLabel}`);
       }

@@ -8,11 +8,17 @@ import {
 } from './resumeBuildStyle';
 import { EM_DASH_PROMPT_RULE } from './emDash';
 import { RESUME_WRITING_CONTRACT } from './resumeWritingRules';
+import {
+  buildCouncilAngleBlock,
+  buildCouncilAngleMergeBlock,
+  type CouncilDraftAngle,
+} from './councilAngles';
+import { PERSONAL } from '../personal';
 
 export const RESUME_JSON_SCHEMA = `{
   "contact": {
     "name": "string",
-    "links": [{ "id": "string", "value": "string" }]
+    "links": [{ "id": "string", "value": "string — email, phone, or URL (the link target)", "label": "optional string — the hyperlinked word shown instead of the URL: \"LinkedIn\" or \"GitHub\". Omit for email and phone." }]
   },
   "sections": [
     {
@@ -24,13 +30,15 @@ export const RESUME_JSON_SCHEMA = `{
         {
           "id": "string",
           "title": "string — top-line label. For experience entries, this MUST be the employer/company/org name, not the job title. For projects, use the project name; for education, use the school.",
-          "location": "string",
-          "date": "string",
+          "location": "string — ALWAYS \"\" for experience and project entries; only education may carry a location",
+          "date": "string — experience/projects: \"Mon YYYY – Mon YYYY\"; education: graduation only, e.g. \"May 2029 (Expected Graduation)\"",
+          "titleNote": "optional string — experience entries only: accelerator/program selection shown unbolded on the top line beside the title, e.g. \\"${PERSONAL.promptExamples.accelerator.titleNote}\\". Omit when there is none.",
           "subtitle": "string — for experience entries, job title/role only (no technologies). Do not put the employer/company here unless needed for non-experience context. For project entries, leave subtitle empty — do not add 'Founder', 'Co-Founder', 'Creator', 'Builder', or any self-assigned title.",
+          "links": "optional array of { \"label\": string, \"url\": string } — hyperlinks rendered after the title as 'Title | GitHub | Play Online'. Copy the source's \"links\" array exactly (same labels, same URLs, same order) when the source provides one; otherwise include a link ONLY when the source material explicitly contains that URL (label it 'GitHub' for code repositories, 'Website' for live sites). Never invent, guess, or reconstruct a URL. Never put a raw URL in title, subtitle, or bullet text — this field is the only place it goes.",
           "jdComment": "optional — how this entry matches the job description",
           "bullets": [
             {
-              "text": "string",
+              "text": "string — plain text ending in a full stop, no bold",
               "jdComment": "optional — honest note on how this bullet matches JD keywords/requirements; omit if no genuine match"
             }
           ]
@@ -103,6 +111,7 @@ const REPO_IMPORT_SCHEMA = `{
         "school": "string",
         "degree": "optional string",
         "major": "optional string",
+        "start_date": "optional YYYY-MM — when the candidate started at this school",
         "grad_date": "optional YYYY-MM or free text",
         "gpa": "optional string",
         "location": "optional string",
@@ -163,11 +172,11 @@ const REPO_IMPORT_RULES = `CRITICAL OUTPUT FORMAT:
 3. Schema:
 ${REPO_IMPORT_SCHEMA}
 4. Extract EVERY distinct experience and project as separate entries — dedupe only exact duplicates within this source.
-5. Put graduation date, major, degree, school, GPA in profile.education — also capture skills and fixed facts in profile when present.
+5. Put start date, graduation date, major, degree, school, GPA in profile.education — also capture skills and fixed facts in profile when present. When the source shows an education date range, the first date is start_date and the second is grad_date.
 6. freewrite must be raw warehouse notes (paragraphs or dash lines), never polished resume bullets.
 7. For entries with merge_target_id, freewrite must be the full coherent replacement description for the saved repository item, combining useful existing context with useful source facts. Do NOT write "new facts", "to append", "differs from existing", "see contradictions", or any audit/commentary language.
 8. For entries without merge_target_id, freewrite describes the new source item only.
-9. Keep maximum resume-useful source detail in freewrite: responsibilities, accomplishments, technical work, products/features, scale, metrics, tools, collaborators, research/project context, and constraints.
+9. Keep maximum resume-useful source detail in freewrite: responsibilities, accomplishments, technical work, products/features, scale, metrics, tools, collaborators, research/project context, and constraints. Preserve any project/repository/demo URLs (GitHub links, live sites) exactly as written — they are later used to hyperlink the project on the resume.
 10. Filter out egregiously irrelevant LinkedIn/page noise: "follows this company", company follower counts, generic company profile stats, connection counts, reactions, comments, reposts, navigation labels, ads, recommendations unrelated to the candidate's own work, and job-alert/page chrome. Include company or audience numbers only when they describe the candidate's actual impact or project scope.
 11. Use type "experience" for jobs/internships/research roles; "project" for projects, hackathons, and coursework builds.
 12. Dates as YYYY-MM when possible.
@@ -227,6 +236,7 @@ function buildExistingEducationContext(existingEducation?: EducationData): strin
       school: item.school,
       degree: item.degree,
       major: item.major,
+      start_date: item.start_date,
       grad_date: item.grad_date,
       gpa: item.gpa,
       location: item.location,
@@ -253,6 +263,7 @@ export function buildResumeEducationContext(existingEducation?: EducationData): 
       school: item.school,
       degree: item.degree,
       major: item.major,
+      start_date: item.start_date,
       grad_date: item.grad_date,
       gpa: item.gpa,
       location: item.location,
@@ -262,7 +273,8 @@ export function buildResumeEducationContext(existingEducation?: EducationData): 
     other_notes: trimForPrompt(meta?.other_notes, 1600),
   };
 
-  return `\n\nEDUCATION / PROFILE CONTEXT (source truth for education, skills, contact notes, awards, coursework):\n\`\`\`json\n${JSON.stringify(compact, null, 2)}\n\`\`\`\n\nEducation rules:\n- Use this context for the Education section when it contains saved education records.\n- Keep education concise: school, location, degree/major, graduation date, GPA/honors/coursework only when present above.\n- Resume convention: keep the degree/major line clean. Put GPA and honors/awards together in their own compact bullet, e.g. "GPA: 3.96/4.00; President's Honor Roll (Fall 2025)".\n- Coursework may be one compact bullet only when useful; label it "Relevant Coursework:" rather than "GPA" or generic notes.\n- Skills or fixed facts in skills_note / other_notes may inform Technical Skills or contact only when explicitly supported.\n- Do not invent missing education/contact facts. Never write placeholder text like "(edit)", "(edit degree)", "your.email@example.com", "(000) 000-0000", "Expected May 20XX", "GPA: X.XX", or "[add your coursework here]".`;
+  return `\n\nEDUCATION / PROFILE CONTEXT (source truth for education, skills, contact notes, awards, coursework):\n\`\`\`json\n${JSON.stringify(compact, null, 2)}\n\`\`\`\n\nEducation rules:\n- Use this context for the Education section when it contains saved education records.\n- Keep education concise: school, location, degree/major, dates, GPA/honors/coursework only when present above.
+- The education entry's date field shows ONLY the graduation date from grad_date, never start_date: "May 2029 (Expected Graduation)" for a degree still in progress, plain "May 2025" for a completed one. A range such as "Aug 2025 – May 2029" is a defect.\n- Resume convention: keep the degree/major line clean. Put GPA and honors/awards together in their own compact bullet, e.g. "${PERSONAL.promptExamples.educationHonors}".\n- Coursework may be one compact bullet only when useful; label it "Relevant Coursework:" rather than "GPA" or generic notes.\n- Skills or fixed facts in skills_note / other_notes may inform Technical Skills or contact only when explicitly supported.\n- Do not invent missing education/contact facts. Never write placeholder text like "(edit)", "(edit degree)", "your.email@example.com", "(000) 000-0000", "Expected May 20XX", "GPA: X.XX", or "[add your coursework here]".`;
 }
 
 export function buildRepoImportFromPdfPrompt(
@@ -418,6 +430,7 @@ export function mapRepositorySourcesForPrompt(sources: RepositorySource[]) {
     company: source.company,
     position: source.position,
     dates: `${source.start_date ?? '?'} – ${source.end_date ?? 'Present'}`,
+    links: source.links.length > 0 ? source.links : undefined,
     freewrite: source.freewrite,
   }));
 }
@@ -428,12 +441,16 @@ export function buildResumeFromRepositoryPrompt(
   styleProfile: ResumeBuildStyleProfile,
   customStyleInstructions: string,
   educationData?: EducationData,
+  /** Council runs only: the angle this candidate's draft takes. */
+  councilAngle?: CouncilDraftAngle | null,
 ): string {
   const jd = jobDescription.trim() || '(No job description provided — build a strong general resume.)';
 
   const payload = mapRepositorySourcesForPrompt(sources);
+  const angleBlock = councilAngle ? `\n${buildCouncilAngleBlock(councilAngle)}\n` : '';
 
   return `You are an expert resume writer. Build a tailored resume JSON for the job below using ONLY the candidate source material provided.
+${angleBlock}
 
 JOB DESCRIPTION:
 """
@@ -452,15 +469,19 @@ ${RESUME_WRITING_CONTRACT}
 
 SELECTION AND LAYOUT RULES (the settings block above owns page limit, section order, entry count, and bullet counts; do not re-derive those here):
 - Select the experiences/projects that best fit the job description and have enough source detail for credible bullets. Do NOT include every repository source: omit entries with little more than a title, company, and date.
+- Order by strength, not by date. Experience entries stay reverse-chronological, but project entries are ordered by how impressive they are for THIS job, strongest first. Inside every entry, the bullets are ordered strongest story first: the anchor bullet carries the entry's best work, and the weakest bullet is last. Do not default to the order the source material happens to use.
 - Convert selected freewrite material into polished resume bullets that follow the writing standard above. The freewrite is raw truth, not a draft to lightly edit.
+- A single source often describes several distinct systems (one internship freewrite may cover several separate products). Before writing, list the distinct workstreams in that source, decide how many bullets each earns from its impact and job relevance within the entry's bullet budget, and keep every bullet inside one workstream. Never merge two workstreams into one bullet to "cover" both; drop the weaker one instead.
+- Project entries must be recognisable from their own bullets: the first bullet says what the project is and does in plain words, with its most impressive technical idea stated accessibly. A project whose bullets only list tools and percentages has failed.
 - Experience entries are company-first: put the employer/company/org name in entry.title so it renders on the same baseline as entry.date, and put the job title/role first in entry.subtitle on the line below. Never put job title and date together on the top line.
 - Project entries leave entry.subtitle empty. Never add "Founder", "Co-Founder", "Creator", "Builder", or any self-assigned role title.
+- Hyperlinks: when a source has a "links" array, copy it verbatim into the entry's "links" (same labels, URLs, and order) — the labels were chosen by the candidate (e.g. "Play Online"). If a source has no "links" but its freewrite explicitly contains a project URL (GitHub repository, live demo, published site), add it as { "label": "GitHub" | "Website", "url": ... } exactly as written. Never invent or guess a URL, never attach a URL from one source to a different entry, and omit "links" entirely when the source has none. Do not write raw URLs into title, subtitle, or bullet text.
 - Never put a tech stack beside an entry name/title. Tools belong in the subtitle line below the title, in bullets, or in skills.
 - Single-column structure, only the sections the settings block asks for.
 - Do not invent employers, titles, dates, tools, or metrics that the source material does not support.
-- Contact: do not promote a project/product/company URL into the header as the candidate's personal site. A startup domain is not a personal website unless the source says so. If a contact fact is missing, leave it empty rather than inventing one.
+- Contact: LinkedIn and GitHub appear on the header line only as the hyperlinked words "LinkedIn" and "GitHub" (set "label"), never as a visible URL. Do not promote a project/product/company URL into the header as the candidate's personal site. A startup domain is not a personal website unless the source says so. If a contact fact is missing, leave it empty rather than inventing one.
 - Never write placeholder or meta text in any visible field: no "(edit)", no "your.email@example.com", no "Expected May 20XX", no todo notes, no instructions to the reader.
-- Inline HTML in string fields is limited to <strong> for the bold emphasis described above, <em> for italic context, and restricted <span style="font-weight:...;font-style:..."> for label style. No Markdown.
+- Inline HTML in string fields is limited to <em> for italic context. Never <strong>, <b>, or any font-weight styling (see NO BOLD above). No Markdown.
 
 ${EM_DASH_PROMPT_RULE}
 
@@ -481,7 +502,7 @@ You are editing a resume. Apply the requested change to the resume content.
 
 ${EDIT_RESUME_WRITING_RULES}
 
-Any bullet text you write or rewrite must satisfy the standard below. Leave bullets you are not touching alone, including their existing <strong> tags.
+Any bullet text you write or rewrite must satisfy the standard below. Leave bullets you are not touching alone.
 
 ${RESUME_WRITING_CONTRACT}
 
@@ -508,7 +529,7 @@ Continue in this same chat. Update the resume from your previous response.
 
 ${EDIT_RESUME_WRITING_RULES}
 
-Any bullet text you write or rewrite must satisfy the standard below. Leave bullets you are not touching alone, including their existing <strong> tags.
+Any bullet text you write or rewrite must satisfy the standard below. Leave bullets you are not touching alone.
 
 ${RESUME_WRITING_CONTRACT}
 
@@ -531,6 +552,8 @@ ${JSON.stringify(currentResume, null, 2)}
 export interface CouncilJudgeCandidate {
   label: CandidateLabel;
   resume: ResumeData;
+  /** Repository council runs: the angle the draft was written from. */
+  angle?: CouncilDraftAngle | null;
 }
 
 /**
@@ -540,20 +563,29 @@ export interface CouncilJudgeCandidate {
  * budget where it matters.
  */
 const ATS_SCORING_RULES = `SCORING (do this briefly, then spend your real effort on the resume):
-Give each candidate a single ATS score from 0 to 100 — how well an applicant tracking system plus the recruiter behind it would rate that resume against this job description. Weigh the things ATS screening and a first-pass recruiter actually key on:
-- coverage of the job description's stated requirements, titles, tools, and skill keywords, in the resume's own words;
-- whether required qualifications are visibly present rather than implied;
-- clean, parseable structure: standard section headings, no tables, no graphics, no text stuffed into odd fields;
-- concrete evidence (metrics, scope, outcomes) attached to the claims;
-- absence of padding, keyword stuffing, or unsupported claims.
+Give each candidate a single score from 0 to 100 that answers ONE question: after a 10-second scan, would a non-technical recruiter (an English or psychology major, not a computer science major) understand and want to interview this candidate, and on a full read would a technical hiring manager respect the engineering? Score from those two readers' chairs, not from a checklist:
+- what the non-technical reader can say after reading only the FIRST bullet of each entry: what was built, who it was for, how it works in plain words, and the headline metric. A first bullet full of framework names, algorithm names, or acronyms fails this reader and costs real points. Fluffy, vague first bullets fail too. Exception: an experience entry whose source covers several separate projects (such as an internship) is not held to this first-bullet test;
+- whether the LATER bullets give the technical manager real engineering: the stack, the design decisions, the hard problems solved. Later bullets that only rephrase the first bullet cost points;
+- how much of the candidate's strongest material is visible first: ownership (led, sole, primary developer), selectivity and validation (accelerator acceptance, awards, real users), the recognizable discipline of the work, the biggest results. A draft that buries these under weaker facts or tool lists scores lower than one that leads with them;
+- substance an engineer would respect: concrete systems, real scale, real numbers, hard problems solved, with no padding or unsupported claims;
+- readability: plain sentences each reader parses on a single read, no jargon walls, no acronym soup;
+- keyword coverage of the job description is a TIEBREAKER only, and only for terms sitting inside plain sentences the candidate's real work supports. A draft that crams more keywords into harder-to-read sentences must NOT outscore a plainer, more impressive draft.
 
-MECHANICAL CHECK — six things you can verify by reading a candidate's JSON directly, so deduct only for what you can actually see:
+MECHANICAL CHECK — things you can verify by reading a candidate's JSON directly, so deduct only for what you can actually see:
+- LINE FILL — every experience/project bullet is either 18-21 words (one full line) or 40-42 words (two full lines). Count the words. A bullet of 1-17, 22-39, or 43+ words leaves a line partly empty or spills to a third line, and is a defect.
 - TENSE — bullets under an entry whose dates end in "Present" are present tense, every other entry is past tense, and no entry mixes the two.
-- DATES — every date field reads "Mon YYYY – Mon YYYY" or "Mon YYYY – Present", in the same format across all entries. No days, semesters, numeric dates, or bare years.
-- PUNCTUATION — no bullet ends in a period, uniformly across the whole resume.
+- DATES — experience/project date fields read "Mon YYYY – Mon YYYY" or "Mon YYYY – Present", consistently. Education shows ONLY the graduation date, e.g. "May 2029 (Expected Graduation)"; an education start date or range is a defect.
+- PUNCTUATION — every experience, project, and custom bullet ends with a full stop.
+- LOCATION — every experience and project entry has an empty location. Any city, state, or "Remote" on an internship, startup, or project is a defect.
+- HEADER — LinkedIn and GitHub carry "label" values ("LinkedIn", "GitHub") so no full profile URL shows on the header line.
+- TITLE NOTE — an accelerator or program selection (e.g. ${PERSONAL.promptExamples.accelerator.programName}) sits in the entry's "titleNote" beside the name, not in the subtitle or a bullet.
+- SKILLS — exactly two one-line rows, labelled "Languages" and "Tools".
+- NO BOLD — no <strong>, <b>, or font-weight anywhere in the JSON.
 - VERBS — every bullet opens with an action verb, no leading verb repeats anywhere in the resume, and none is on the banned list.
 - DENSITY — each entry's bullet count sits inside the range the render/content settings above specify, with the strongest entries at the higher end.
 - SUBSTANCE — bullets state accomplishments and outcomes, not the duties the role nominally involved.
+- ONE SUBJECT — no bullet fuses two distinct systems or pieces of work into one sentence; a fused bullet is a serious defect, not a style nit.
+- ANCHOR — the first bullet of every project and single-project experience entry tells a non-technical reader, in plain words, what was built, for whom, and how.
 
 Then write a justification of 3-4 lines for each score: what carried it, and what specifically cost it points. Plain sentences, no headings, no bullet lists, no per-criterion breakdown. Do not walk the mechanical check item by item — it informs the number, and earns at most one clause of the justification when a candidate actually fails something.`;
 
@@ -608,6 +640,9 @@ export function buildCouncilJudgePrompt({
     ? `\n\nRENDER / CONTENT SETTINGS the final resume must honor:\n${styleInstructions.trim()}\n`
     : '';
 
+  const angleMergeBlock = buildCouncilAngleMergeBlock(candidates);
+  const angleBlock = angleMergeBlock ? `\n${angleMergeBlock}\n` : '';
+
   const sourceBlock =
     path === 'repository' && sources && sources.length > 0
       ? `\nCANDIDATE SOURCE MATERIAL (ground-truth freewrite notes every draft was built from — judge factual fidelity against this: reward drafts that surfaced the strongest real evidence and stayed truthful, and penalize any employer, title, date, tool, or metric a draft asserts that is NOT supported here):\n\`\`\`json\n${JSON.stringify(
@@ -623,7 +658,7 @@ JOB DESCRIPTION:
 """
 ${jd}
 """
-${styleBlock}${noJdRule}${sourceBlock}
+${styleBlock}${noJdRule}${sourceBlock}${angleBlock}
 CANDIDATE RESUMES (anonymized):
 
 ${candidateBlocks}
@@ -655,9 +690,11 @@ CRITICAL OUTPUT FORMAT — the app can ONLY load delimited JSON:
 5. ${finalSchemaNote}
 6. For skills sections use the "skills" array and keep "entries" as [].
 7. Generate stable unique string ids for all sections, entries, links, skills, and bullets in "final".
-8. Inline HTML in string fields is limited to <strong>, <em>, and restricted <span style="font-weight:...;font-style:..."> only. Never use <mark> or color/background styling. Apply <strong> only inside bullet text, following the bold emphasis budget above; re-decide the emphasis yourself rather than inheriting whatever a candidate chose.
-9. Project subtitle rule: for project-type entries in "final", leave entry.subtitle empty. Never add "Founder", "Co-Founder", "Creator", "Builder", or any self-assigned role title to a project entry's subtitle — even if a candidate draft included one.
-10. No text, commentary, or markdown fences outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
+8. Inline HTML in string fields is limited to <em> only. Never use <strong>, <b>, font-weight, <mark>, or color/background styling, even where a candidate draft did: strip any bold you inherit.
+9. Layout rules for "final": every experience and project entry has "location": ""; LinkedIn/GitHub contact links carry "label"; an accelerator selection goes in "titleNote"; the skills section is exactly the two rows "Languages" and "Tools"; every experience/project bullet is 18-21 or 40-42 words and ends with a full stop. Fix any candidate content that breaks these.
+10. Project subtitle rule: for project-type entries in "final", leave entry.subtitle empty. Never add "Founder", "Co-Founder", "Creator", "Builder", or any self-assigned role title to a project entry's subtitle — even if a candidate draft included one.
+11. Entry "links" fields: when a candidate's entry carries "links" that the source material supports (a source's "links" array or a URL in its freewrite), keep them on the corresponding entry in "final" with their labels unchanged. Never invent a URL no candidate or source provides, and drop any URL the source material does not support.
+12. No text, commentary, or markdown fences outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
 }
 
 /**

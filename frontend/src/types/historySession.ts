@@ -3,6 +3,7 @@ import type { ResumeData } from './resume';
 import type { CoverLetterData } from './coverLetter';
 import type { CouncilSnapshot } from './council';
 import type { ResumeRenderSettings } from '../utils/resumeSettings';
+import type { RecruiterReadResult } from '../utils/recruiterRead';
 
 /** Full editor state captured when saving a history session. */
 export interface HistorySessionSnapshot {
@@ -24,6 +25,8 @@ export interface HistorySessionSnapshot {
   coverLetter?: CoverLetterData | null;
   /** The chat the cover letter was generated in, for reopening it. */
   coverLetterSession?: AiChatSession | null;
+  /** Cold 10-second recruiter summary of the resume, when one was run. */
+  recruiterRead?: RecruiterReadResult | null;
 }
 
 export interface HistorySessionListItem {

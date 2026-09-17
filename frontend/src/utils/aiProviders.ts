@@ -80,6 +80,48 @@ export function saveCoverLetterProvider(provider: AiProvider) {
   localStorage.setItem(COVER_LETTER_PROVIDER_KEY, provider);
 }
 
+const COUNCIL_CANDIDATES_KEY = 'resume-builder-council-candidates';
+const COUNCIL_JUDGE_KEY = 'resume-builder-council-judge';
+
+function isAiProvider(value: unknown): value is AiProvider {
+  return value === 'claude' || value === 'chatgpt' || value === 'gemini';
+}
+
+/**
+ * The council picks used to live only in wizard state, so every reload or new
+ * build silently reset the candidates to Claude + Gemini — a council the user
+ * had set to Claude + Claude would then send candidate 2 to Gemini.
+ */
+export function getSavedCouncilCandidates(): AiProvider[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(COUNCIL_CANDIDATES_KEY) ?? 'null');
+    if (
+      Array.isArray(parsed) &&
+      parsed.length >= 2 &&
+      parsed.length <= 3 &&
+      parsed.every(isAiProvider)
+    ) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to the default.
+  }
+  return ['claude', 'gemini'];
+}
+
+export function saveCouncilCandidates(providers: AiProvider[]) {
+  localStorage.setItem(COUNCIL_CANDIDATES_KEY, JSON.stringify(providers));
+}
+
+export function getSavedCouncilJudge(): AiProvider {
+  const saved = localStorage.getItem(COUNCIL_JUDGE_KEY);
+  return isAiProvider(saved) ? saved : 'claude';
+}
+
+export function saveCouncilJudge(provider: AiProvider) {
+  localStorage.setItem(COUNCIL_JUDGE_KEY, provider);
+}
+
 export function getProviderConfig(provider: AiProvider) {
   return AI_PROVIDERS.find((item) => item.id === provider)!;
 }

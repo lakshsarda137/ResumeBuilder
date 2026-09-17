@@ -25,7 +25,7 @@
 .history-empty-icon {
   flex-shrink: 0;
   margin-top: 2px;
-  color: var(--text-3, #666);
+  color: var(--text-3);
 }
 
 .history-empty-block p {
@@ -40,7 +40,7 @@
 
 .history-empty-hint {
   font-size: 13px;
-  color: var(--text-3, #666);
+  color: var(--text-3);
 }
 
 .history-loading {
@@ -52,7 +52,7 @@
 }
 
 .history-error {
-  color: #fca5a5;
+  color: var(--red);
   font-size: 14px;
 }
 
@@ -71,6 +71,22 @@
   justify-content: space-between;
   gap: 16px;
   padding: 18px 20px;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+/* Every row's Open used to be a filled accent button — six equal shouts on one
+   screen, against the app's own "one filled button per surface" rule. Open is
+   now secondary, and the row itself carries the hover so the whole card reads
+   as the target. */
+.history-card:hover {
+  border-color: var(--border-2);
+  background: var(--surface-2);
+}
+
+.history-card:hover .history-open-btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .history-card-main {
@@ -97,11 +113,11 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: var(--accent, #e8d5b7);
+  color: var(--accent);
 }
 
 .history-card-meta-item--muted {
-  color: var(--text-3, #666);
+  color: var(--text-3);
 }
 
 .history-card-actions {
@@ -116,12 +132,12 @@
 }
 
 .history-delete-btn {
-  color: #f87171;
+  color: var(--red);
   padding: 8px 10px;
 }
 
 .history-delete-btn:hover:not(:disabled) {
-  background: var(--red-bg, rgba(248, 113, 113, 0.08));
+  background: var(--red-bg);
 }
 
 @media (max-width: 640px) {

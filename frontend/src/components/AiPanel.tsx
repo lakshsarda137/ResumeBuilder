@@ -1,5 +1,16 @@
 import { useState, useCallback, useEffect } from 'react';
-import { Bot, Check, Clipboard, Eye, Link2, Send, Loader2, Plug, X } from 'lucide-react';
+import {
+  Bot,
+  Check,
+  ChevronDown,
+  Clipboard,
+  Eye,
+  Link2,
+  Send,
+  Loader2,
+  Plug,
+  X,
+} from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { ResumeData } from '../types/resume';
 import type { BridgeDebugEvent } from '../hooks/useAiBridge';
@@ -28,6 +39,23 @@ import {
 import { AiResultModal } from './AiResultModal';
 import './AiPanel.css';
 import './ResumeBuilderWizard.css';
+
+/**
+ * The panel's two prompt fields plus its status block are 90px of permanent
+ * chrome in an editor whose whole job is showing a one-page document. Running
+ * an AI refinement is a mode you enter, so the fields collapse and the choice
+ * sticks. The controls row — provider, Connect, Preview prompt, Send PDF —
+ * never collapses, so the panel is still one click from working.
+ */
+const AI_PANEL_OPEN_KEY = 'resume-editor-ai-panel-open';
+
+function loadAiPanelOpen(): boolean {
+  try {
+    return localStorage.getItem(AI_PANEL_OPEN_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
 interface AiPanelProps {
   /**
@@ -139,6 +167,19 @@ export function AiPanel({
   const [diagnosticsCopied, setDiagnosticsCopied] = useState(false);
   const [promptPreview, setPromptPreview] = useState<PromptPreviewState | null>(null);
   const [previewingPrompt, setPreviewingPrompt] = useState(false);
+  const [fieldsOpen, setFieldsOpen] = useState(loadAiPanelOpen);
+
+  const toggleFields = useCallback(() => {
+    setFieldsOpen((open) => {
+      const next = !open;
+      try {
+        localStorage.setItem(AI_PANEL_OPEN_KEY, String(next));
+      } catch {
+        // Local persistence is best-effort.
+      }
+      return next;
+    });
+  }, []);
   const [promptCopied, setPromptCopied] = useState(false);
 
   const isBusy = connecting || sending || refining || previewData !== null;
@@ -499,9 +540,27 @@ export function AiPanel({
             )}
             {sending ? 'Working…' : 'Send PDF'}
           </button>
+
+          <button
+            type="button"
+            className="ai-panel-disclosure"
+            onClick={toggleFields}
+            aria-expanded={fieldsOpen}
+            title={
+              fieldsOpen
+                ? 'Hide the job description and edit instruction'
+                : 'Show the job description and edit instruction'
+            }
+          >
+            <ChevronDown
+              size={14}
+              className={`ai-panel-chevron${fieldsOpen ? ' ai-panel-chevron--open' : ''}`}
+            />
+            {fieldsOpen ? 'Hide prompt' : 'Edit prompt'}
+          </button>
         </div>
 
-        <div className="ai-panel-fields">
+        <div className="ai-panel-fields" hidden={!fieldsOpen}>
           <label className="ai-panel-prompt">
             <span>Job description</span>
             <textarea
@@ -520,7 +579,7 @@ export function AiPanel({
               value={aiUserPrompt}
               onChange={(e) => onAiUserPromptChange(e.target.value)}
               rows={2}
-              placeholder="e.g. Tighten the Checkmate bullets and add a GitHub link"
+              placeholder="e.g. Tighten the first experience's bullets and add a GitHub link"
             />
           </label>
         </div>

@@ -1,10 +1,20 @@
 import { type CSSProperties, useCallback, useMemo, useState } from 'react';
-import type { ResumeData, ResumeEntry, ResumeSection } from '../types/resume';
+import type {
+  ContactLink,
+  ResumeData,
+  ResumeEntry,
+  ResumeSection,
+  EntryLink,
+  SectionType,
+} from '../types/resume';
 import { bulletText, makeBullet } from '../types/resume';
 import {
   mergeResumeRenderSettings,
   type ResumeRenderSettings,
 } from '../utils/resumeSettings';
+import { normalizeUrl } from '../utils/resumeLinks';
+import { orderSectionsForDisplay } from '../utils/sectionOrder';
+import { ContactLinkText } from './ContactLinkText';
 import { EditableText } from './EditableText';
 import './ResumeDocument.css';
 
@@ -15,6 +25,9 @@ interface ResumeDocumentProps {
   id?: string;
   settings?: ResumeRenderSettings;
 }
+
+/** House style: internships, startups, and projects never show a location. */
+const NO_LOCATION_SECTIONS: SectionType[] = ['experience', 'projects'];
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -41,58 +54,6 @@ export function cssFontFamily(name: string) {
 function grayscaleFromIntensity(intensity: number) {
   const channel = Math.round(255 * (1 - intensity / 100));
   return `rgb(${channel}, ${channel}, ${channel})`;
-}
-
-function normalizeSectionOrderLabel(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/&/g, 'and')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\btechnical\b/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function sectionOrderAliases(section: ResumeSection) {
-  const aliases = new Set<string>();
-  aliases.add(normalizeSectionOrderLabel(section.title));
-  aliases.add(normalizeSectionOrderLabel(section.type));
-
-  if (section.type === 'skills') {
-    aliases.add('skills');
-  }
-
-  return aliases;
-}
-
-function orderSectionsForDisplay(
-  sections: ResumeSection[],
-  headings: string[],
-) {
-  const ranks = new Map<string, number>();
-  headings.forEach((heading, index) => {
-    const normalized = normalizeSectionOrderLabel(heading);
-    if (normalized) {
-      ranks.set(normalized, index);
-    }
-  });
-
-  return [...sections].sort((left, right) => {
-    const leftRanks = [...sectionOrderAliases(left)]
-      .map((alias) => ranks.get(alias))
-      .filter((rank): rank is number => rank !== undefined);
-    const rightRanks = [...sectionOrderAliases(right)]
-      .map((alias) => ranks.get(alias))
-      .filter((rank): rank is number => rank !== undefined);
-    const leftRank = leftRanks.length > 0 ? Math.min(...leftRanks) : Number.MAX_SAFE_INTEGER;
-    const rightRank = rightRanks.length > 0 ? Math.min(...rightRanks) : Number.MAX_SAFE_INTEGER;
-
-    if (leftRank !== rightRank) {
-      return leftRank - rightRank;
-    }
-
-    return sections.indexOf(left) - sections.indexOf(right);
-  });
 }
 
 export function ResumeDocument({
@@ -176,13 +137,13 @@ export function ResumeDocument({
   );
 
   const updateContactLink = useCallback(
-    (linkId: string, value: string) => {
+    (linkId: string, patch: Partial<ContactLink>) => {
       emitChange({
         ...data,
         contact: {
           ...data.contact,
           links: data.contact.links.map((link) =>
-            link.id === linkId ? { ...link, value } : link,
+            link.id === linkId ? { ...link, ...patch } : link,
           ),
         },
       });
@@ -198,7 +159,7 @@ export function ResumeDocument({
           ...data.contact,
           links: [
             ...data.contact.links,
-            { id: generateId(), value: 'github.com/username' },
+            { id: generateId(), value: 'github.com/username', label: 'GitHub' },
           ],
         },
       },
@@ -305,7 +266,7 @@ export function ResumeDocument({
                 : section.type === 'projects'
                   ? 'Project Name'
                   : 'Organization Name',
-            location: section.type === 'experience' ? '' : 'City, ST',
+            location: NO_LOCATION_SECTIONS.includes(section.type) ? '' : 'City, ST',
             date: 'Month Year – Present',
             subtitle:
               section.type === 'experience'
@@ -358,10 +319,11 @@ export function ResumeDocument({
   return (
     <div className="resume-page-wrapper">
       <div
-        className={`resume-page resume-page--${effectiveSettings.defaultTemplate}${editing ? '' : ' resume-page--print'}`}
+        className={`resume-page resume-page--${effectiveSettings.defaultTemplate}${editing ? '' : ' resume-page--print'}${effectiveSettings.showHeader ? '' : ' resume-page--no-header'}`}
         id={id}
         style={pageStyle}
       >
+      {effectiveSettings.showHeader && (
       <header className="resume-header">
         <EditableText
           tag="h1"
@@ -379,13 +341,10 @@ export function ResumeDocument({
                   {' | '}
                 </span>
               )}
-              <EditableText
-                tag="span"
-                className="resume-contact-text"
-                value={link.value}
-                onChange={(v) => updateContactLink(link.id, v)}
-                placeholder="email, phone, or URL"
+              <ContactLinkText
+                link={link}
                 editing={editing}
+                onChange={(patch) => updateContactLink(link.id, patch)}
               />
               {editing && data.contact.links.length > 1 && (
                 <button
@@ -411,6 +370,7 @@ export function ResumeDocument({
           </button>
         )}
       </header>
+      )}
 
       {displaySections.map((section) => (
         <section key={section.id} className="resume-section">
@@ -538,6 +498,129 @@ export function ResumeDocument({
                         placeholder={section.type === 'experience' ? 'Company' : 'Title'}
                         editing={editing}
                       />
+                      {(entry.titleNote || editing) && section.type !== 'skills' && (
+                        <span className="resume-entry-title-note-item">
+                          {entry.titleNote && (
+                            <span className="resume-entry-link-sep" aria-hidden>
+                              {' | '}
+                            </span>
+                          )}
+                          <EditableText
+                            tag="span"
+                            className="resume-entry-title-note"
+                            value={entry.titleNote ?? ''}
+                            onChange={(v) =>
+                              updateEntry(section.id, entry.id, (e) => ({
+                                ...e,
+                                titleNote: v,
+                              }))
+                            }
+                            placeholder={editing && !entry.titleNote ? '+ note' : ''}
+                            editing={editing}
+                          />
+                        </span>
+                      )}
+                      {(entry.links ?? []).map((link, linkIndex) => {
+                        const href = normalizeUrl(link.url);
+                        const setLink = (patch: Partial<EntryLink>, snapshot = false) =>
+                          updateEntry(
+                            section.id,
+                            entry.id,
+                            (e) => ({
+                              ...e,
+                              links: (e.links ?? []).map((l, i) =>
+                                i === linkIndex ? { ...l, ...patch } : l,
+                              ),
+                            }),
+                            snapshot,
+                          );
+                        const labelText = (
+                          <EditableText
+                            tag="span"
+                            className="resume-entry-link-label"
+                            value={link.label}
+                            onChange={(v) => setLink({ label: v })}
+                            placeholder="Link label"
+                            editing={editing}
+                          />
+                        );
+                        return (
+                          <span key={linkIndex} className="resume-entry-link-item">
+                            <span className="resume-entry-link-sep" aria-hidden>
+                              {' | '}
+                            </span>
+                            {href ? (
+                              <a
+                                className="resume-link resume-entry-title-link"
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => {
+                                  if (editing) e.preventDefault();
+                                }}
+                              >
+                                {labelText}
+                              </a>
+                            ) : (
+                              labelText
+                            )}
+                            {editing && (
+                              <span className="resume-control resume-control--url-chip">
+                                🔗
+                                <EditableText
+                                  tag="span"
+                                  className="resume-entry-url"
+                                  value={link.url}
+                                  onChange={(v) => setLink({ url: v })}
+                                  placeholder="https://github.com/user/repo"
+                                  editing
+                                />
+                                <button
+                                  type="button"
+                                  className="resume-control resume-control--remove"
+                                  onClick={() =>
+                                    updateEntry(
+                                      section.id,
+                                      entry.id,
+                                      (e) => {
+                                        const links = (e.links ?? []).filter((_, i) => i !== linkIndex);
+                                        return links.length > 0
+                                          ? { ...e, links }
+                                          : { ...e, links: undefined };
+                                      },
+                                      true,
+                                    )
+                                  }
+                                  title="Remove hyperlink"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            )}
+                          </span>
+                        );
+                      })}
+                      {editing && (
+                        <button
+                          type="button"
+                          className="resume-control resume-control--inline resume-control--add-url"
+                          onClick={() =>
+                            updateEntry(section.id, entry.id, (e) => ({
+                              ...e,
+                              links: [
+                                ...(e.links ?? []),
+                                {
+                                  label: (e.links ?? []).length === 0 ? 'GitHub' : 'Website',
+                                  url: '',
+                                },
+                              ],
+                            }))
+                          }
+                          title="Add a hyperlink after this entry's title (GitHub, live site…)"
+                        >
+                          + link
+                        </button>
+                      )}
                     </span>
                     {section.type === 'experience' ? (
                       <EditableText
@@ -633,7 +716,7 @@ export function ResumeDocument({
                         editing={editing}
                       />
                     ) : null}
-                    {editing && !entry.location && (
+                    {editing && !entry.location && !NO_LOCATION_SECTIONS.includes(section.type) && (
                       <button
                         type="button"
                         className="resume-control resume-control--inline resume-control--add-location"

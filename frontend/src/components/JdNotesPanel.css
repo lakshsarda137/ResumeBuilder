@@ -20,11 +20,15 @@
   overflow: hidden;
 }
 
+/* This panel was written for a light background and then rendered on a dark
+   one: the heading measured 1.19:1 and the sub-line 3.66:1 — the heading was
+   effectively invisible. Both now take the app's text tokens, which are
+   measured against every surface in the set. */
 .jd-notes-panel-heading {
   margin: 0 0 2px;
   font-size: 12px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-1);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -32,7 +36,7 @@
 .jd-notes-panel-sub {
   margin: 0 0 12px;
   font-size: 11px;
-  color: #64748b;
+  color: var(--text-3);
   line-height: 1.35;
   flex-shrink: 0;
 }
@@ -45,12 +49,15 @@
   scrollbar-gutter: stable;
 }
 
+/* Notes used to be blue sticky-notes (#eff6ff / #3b82f6) — the only blue in the
+   product, on a palette that deliberately avoids it. They now read as annotations
+   in the accent hue: a tint of the ground, a dashed accent edge. */
 .jd-note-card {
   display: block;
   width: 100%;
   text-align: left;
-  background: #eff6ff;
-  border: 1px dashed #3b82f6;
+  background: var(--surface);
+  border: 1px dashed var(--accent);
   border-radius: 8px;
   padding: 10px 12px;
   margin-bottom: 10px;
@@ -68,20 +75,20 @@
 
 .jd-note-card:hover,
 .jd-note-card--active {
-  background: #dbeafe;
-  border-color: #2563eb;
+  background: var(--accent-dim);
+  border-color: var(--accent);
   border-style: solid;
 }
 
 .jd-note-card--pinned {
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+  box-shadow: 0 0 0 2px var(--accent-hover);
 }
 
 .jd-note-label {
   display: block;
   font-size: 10px;
   font-weight: 600;
-  color: #1d4ed8;
+  color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 0.03em;
   margin-bottom: 4px;
@@ -91,7 +98,7 @@
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
-  color: #334155;
+  color: var(--text-2);
 }
 
 [data-jd-anchor] {
@@ -102,8 +109,8 @@
 }
 
 [data-jd-anchor].jd-anchor--highlighted {
-  background: rgba(59, 130, 246, 0.16);
-  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.65);
+  background: rgba(47, 92, 66, 0.13);
+  box-shadow: inset 0 0 0 2px rgba(47, 92, 66, 0.6);
   border-radius: 3px;
 }
 

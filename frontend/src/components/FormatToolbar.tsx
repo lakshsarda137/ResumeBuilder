@@ -9,7 +9,15 @@ import {
 import './FormatToolbar.css';
 
 interface FormatToolbarProps {
-  variant?: 'header' | 'canvas';
+  /**
+   * `dock` — the editor's own bar: full width, part of the fixed chrome above
+   * the scrolling canvas, so it never moves and never overlaps the document.
+   * `canvas` — a tab attached to the top of a preview page, for the result
+   * modal where the stack is static and the bar is genuinely a page header.
+   * The editor used to use `canvas` and had to make it sticky to stay
+   * reachable, which meant it floated over the résumé and hid the top of it.
+   */
+  variant?: 'header' | 'dock' | 'canvas';
   trailing?: ReactNode;
   showControls?: boolean;
   hint?: string;
@@ -195,7 +203,7 @@ export function FormatToolbar({
   return (
     <div
       ref={toolbarRef}
-      className={`format-toolbar${canFormat ? ' format-toolbar--active' : ''}${variant === 'canvas' ? ' format-toolbar--canvas' : ''}`}
+      className={`format-toolbar${canFormat ? ' format-toolbar--active' : ''}${variant !== 'header' ? ` format-toolbar--${variant}` : ''}`}
       role="toolbar"
       aria-label="Text formatting"
     >

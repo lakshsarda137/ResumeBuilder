@@ -61,6 +61,19 @@ export interface CouncilModalData {
   synthesisNotes: string;
   noJobDescription: boolean;
   failures: Array<{ provider: string; error: string }>;
+  /**
+   * Every candidate's ATS score, shown on the default tab.
+   *
+   * `selected` only exists while a candidate tab is open, so the scores used to
+   * be reachable one number at a time and were invisible on the view the modal
+   * actually opens on — which read as "the build produced no scores".
+   */
+  allScores: Array<{
+    candidateLabel: string;
+    providerLabel: string;
+    score: number | null;
+    justification: string;
+  }>;
   selected: {
     providerLabel: string;
     candidateLabel: string;
@@ -260,6 +273,36 @@ export function AiResultModal({
             </div>
           ) : null}
 
+          {/* Overview: every candidate's score, on the tab the modal opens on. */}
+          {council && !council.selected && council.allScores.length > 0 ? (
+            <section className="ai-council-scores">
+              <h3>Judge&rsquo;s recruiter scores</h3>
+              {council.noJobDescription ? (
+                <p className="ai-council-score-empty">
+                  No job description was provided for this run, so
+                  job-description alignment was not scored.
+                </p>
+              ) : null}
+              <div className="ai-council-score-grid">
+                {council.allScores.map((row) => (
+                  <div key={row.candidateLabel} className="ai-council-score-row">
+                    <div className="ai-council-score-head">
+                      <span className="ai-council-score-title">
+                        Candidate {row.candidateLabel} · {row.providerLabel}
+                      </span>
+                      <span className="ai-council-score-value">
+                        {row.score != null ? `${row.score}/100` : '—'}
+                      </span>
+                    </div>
+                    {row.justification ? (
+                      <p className="ai-council-score-rationale">{row.justification}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {council?.selected ? (
             <section className="ai-council-scores">
               <h3>
@@ -279,7 +322,11 @@ export function AiResultModal({
                       <div className="ai-council-score-head">
                         <span className="ai-council-score-title">{row.title}</span>
                         <span className="ai-council-score-value">
-                          {row.score != null ? `${row.score}/10` : '—'}
+                          {/* /100, not /10 — the judge is instructed to give a
+                              single ATS score out of 100 (see types/council.ts
+                              and buildCouncilJudgePrompt), and CouncilReviewModal
+                              already renders it that way. */}
+                          {row.score != null ? `${row.score}/100` : '—'}
                         </span>
                       </div>
                       {row.rationale ? (

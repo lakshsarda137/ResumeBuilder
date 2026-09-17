@@ -1,4 +1,5 @@
 import type { RepoItem, RepositorySource } from '../types/repository';
+import { repoItemLinks } from './resumeLinks';
 
 export function repoItemToSource(item: RepoItem): RepositorySource {
   const sendable = item.mode === 'freewrite' && item.content.trim().length > 0;
@@ -13,6 +14,7 @@ export function repoItemToSource(item: RepoItem): RepositorySource {
     start_date: item.start_date,
     end_date: item.end_date,
     freewrite: sendable ? item.content.trim() : '',
+    links: repoItemLinks(item),
     sendable,
   };
 }

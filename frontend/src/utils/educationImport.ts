@@ -95,6 +95,7 @@ export async function syncEducationFromImport(
       const body = {
         degree: pickText(match.degree, edu.degree ?? null),
         major: pickText(match.major, edu.major ?? null),
+        start_date: pickText(match.start_date, edu.start_date ?? null),
         grad_date: pickText(match.grad_date, edu.grad_date ?? null),
         gpa: pickText(match.gpa, edu.gpa ?? null),
         location: pickText(match.location, edu.location ?? null),
@@ -104,6 +105,7 @@ export async function syncEducationFromImport(
       const unchanged =
         body.degree === match.degree &&
         body.major === match.major &&
+        body.start_date === match.start_date &&
         body.grad_date === match.grad_date &&
         body.gpa === match.gpa &&
         body.location === match.location &&
@@ -133,6 +135,7 @@ export async function syncEducationFromImport(
         school: edu.school.trim(),
         degree: edu.degree?.trim() || null,
         major: edu.major?.trim() || null,
+        start_date: edu.start_date?.trim() || null,
         grad_date: edu.grad_date?.trim() || null,
         gpa: edu.gpa?.trim() || null,
         location: edu.location?.trim() || null,

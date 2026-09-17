@@ -10,15 +10,20 @@ import {
   FileText,
   Loader2,
   Save,
+  FileCode,
   SlidersHorizontal,
   PlusCircle,
   X,
+  Eye,
 } from 'lucide-react';
 import type { AiChatSession } from '../types/aiSession';
 import type { HistorySessionSnapshot } from '../types/historySession';
 import type { CouncilSnapshot } from '../types/council';
+import type { CoverLetterData } from '../types/coverLetter';
 import type { ResumeData } from '../types/resume';
 import { ResumeWithJdNotes } from './ResumeWithJdNotes';
+import { LatexSourceModal } from './LatexSourceModal';
+import { buildResumeLatex, compileLatexToPdf, saveBlob } from '../utils/latex';
 import { CoverLetterWithJdNotes } from './CoverLetterWithJdNotes';
 import { CoverLetterDocument } from './CoverLetterDocument';
 import { useResumeState } from '../hooks/useResumeState';
@@ -42,6 +47,13 @@ import {
 } from '../utils/coverLetterSettings';
 import { buildCoverLetterSmallOverflowFitSettings } from '../utils/coverLetterFitModerator';
 import {
+  runRecruiterRead,
+  type RecruiterReadResult,
+  type RecruiterReadStatus,
+} from '../utils/recruiterRead';
+import { getSavedIncognito, type AiProvider } from '../utils/aiProviders';
+import { RecruiterReadBar } from './RecruiterReadBar';
+import {
   getDefaultAiUserPrompt,
   buildExpandResumePrompt,
   buildResumeBuildCoverPrompt,
@@ -55,7 +67,6 @@ import { parseResumeFromLlmResponse } from '../utils/parseResumeResponse';
 import {
   buildSmallOverflowFitSettings,
   canModerateSmallOverflow,
-  shouldSafetyCompress,
 } from '../utils/resumeFitModerator';
 import {
   RESUME_RENDER_TEMPLATES,
@@ -76,7 +87,6 @@ import { PipelineStatus } from './PipelineStatus';
 import { ResumeBuilderWizard } from './ResumeBuilderWizard';
 import { ResumeDocument } from './ResumeDocument';
 import { ResumeRenderSettingsControls } from './ResumeRenderSettingsControls';
-import { SaveSessionModal } from './SaveSessionModal';
 import './ResumeEditor.css';
 
 const SHOW_JD_NOTES_KEY = 'resume-editor-show-jd-notes';
@@ -102,6 +112,46 @@ function saveHasCoverLetter(value: boolean) {
   } catch {
     // Local persistence is best-effort.
   }
+}
+
+type AutosaveState =
+  | { status: 'idle' }
+  | { status: 'saving' }
+  | { status: 'saved'; at: Date }
+  | { status: 'error'; message: string };
+
+/** Quiet window after the last edit before the session is written. */
+const AUTOSAVE_DEBOUNCE_MS = 1200;
+
+/** History title for an autosaved session: local date and time, e.g. "2026-09-05 14:03". */
+function autosaveSessionTitle(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}`;
+}
+
+function autosaveLabel(state: AutosaveState): string {
+  switch (state.status) {
+    case 'saving':
+      return 'Saving…';
+    case 'saved':
+      return `Saved ${state.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    case 'error':
+      return 'Retry save';
+    default:
+      return 'Autosave on';
+  }
+}
+
+function autosaveTitle(state: AutosaveState, sessionTitle: string | null): string {
+  const target = sessionTitle
+    ? `History session "${sessionTitle}"`
+    : 'a new History session titled with the current date and time';
+  if (state.status === 'saved') {
+    return `Every change is saved automatically to ${target}. Last saved ${state.at.toLocaleTimeString()}.`;
+  }
+  return `Every change is saved automatically to ${target}: resume, job description, JD notes, zoom, style and linked chat.`;
 }
 
 function pageFitVariant(fit: ResumePageFit | null) {
@@ -141,7 +191,7 @@ function pageFitTitle(fit: ResumePageFit | null) {
   }
   const base = `Measured from the PDF export layout: ${(fit.usageRatio * 100).toFixed(1)}% used`;
   if (fit.status !== 'over' && !fit.safe) {
-    return `${base}. This is close to the page limit, so Download PDF gently compresses it to keep the last line on page one.`;
+    return `${base}. This is close to the page limit; the LaTeX render packs slightly tighter than this preview, and Download PDF reports its real page count.`;
   }
   return base;
 }
@@ -177,6 +227,7 @@ export function ResumeEditor() {
   } = useCoverLetterState({ undoShortcutEnabled: docView === 'cover-letter' });
   const didSeedRef = useRef(false);
   const loadedSessionRef = useRef<string | null>(null);
+  const justLoadedSessionRef = useRef(false);
   const editorCanvasRef = useRef<HTMLElement | null>(null);
   const pendingEditorScrollRef = useRef(false);
   const [view, setView] = useState<'wizard' | 'editor'>('wizard');
@@ -189,10 +240,8 @@ export function ResumeEditor() {
   const [aiUserPrompt, setAiUserPrompt] = useState(getDefaultAiUserPrompt);
   const [historySessionId, setHistorySessionId] = useState<string | null>(null);
   const [historySessionTitle, setHistorySessionTitle] = useState<string | null>(null);
-  const [saveModalOpen, setSaveModalOpen] = useState(false);
-  const [savingSession, setSavingSession] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveFlash, setSaveFlash] = useState<string | null>(null);
+  const [autosave, setAutosave] = useState<AutosaveState>({ status: 'idle' });
+  const [latexOpen, setLatexOpen] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
   const [renderSettings, setRenderSettingsState] = useState(loadResumeRenderSettings);
@@ -221,6 +270,15 @@ export function ResumeEditor() {
   /** Kept so "Regenerate" can re-run with the same inputs the wizard captured. */
   const coverLetterRequestRef = useRef<CoverLetterRequest | null>(null);
   const coverLetterRunIdRef = useRef(0);
+
+  // ── Recruiter read ────────────────────────────────────────────────────────
+  const [recruiterRead, setRecruiterRead] = useState<RecruiterReadResult | null>(null);
+  const [recruiterReadStatus, setRecruiterReadStatus] = useState<RecruiterReadStatus>('idle');
+  const [recruiterReadError, setRecruiterReadError] = useState<string | null>(null);
+  const [recruiterReadProvider, setRecruiterReadProvider] = useState<AiProvider | null>(null);
+  /** The resume JSON the current read was taken of, to flag later edits. */
+  const [recruiterReadResumeJson, setRecruiterReadResumeJson] = useState<string | null>(null);
+  const recruiterReadRunIdRef = useRef(0);
 
   const scrollEditorToTop = useCallback(() => {
     editorCanvasRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -255,6 +313,7 @@ export function ResumeEditor() {
       setGlobalRenderDefaults(loadResumeRenderSettings());
     }
   }, [stylePanelOpen]);
+
 
   const styleOverridesActive = useMemo(
     () => JSON.stringify(renderSettings) !== JSON.stringify(globalRenderDefaults),
@@ -420,9 +479,22 @@ export function ResumeEditor() {
       // selection) are gone, so regeneration is not offered until a new build.
       coverLetterRequestRef.current = null;
       setCoverLetterRun(IDLE_COVER_LETTER_RUN);
+      recruiterReadRunIdRef.current += 1;
+      setRecruiterRead(snapshot.recruiterRead ?? null);
+      setRecruiterReadStatus(snapshot.recruiterRead ? 'done' : 'idle');
+      setRecruiterReadError(null);
+      // Taken of the saved resume, so it is current as of the restore.
+      setRecruiterReadResumeJson(
+        snapshot.recruiterRead ? JSON.stringify(snapshot.resume) : null,
+      );
       setDocView('resume');
       setHistorySessionId(sessionId);
       setHistorySessionTitle(title);
+      // The next autosave pass treats the restored state as already saved, so
+      // merely opening a session does not rewrite it and bump it to the top of
+      // History.
+      justLoadedSessionRef.current = true;
+      setAutosave({ status: 'idle' });
       pendingEditorScrollRef.current = true;
       setView('editor');
       try {
@@ -536,8 +608,8 @@ export function ResumeEditor() {
     });
   }, [setShowJdNotes]);
 
-  const buildSnapshot = useCallback((): HistorySessionSnapshot => {
-    return {
+  const snapshot = useMemo<HistorySessionSnapshot>(
+    () => ({
       resume: data,
       jobDescription,
       linkedSession,
@@ -550,119 +622,131 @@ export function ResumeEditor() {
       // session would carry the empty-state template.
       coverLetter: hasCoverLetter ? coverLetter : null,
       coverLetterSession: hasCoverLetter ? coverLetterSession : null,
-    };
-  }, [
-    data,
-    jobDescription,
-    linkedSession,
-    showJdNotes,
-    zoom,
-    aiUserPrompt,
-    renderSettings,
-    councilSnapshot,
-    coverLetter,
-    coverLetterSession,
-    hasCoverLetter,
-  ]);
-
-  const persistSession = useCallback(
-    async (title?: string) => {
-      setSavingSession(true);
-      setSaveError(null);
-      const snapshot = buildSnapshot();
-
-      try {
-        if (historySessionId) {
-          const updated = await updateHistorySession(
-            historySessionId,
-            snapshot,
-            title,
-          );
-          setHistorySessionTitle(updated.title);
-          setSaveFlash('Session updated');
-        } else {
-          if (!title?.trim()) {
-            throw new Error('Title is required');
-          }
-          const created = await createHistorySession(title.trim(), snapshot);
-          setHistorySessionId(created.id);
-          setHistorySessionTitle(created.title);
-          setSearchParams({ session: created.id }, { replace: true });
-          loadedSessionRef.current = created.id;
-          setSaveFlash('Session saved');
-        }
-        setSaveModalOpen(false);
-        window.setTimeout(() => setSaveFlash(null), 2500);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to save session';
-        setSaveError(message);
-        throw err;
-      } finally {
-        setSavingSession(false);
-      }
-    },
-    [buildSnapshot, historySessionId, setSearchParams],
+      recruiterRead,
+    }),
+    [
+      recruiterRead,
+      data,
+      jobDescription,
+      linkedSession,
+      showJdNotes,
+      zoom,
+      aiUserPrompt,
+      renderSettings,
+      councilSnapshot,
+      coverLetter,
+      coverLetterSession,
+      hasCoverLetter,
+    ],
   );
+  const snapshotJson = useMemo(() => JSON.stringify(snapshot), [snapshot]);
 
-  const handleSaveClick = useCallback(() => {
-    if (historySessionId) {
-      void persistSession().catch(() => {});
+  // --- Autosave -------------------------------------------------------------
+  // Every editor state change lands in History on its own: the first change
+  // creates a session titled with the current date and time, later changes
+  // update it. Refs carry the latest snapshot and session id into the async
+  // save so a save that starts late never writes a stale copy.
+  const snapshotRef = useRef(snapshot);
+  const snapshotJsonRef = useRef(snapshotJson);
+  const historySessionIdRef = useRef(historySessionId);
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+    snapshotJsonRef.current = snapshotJson;
+    historySessionIdRef.current = historySessionId;
+  }, [snapshot, snapshotJson, historySessionId]);
+  const lastSavedJsonRef = useRef<string | null>(null);
+  const saveInFlightRef = useRef(false);
+  const saveQueuedRef = useRef(false);
+
+  const runAutosave = useCallback(async () => {
+    if (saveInFlightRef.current) {
+      saveQueuedRef.current = true;
       return;
     }
-    setSaveError(null);
-    setSaveModalOpen(true);
-  }, [historySessionId, persistSession]);
+    const json = snapshotJsonRef.current;
+    if (json === lastSavedJsonRef.current) {
+      return;
+    }
+    saveInFlightRef.current = true;
+    setAutosave({ status: 'saving' });
+    try {
+      const sessionId = historySessionIdRef.current;
+      if (sessionId) {
+        await updateHistorySession(sessionId, snapshotRef.current);
+      } else {
+        const created = await createHistorySession(
+          autosaveSessionTitle(),
+          snapshotRef.current,
+        );
+        historySessionIdRef.current = created.id;
+        setHistorySessionId(created.id);
+        setHistorySessionTitle(created.title);
+        loadedSessionRef.current = created.id;
+        setSearchParams({ session: created.id }, { replace: true });
+      }
+      lastSavedJsonRef.current = json;
+      setAutosave({ status: 'saved', at: new Date() });
+    } catch (err) {
+      setAutosave({
+        status: 'error',
+        message: err instanceof Error ? err.message : 'Autosave failed',
+      });
+    } finally {
+      saveInFlightRef.current = false;
+      if (saveQueuedRef.current) {
+        saveQueuedRef.current = false;
+        void runAutosave();
+      }
+    }
+  }, [setSearchParams]);
 
-  const handleSaveWithTitle = useCallback(
-    (title: string) => {
-      void persistSession(title).catch(() => {});
-    },
-    [persistSession],
-  );
+  useEffect(() => {
+    if (view !== 'editor' || loadingSession) {
+      return;
+    }
+    if (justLoadedSessionRef.current) {
+      // A session restored from History is already persisted as-is.
+      justLoadedSessionRef.current = false;
+      lastSavedJsonRef.current = snapshotJson;
+      return;
+    }
+    if (snapshotJson === lastSavedJsonRef.current) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void runAutosave();
+    }, AUTOSAVE_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [snapshotJson, view, loadingSession, runAutosave]);
 
   const resumeFilename = `${data.contact.name.replace(/\s+/g, '_') || 'Resume'}_Resume.pdf`;
+
+  /**
+   * The resume PDF is compiled from LaTeX (see utils/latex.ts) rather than
+   * printed from the DOM, so the same source can be opened in Overleaf. The
+   * engine reports the real page count; a two-page result is downloaded and
+   * flagged rather than refused, since the fix is content the user trims.
+   */
+  const latexSource = useMemo(() => buildResumeLatex(data, renderSettings), [data, renderSettings]);
+  const latexFilename = resumeFilename.replace(/\.pdf$/i, '.tex');
 
   const handleDownload = useCallback(async () => {
     setExporting(true);
     try {
-      let fit = await inspectResumePageFit('resume-export');
-      setPageFit(fit);
-
-      // Safety net: compress near-full and small-overflow resumes until usage
-      // drops back under the safe fill line, re-measuring after each pass so the
-      // loop converges. This keeps the last line from spilling onto page two.
-      let working = renderSettings;
-      let passes = 0;
-      while (shouldSafetyCompress(fit) && passes < 6) {
-        const result = buildSmallOverflowFitSettings(working, fit);
-        if (!result.changed) {
-          break;
-        }
-        working = result.settings;
-        flushSync(() => {
-          setRenderSettings(working);
-          setFitModeratorNotice(result.message);
-        });
-        fit = await inspectResumePageFit('resume-export');
-        setPageFit(fit);
-        passes += 1;
-      }
-
-      if (fit.status === 'over') {
-        const overflowInches = fit.overflowPt / 72;
+      const { blob, pages } = await compileLatexToPdf(latexSource, resumeFilename);
+      saveBlob(blob, resumeFilename);
+      if (pages != null && pages > 1) {
         alert(
-          `This resume is over one page by ${overflowInches.toFixed(2)} in even after auto-fit. Trim content or reduce type size before downloading so the PDF stays on one page.`,
+          `The LaTeX render came out to ${pages} pages. The PDF was downloaded anyway; trim content in the editor, or open the LaTeX source to adjust it directly.`,
         );
-        return;
       }
-      await exportResumeToPdf('resume-export', resumeFilename);
     } catch (err) {
       console.error(err);
       alert(err instanceof Error ? err.message : 'Failed to export PDF. Please try again.');
     } finally {
       setExporting(false);
     }
-  }, [renderSettings, resumeFilename, setRenderSettings]);
+  }, [latexSource, resumeFilename]);
 
   const coverLetterFilename = `${
     coverLetter.contact.name.replace(/\s+/g, '_') || 'Cover'
@@ -781,6 +865,59 @@ export function ResumeEditor() {
     [sendPromptAndWait, sendPromptAsFileAndWait, setCoverLetter, setHasCoverLetter],
   );
 
+  /**
+   * Cold recruiter skim of `resume`: only the rendered text and the JD go out,
+   * in a fresh chat. The result is shown to the user and nothing acts on it.
+   */
+  const startRecruiterRead = useCallback(
+    async (provider: AiProvider, resume: ResumeData, jd: string) => {
+      const runId = recruiterReadRunIdRef.current + 1;
+      recruiterReadRunIdRef.current = runId;
+      setRecruiterReadStatus('reading');
+      setRecruiterReadProvider(provider);
+      setRecruiterReadError(null);
+
+      try {
+        const { summary } = await runRecruiterRead({
+          provider,
+          resume,
+          jobDescription: jd,
+          incognito: getSavedIncognito(),
+          senders: { sendPromptAndWait, sendPromptAsFileAndWait },
+        });
+        if (recruiterReadRunIdRef.current !== runId) {
+          return;
+        }
+        setRecruiterRead({ summary, provider });
+        setRecruiterReadResumeJson(JSON.stringify(resume));
+        setRecruiterReadStatus('done');
+      } catch (error) {
+        if (recruiterReadRunIdRef.current !== runId) {
+          return;
+        }
+        setRecruiterReadError(
+          error instanceof Error ? error.message : 'Recruiter read failed.',
+        );
+        setRecruiterReadStatus('failed');
+      }
+    },
+    [sendPromptAndWait, sendPromptAsFileAndWait],
+  );
+
+  /** Provider for a manual re-read: whoever read last, else the linked chat, else the connection. */
+  const recruiterReadRerunProvider =
+    recruiterRead?.provider ?? linkedSession?.provider ?? connectedProvider ?? null;
+
+  const handleRerunRecruiterRead = useCallback(() => {
+    if (!recruiterReadRerunProvider) {
+      return;
+    }
+    void startRecruiterRead(recruiterReadRerunProvider, data, jobDescription);
+  }, [data, jobDescription, recruiterReadRerunProvider, startRecruiterRead]);
+
+  const recruiterReadStale =
+    recruiterReadResumeJson !== null && recruiterReadResumeJson !== JSON.stringify(data);
+
   const handleRegenerateCoverLetter = useCallback(() => {
     const request = coverLetterRequestRef.current;
     if (!request) {
@@ -796,6 +933,7 @@ export function ResumeEditor() {
       nextRenderSettings?: ResumeRenderSettings,
       council?: CouncilSnapshot,
       coverLetterRequest?: CoverLetterRequest,
+      coverLetterResult?: { coverLetter: CoverLetterData; session: AiChatSession | null },
     ) => {
       if (nextRenderSettings) {
         setRenderSettings(nextRenderSettings);
@@ -808,18 +946,60 @@ export function ResumeEditor() {
       loadedSessionRef.current = null;
       setSearchParams({}, { replace: true });
       pendingEditorScrollRef.current = true;
-      setDocView('resume');
+      setDocView(coverLetterResult ? 'cover-letter' : 'resume');
       setView('editor');
 
-      if (coverLetterRequest) {
+      let coverLetterRunning: Promise<void> | null = null;
+      if (coverLetterResult) {
+        // Written already (cover-letter-from-PDF path): apply it and open on
+        // the letter. No request is kept, so Regenerate is not offered; the
+        // way to redo it is to run the wizard again with the PDF.
+        coverLetterRequestRef.current = null;
+        setCoverLetter(coverLetterResult.coverLetter, true);
+        setCoverLetterSession(coverLetterResult.session);
+        setHasCoverLetter(true);
+        setCoverLetterRun({
+          status: 'done',
+          provider: coverLetterResult.session?.provider ?? null,
+          error: null,
+          attachWarning: null,
+        });
+      } else if (coverLetterRequest) {
         // Fire and forget: the resume is on screen immediately and the letter
         // lands when it lands.
-        void startCoverLetterRun(coverLetterRequest, next);
+        coverLetterRunning = startCoverLetterRun(coverLetterRequest, next);
       } else {
         coverLetterRequestRef.current = null;
         setCoverLetterRun(IDLE_COVER_LETTER_RUN);
         setHasCoverLetter(false);
         setCoverLetterSession(null);
+      }
+
+      // Every build gets a cold recruiter read of the resume as applied, in the
+      // same provider that produced it. It runs alongside the cover letter,
+      // except when both would share one provider: it is a cheap send, so it
+      // waits for the letter rather than add same-provider concurrency.
+      recruiterReadRunIdRef.current += 1;
+      setRecruiterRead(null);
+      setRecruiterReadResumeJson(null);
+      const readProvider = session?.provider ?? connectedProvider ?? null;
+      if (readProvider) {
+        const buildJobDescription = coverLetterRequest?.jobDescription ?? jobDescription;
+        if (coverLetterRunning && coverLetterRequest?.provider === readProvider) {
+          setRecruiterReadStatus('reading');
+          setRecruiterReadProvider(readProvider);
+          const queuedRunId = recruiterReadRunIdRef.current;
+          void coverLetterRunning.finally(() => {
+            // Skip if a newer build, restore, or manual re-read took over.
+            if (recruiterReadRunIdRef.current === queuedRunId) {
+              void startRecruiterRead(readProvider, next, buildJobDescription);
+            }
+          });
+        } else {
+          void startRecruiterRead(readProvider, next, buildJobDescription);
+        }
+      } else {
+        setRecruiterReadStatus('idle');
       }
       try {
         fetch('/api/versions', {
@@ -838,12 +1018,16 @@ export function ResumeEditor() {
       }
     },
     [
+      connectedProvider,
+      jobDescription,
+      setCoverLetter,
       setCoverLetterSession,
       setData,
       setHasCoverLetter,
       setRenderSettings,
       setSearchParams,
       startCoverLetterRun,
+      startRecruiterRead,
     ],
   );
 
@@ -906,7 +1090,7 @@ export function ResumeEditor() {
   }
 
   return (
-    <div className="editor">
+    <div className="editor editor--doc">
       <header className="editor-toolbar">
         <div className="editor-toolbar-left">
           <FileText size={20} className="editor-logo" />
@@ -1046,9 +1230,9 @@ export function ResumeEditor() {
         </div>
 
         <div className="editor-toolbar-right">
-          {fitModeratorNotice || saveFlash ? (
+          {fitModeratorNotice ? (
             <span className="editor-save-toast" role="status" aria-live="polite">
-              {fitModeratorNotice ?? saveFlash}
+              {fitModeratorNotice}
             </span>
           ) : null}
           <span
@@ -1088,30 +1272,60 @@ export function ResumeEditor() {
             </button>
           ) : null}
 
+          {/* Only when there is no read yet (e.g. a restored or bulk-built
+              session); once one exists, Re-read lives on its bar. */}
+          {!onCoverLetter && recruiterReadStatus === 'idle' && !recruiterRead ? (
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn--secondary"
+              onClick={handleRerunRecruiterRead}
+              disabled={!bridgeReady || !recruiterReadRerunProvider}
+              title={
+                recruiterReadRerunProvider
+                  ? 'Have a model skim this resume like a recruiter, with only the job description'
+                  : 'Connect to an AI provider first'
+              }
+            >
+              <Eye size={14} />
+              Recruiter read
+            </button>
+          ) : null}
+
           <span className="editor-toolbar-divider" aria-hidden />
 
           <button
             type="button"
             className="toolbar-btn toolbar-btn--secondary"
             onClick={handleNewBuild}
-            title="Start a new tailored build"
+            title="Start a fresh tailored run from the wizard"
           >
             New build
           </button>
-          <button
-            type="button"
-            className="toolbar-btn toolbar-btn--secondary"
-            onClick={handleSaveClick}
-            disabled={savingSession}
-            title={historySessionId ? 'Update saved session' : 'Save to history'}
-          >
-            {savingSession ? (
-              <Loader2 size={16} className="spin" />
-            ) : (
+          {autosave.status === 'error' ? (
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn--secondary toolbar-autosave toolbar-autosave--error"
+              onClick={() => void runAutosave()}
+              title={`Autosave failed: ${autosave.message}. Click to retry.`}
+            >
               <Save size={16} />
-            )}
-            Save
-          </button>
+              Retry save
+            </button>
+          ) : (
+            <span
+              className={`toolbar-autosave toolbar-autosave--${autosave.status}`}
+              role="status"
+              aria-live="polite"
+              title={autosaveTitle(autosave, historySessionTitle)}
+            >
+              {autosave.status === 'saving' ? (
+                <Loader2 size={14} className="spin" />
+              ) : (
+                <Save size={14} />
+              )}
+              {autosaveLabel(autosave)}
+            </span>
+          )}
           <button
             type="button"
             className="toolbar-btn toolbar-btn--secondary"
@@ -1148,6 +1362,17 @@ export function ResumeEditor() {
                 <RotateCcw size={16} />
               )}
               Regenerate
+            </button>
+          ) : null}
+          {!onCoverLetter ? (
+            <button
+              type="button"
+              className="toolbar-btn toolbar-btn--secondary"
+              onClick={() => setLatexOpen(true)}
+              title="View, copy, or open in Overleaf the LaTeX source that Download PDF compiles"
+            >
+              <FileCode size={16} />
+              LaTeX
             </button>
           ) : null}
           <button
@@ -1246,6 +1471,18 @@ export function ResumeEditor() {
         </p>
       ) : null}
 
+      {!onCoverLetter ? (
+        <RecruiterReadBar
+          status={recruiterReadStatus}
+          result={recruiterRead}
+          error={recruiterReadError}
+          readingProvider={recruiterReadProvider}
+          stale={recruiterReadStale}
+          canRun={bridgeReady && Boolean(recruiterReadRerunProvider)}
+          onRun={handleRerunRecruiterRead}
+        />
+      ) : null}
+
       {/* Resume-only: every action in this panel (Send PDF, improvements,
           template) operates on the resume, so it would be misleading while the
           letter is on screen. */}
@@ -1279,6 +1516,25 @@ export function ResumeEditor() {
 
       <PipelineStatus events={pipelineEvents} variant={pipelineVariant} />
 
+      {/* Docked in the fixed chrome, NOT inside the scrollport. It used to sit
+          at the top of .editor-canvas-stack as a sticky tab, which meant that
+          the moment you scrolled it floated over the document and covered the
+          top of the page you were trying to read. */}
+      <FormatToolbar
+        variant="dock"
+        trailing={
+          (onCoverLetter ? hasCoverLetterJdNotes : hasJdNotes) ? (
+            <button
+              type="button"
+              className={`format-toolbar-jd-btn${showJdNotes ? ' format-toolbar-jd-btn--on' : ''}`}
+              onClick={toggleJdNotes}
+            >
+              {showJdNotes ? 'Hide JD notes' : 'Show JD notes'}
+            </button>
+          ) : null
+        }
+      />
+
       <main className="editor-canvas" ref={editorCanvasRef}>
         {/* Off-screen render used for measurement and PDF export, so neither is
             affected by zoom, editor affordances, or the JD notes panel. */}
@@ -1307,20 +1563,6 @@ export function ResumeEditor() {
               : ''
           }`}
         >
-          <FormatToolbar
-            variant="canvas"
-            trailing={
-              (onCoverLetter ? hasCoverLetterJdNotes : hasJdNotes) ? (
-                <button
-                  type="button"
-                  className={`format-toolbar-jd-btn${showJdNotes ? ' format-toolbar-jd-btn--on' : ''}`}
-                  onClick={toggleJdNotes}
-                >
-                  {showJdNotes ? 'Hide JD notes' : 'Show JD notes'}
-                </button>
-              ) : null
-            }
-          />
           <div
             className="editor-canvas-inner"
             style={{ transform: `scale(${zoom})` }}
@@ -1363,24 +1605,6 @@ export function ResumeEditor() {
         </div>
       </main>
 
-      <footer className="editor-hint">
-        <strong>Tip:</strong> Use <em>Save</em> to store this build in History (resume,
-        job description, JD notes, zoom, and linked chat). Use <em>New build</em> for a
-        fresh tailored run.
-      </footer>
-
-      <SaveSessionModal
-        open={saveModalOpen}
-        saving={savingSession}
-        error={saveError}
-        onSave={handleSaveWithTitle}
-        onClose={() => {
-          if (!savingSession) {
-            setSaveModalOpen(false);
-            setSaveError(null);
-          }
-        }}
-      />
       {councilSnapshot ? (
         <CouncilReviewModal
           open={councilReviewOpen}
@@ -1399,6 +1623,12 @@ export function ResumeEditor() {
         open={expandModalOpen}
         onClose={() => setExpandModalOpen(false)}
         onSelect={handleExpandWithSource}
+      />
+      <LatexSourceModal
+        open={latexOpen}
+        tex={latexSource}
+        filename={latexFilename}
+        onClose={() => setLatexOpen(false)}
       />
     </div>
   );

@@ -12,6 +12,7 @@ interface FormState {
   school: string;
   degree: string;
   major: string;
+  start_date: string;
   grad_date: string;
   gpa: string;
   location: string;
@@ -19,7 +20,7 @@ interface FormState {
 }
 
 const EMPTY_FORM: FormState = {
-  school: '', degree: '', major: '', grad_date: '', gpa: '', location: '', coursework: '',
+  school: '', degree: '', major: '', start_date: '', grad_date: '', gpa: '', location: '', coursework: '',
 };
 
 function itemToForm(item: EducationItem): FormState {
@@ -27,6 +28,7 @@ function itemToForm(item: EducationItem): FormState {
     school: item.school,
     degree: item.degree ?? '',
     major: item.major ?? '',
+    start_date: item.start_date ?? '',
     grad_date: item.grad_date ?? '',
     gpa: item.gpa ?? '',
     location: item.location ?? '',
@@ -207,15 +209,20 @@ export function EducationPage() {
             </div>
             <div className="form-row">
               <div className="field">
-                <label>Graduation</label>
-                <input value={form.grad_date} onChange={e => setForm(f => ({ ...f, grad_date: e.target.value }))}
-                  placeholder="2026-05 or May 2026" />
+                <label>Started</label>
+                <input value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+                  placeholder="2025-08 or Aug 2025" />
               </div>
               <div className="field">
-                <label>Location</label>
-                <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
-                  placeholder="City, State" />
+                <label>Graduation</label>
+                <input value={form.grad_date} onChange={e => setForm(f => ({ ...f, grad_date: e.target.value }))}
+                  placeholder="2029-05 or May 2029" />
               </div>
+            </div>
+            <div className="field">
+              <label>Location</label>
+              <input value={form.location} onChange={e => setForm(f => ({ ...f, location: e.target.value }))}
+                placeholder="City, State" />
             </div>
             <div className="field">
               <label>Coursework, honors &amp; notes</label>
@@ -335,7 +342,13 @@ export function EducationPage() {
                     <h3 className="education-item-title">{item.school}</h3>
                     {headline ? <p className="education-item-sub">{headline}</p> : null}
                     <p className="education-item-meta">
-                      {[item.grad_date && `Grad ${item.grad_date}`, item.gpa && `GPA ${item.gpa}`, item.location]
+                      {[
+                        item.start_date && item.grad_date
+                          ? `${item.start_date} – ${item.grad_date}`
+                          : item.grad_date && `Grad ${item.grad_date}`,
+                        item.gpa && `GPA ${item.gpa}`,
+                        item.location,
+                      ]
                         .filter(Boolean)
                         .join(' · ')}
                     </p>
@@ -377,13 +390,17 @@ export function EducationPage() {
                         </div>
                         <div className="form-row">
                           <div className="field">
+                            <label>Started</label>
+                            <input value={editForm.start_date} onChange={e => setEditForm(f => ({ ...f, start_date: e.target.value }))} placeholder="2025-08 or Aug 2025" />
+                          </div>
+                          <div className="field">
                             <label>Graduation</label>
                             <input value={editForm.grad_date} onChange={e => setEditForm(f => ({ ...f, grad_date: e.target.value }))} />
                           </div>
-                          <div className="field">
-                            <label>Location</label>
-                            <input value={editForm.location} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} />
-                          </div>
+                        </div>
+                        <div className="field">
+                          <label>Location</label>
+                          <input value={editForm.location} onChange={e => setEditForm(f => ({ ...f, location: e.target.value }))} />
                         </div>
                         <div className="field">
                           <label>Coursework, honors &amp; notes</label>

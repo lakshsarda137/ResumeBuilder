@@ -4,8 +4,8 @@
   flex-direction: column;
   gap: 0;
   padding: 16px;
-  background: var(--surface-2, #1e1e1e);
-  border: 1px solid var(--border, #333);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   border-radius: var(--radius, 10px);
   margin-top: 14px;
 }
@@ -33,16 +33,16 @@
   gap: 6px;
   padding: 6px 12px;
   border-radius: var(--radius-sm, 6px);
-  border: 1px solid rgba(248, 113, 113, 0.4);
-  background: rgba(248, 113, 113, 0.1);
-  color: #fca5a5;
+  border: 1px solid var(--red);
+  background: var(--red-bg);
+  color: var(--red);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .council-progress-cancel:hover:not(:disabled) {
-  background: rgba(248, 113, 113, 0.18);
+  background: var(--red-bg);
 }
 
 .council-progress-cancel:disabled {
@@ -55,7 +55,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 
 .council-tree {
-  --council-spine: rgba(173, 197, 179, 0.2);
+  --council-spine: var(--accent-hover);
   display: flex;
   flex-direction: column;
 }
@@ -100,9 +100,9 @@
 .council-tree--running .council-rail-line {
   background: linear-gradient(
     180deg,
-    rgba(173, 197, 179, 0.1) 0%,
-    rgba(173, 197, 179, 0.45) 50%,
-    rgba(173, 197, 179, 0.1) 100%
+    var(--accent-dim) 0%,
+    var(--accent-dim) 50%,
+    var(--accent-dim) 100%
   );
   background-size: 100% 220%;
   animation: council-flow 1.7s linear infinite;
@@ -129,14 +129,14 @@
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--surface-3, #272727);
+  background: var(--surface-3);
   border: 2px solid var(--accent);
   color: var(--accent);
 }
 
 .council-node-dot--merge {
-  border-color: rgba(173, 197, 179, 0.5);
-  color: rgba(173, 197, 179, 0.7);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .council-node-dot.pipeline-step-circle--active {
@@ -144,8 +144,8 @@
 }
 
 @keyframes council-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(173, 197, 179, 0.18); }
-  50%       { box-shadow: 0 0 0 7px rgba(173, 197, 179, 0.05); }
+  0%, 100% { box-shadow: 0 0 0 3px var(--accent-hover); }
+  50%       { box-shadow: 0 0 0 7px var(--accent-dim); }
 }
 
 .council-node-body {
@@ -171,44 +171,44 @@
 
 .council-node-head strong {
   font-size: 13px;
-  color: var(--text-1, #f0f0f0);
+  color: var(--text-1);
 }
 
 .council-node-provider {
   font-size: 11px;
-  color: var(--text-2, #a0a0a0);
+  color: var(--text-2);
 }
 
 .council-merge-caption {
   font-size: 11px;
   font-style: italic;
-  color: var(--text-3, #666);
+  color: var(--text-3);
 }
 
 .council-merge-caption--active {
-  color: rgba(251, 191, 36, 0.95);
+  color: var(--amber);
   font-style: normal;
 }
 
 .council-merge-caption--done {
-  color: #4ade80;
+  color: var(--green);
   font-style: normal;
 }
 
 .council-merge-caption--failed {
-  color: #fca5a5;
+  color: var(--red);
   font-style: normal;
 }
 
 .council-node-dot--merge-active {
-  border-color: rgba(249, 115, 22, 0.75);
-  color: rgba(249, 115, 22, 0.95);
+  border-color: var(--amber);
+  color: var(--amber);
   animation: council-pulse 1.4s ease-in-out infinite;
 }
 
 .council-node-dot--merge-done {
-  border-color: rgba(74, 222, 128, 0.7);
-  color: #4ade80;
+  border-color: var(--green);
+  color: var(--green);
 }
 
 .council-rail-packet {
@@ -220,7 +220,7 @@
   margin-left: -3px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 7px rgba(173, 197, 179, 0.7);
+  box-shadow: 0 0 7px var(--accent);
   animation: council-rail-drop 1.3s linear infinite;
 }
 
@@ -237,7 +237,7 @@
 .council-node-status {
   font-size: 13.5px;
   font-weight: 600;
-  color: var(--text-2, #a0a0a0);
+  color: var(--text-2);
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -247,11 +247,11 @@
 .council-node-status--configuring,
 .council-node-status--generating,
 .council-node-status--parsing {
-  color: #fbbf24;
+  color: var(--amber);
 }
 
-.council-node-status--done   { color: #4ade80; }
-.council-node-status--failed { color: #fca5a5; }
+.council-node-status--done   { color: var(--green); }
+.council-node-status--failed { color: var(--red); }
 
 .council-mini-steps {
   max-width: 440px;

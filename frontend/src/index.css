@@ -2,10 +2,102 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* ── Palette ───────────────────────────────────────────────────────────────
+   Light, but deliberately not white. The object on screen is a sheet of white
+   paper; if the app ground goes near-white the resume stops reading as a
+   document and becomes a region of the page. So the shell is a worktable, and
+   the page sits on it. (The result modals already worked this way — neutral
+   body, deeper canvas, white page — this makes that the system.)
+
+   Neutrals are biased green-grey: the same hue family as the sage accent, so
+   the shell reads as an extension of the existing identity rather than a new
+   colour. The accent is that sage inverted for a light ground —
+   #adc5b3 → #2f5c42 — so nothing has to be relearned.
+
+   Every text tier clears WCAG AA (4.5:1) against all four surfaces. Measured,
+   lightest surface first: text-2 7.55 / 5.61, text-3 6.48 / 4.81,
+   accent 7.26 / 5.39. Lowest ratio anywhere in the set is 4.81. The status
+   colours were re-picked, not re-used: the old --amber landed at 1.48:1 on
+   this ground, which would have made the page-fit pill unreadable.
+   Re-measure before darkening any surface or lightening any ink.
+
+   The previous dark values are preserved verbatim under [data-theme="dark"]
+   below. Nothing sets that attribute today; set it on <html> to get the old
+   theme back wholesale. */
 :root {
   --font: 'Inter', system-ui, -apple-system, sans-serif;
 
-  /* Neutrals — clean zinc, no warmth */
+  /* Neutrals — green-grey, biased toward the accent */
+  --bg:        #eaeee9;  /* app ground — the worktable */
+  --surface:   #f7f9f5;  /* cards, drawers, popovers — lifted */
+  --surface-2: #dfe5dd;  /* inputs, wells — recessed */
+  --surface-3: #d3dad0;  /* chips, secondary fills, canvas behind the page */
+  /* Two border weights, and the difference is not cosmetic.
+     --border is a hairline for decorative edges (card outlines, dividers,
+     section rules) where nothing depends on seeing it precisely.
+     --border-2 is the boundary that IDENTIFIES A CONTROL — text inputs,
+     textareas, selects, checkboxes. WCAG 1.4.11 wants >= 3:1 for that, and it
+     has to hold against the DEEPEST surface a control can sit on, not just the
+     page ground: these inputs sit on --surface-2 panels, where the previous
+     #7c857a measured 2.98. Measured now, lightest surface first:
+     4.33 / 3.91 / 3.58 / 3.21. Never use --border on a text control. */
+  --border:    #cfd6cd;
+  --border-2:  #6f786d;
+
+  /* Text */
+  --text-1: #161a15;
+  --text-2: #4d524b;
+  --text-3: #575c53;
+
+  /* Accent — deep sage. Editorial, not tech. */
+  --accent:        #2f5c42;
+  --accent-ink:    #f7f9f5;  /* what sits ON a filled accent button (7.26:1) */
+  --accent-strong: #264b36;  /* filled-accent hover — darkens, doesn't lighten */
+  --accent-dim:    rgba(47, 92, 66, 0.10);
+  --accent-hover:  rgba(47, 92, 66, 0.16);
+
+  /* Status */
+  --green:    #256039;
+  --green-bg: rgba(37, 96, 57, 0.10);
+  --red:      #9a3020;
+  --red-bg:   rgba(154, 48, 32, 0.09);
+  --amber:    #734b0e;
+  --amber-bg: rgba(115, 75, 14, 0.10);
+
+  /* Ink that sits ON a filled colour chip — a status dot, a filled badge, a
+     progress circle. NOT --text-1: the body ink is near-black on a light theme
+     and the fills are dark, which is how a check mark ended up black-on-brown
+     inside the council progress dots. Same polarity as --accent-ink. */
+  --ink-on-fill: #f7f9f5;
+
+  /* Focus/pulse halos. These have to stay translucent — a solid ring reads as a
+     fat blob rather than a glow around the dot. */
+  --green-ring: rgba(37, 96, 57, 0.24);
+  --amber-ring: rgba(115, 75, 14, 0.24);
+  --red-ring:   rgba(154, 48, 32, 0.24);
+
+  /* Translucent lifts. Thirty-three places used a literal
+     rgba(255,255,255,0.0x) to raise a panel off its surface — correct on black,
+     invisible-to-white on anything light. These tint toward ink on a light
+     ground and toward light on a dark one, so the same declaration reads the
+     same way in both themes. Use these, never a raw white/black alpha. */
+  --raise-1: rgba(22, 26, 21, 0.035);
+  --raise-2: rgba(22, 26, 21, 0.06);
+  --raise-3: rgba(22, 26, 21, 0.11);
+
+  --radius-sm: 7px;
+  --radius:    11px;
+  --radius-lg: 18px;
+
+  /* Tinted with the neutral rather than pure black — on a light ground
+     elevation comes mostly from the surface ramp, so the shadow is a whisper.
+     The old values (0.6 / 0.7 alpha black at 40px blur) read as soot here. */
+  --shadow:    0 1px 2px rgba(22, 26, 21, 0.06), 0 8px 24px -12px rgba(22, 26, 21, 0.18);
+  --shadow-lg: 0 4px 12px rgba(22, 26, 21, 0.08), 0 24px 56px -20px rgba(22, 26, 21, 0.28);
+}
+
+/* The theme this app shipped with, kept whole. */
+:root[data-theme='dark'] {
   --bg:        #0a0a0a;
   --surface:   #111111;
   --surface-2: #1a1a1a;
@@ -13,33 +105,42 @@
   --border:    rgba(255, 255, 255, 0.08);
   --border-2:  rgba(255, 255, 255, 0.14);
 
-  /* Text — high contrast, neutral.
-     Every tier clears WCAG AA (4.5:1) against all four surfaces above, which
-     is what fixes the grey-on-black helper text. Measured contrast, darkest
-     surface first: text-2 7.85 / 6.31, text-3 5.73 / 4.61. The previous
-     text-3 (#525252) sat at 2.04-2.53:1 and was effectively unreadable. */
   --text-1: #f5f5f5;
   --text-2: #a3a3a3;
   --text-3: #8a8a8a;
 
-  /* Accent — muted sage, editorial not tech */
-  --accent:       #adc5b3;
-  --accent-dim:   rgba(173, 197, 179, 0.12);
-  --accent-hover: rgba(173, 197, 179, 0.18);
+  --accent:        #adc5b3;
+  --accent-ink:    #0f0f0f;
+  --accent-strong: #c2d5c7;
+  --accent-dim:    rgba(173, 197, 179, 0.12);
+  --accent-hover:  rgba(173, 197, 179, 0.18);
 
-  /* Status */
   --green:    #4ade80;
   --green-bg: rgba(74, 222, 128, 0.08);
   --red:      #f87171;
   --red-bg:   rgba(248, 113, 113, 0.08);
   --amber:    #fbbf24;
+  --amber-bg: rgba(251, 191, 36, 0.10);
 
-  --radius-sm: 7px;
-  --radius:    11px;
-  --radius-lg: 18px;
+  --ink-on-fill: #0f0f0f;
+
+  --green-ring: rgba(74, 222, 128, 0.24);
+  --amber-ring: rgba(251, 191, 36, 0.24);
+  --red-ring:   rgba(248, 113, 113, 0.24);
+
+  --raise-1: rgba(255, 255, 255, 0.035);
+  --raise-2: rgba(255, 255, 255, 0.07);
+  --raise-3: rgba(255, 255, 255, 0.14);
 
   --shadow:    0 1px 4px rgba(0,0,0,0.6), 0 1px 2px rgba(0,0,0,0.4);
   --shadow-lg: 0 8px 40px rgba(0,0,0,0.7);
+}
+
+/* The document is the scroller on the taller pages (the layout column only
+   takes over when it is height-constrained), so the gutter has to be reserved
+   here as well or growing a page still shifts the centred column sideways. */
+html {
+  scrollbar-gutter: stable;
 }
 
 html, body, #root {
@@ -61,6 +162,36 @@ button {
 
 textarea, input, select {
   font-family: inherit;
+}
+
+/* Focus — one rule for the whole app.
+   There was previously no :focus-visible anywhere, so every button, link, card,
+   tab and slider fell through to Chrome's default 1px rgb(0,95,204) outline:
+   invisible on the dark surfaces, and the wrong hue on the light ones. Keyboard
+   users had no way to tell where they were.
+   :focus-visible (not :focus) so mouse clicks stay quiet.
+   :is() rather than :where() on purpose — :where() is specificity-0, so it lost
+   the tie-break to the nine `outline: none` declarations scattered through the
+   component sheets and the ring never appeared. :is([tabindex]) lands this at
+   0,2,0, which beats all of them. */
+:is(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--focus, var(--accent));
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+
+/* Inside the resume page the ring sits on white paper, which never follows the
+   theme — so pin the accent rather than letting the token swing to a light value
+   that would vanish. 7.2:1 on #fff. */
+.resume-page :is(a, button, [tabindex]):focus-visible {
+  outline-color: #2f5c42;
+  outline-offset: 1px;
+}
+
+/* Digits that stack in columns — settings value chips, token estimates,
+   history timestamps, page-fit percentages — should not jitter between values. */
+:where(.slider-value, .stepper-value, .settings-value, td.num, time) {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Scrollbar */

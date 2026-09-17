@@ -1,6 +1,7 @@
 import type { AiProvider } from '../utils/aiProviders';
 import type { AiChatSession } from './aiSession';
 import type { ResumeData } from './resume';
+import type { CouncilDraftAngle } from '../utils/councilAngles';
 
 /** Anonymized candidate label shown to the judge — never a provider name. */
 export type CandidateLabel = 'A' | 'B' | 'C';
@@ -45,6 +46,8 @@ export interface CouncilCandidateResult {
   baseline: ResumeData | null;
   rawResponse: string;
   session: AiChatSession | null;
+  /** Repository path: the angle this draft was written from (null = unangled). */
+  angle?: CouncilDraftAngle | null;
 }
 
 export interface CouncilCandidateFailure {
@@ -101,6 +104,7 @@ export interface CouncilSnapshot {
     provider: AiProvider;
     label: CandidateLabel;
     resume: ResumeData;
+    angle?: CouncilDraftAngle | null;
   }>;
   judgeOutput: {
     synthesisNotes: string;

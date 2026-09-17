@@ -110,7 +110,6 @@
 .info-dot:focus-visible {
   border-color: var(--resume-settings-accent);
   color: var(--resume-settings-accent);
-  outline: none;
 }
 
 .info-dot__tip {
@@ -355,28 +354,33 @@
   color: var(--resume-settings-text);
 }
 
+/* Both variants now defer to the app tokens rather than carrying their own
+   palette, so this panel follows the theme wherever it is mounted — the
+   Settings page, the editor's Style drawer, or a preview surface. The
+   --dark/--light distinction is kept because callers still pass it, but it now
+   means "on a panel surface" vs "on a raised card", not two hardcoded themes. */
 .resume-settings-controls--dark {
-  --resume-settings-surface: #1d1d1d;
-  --resume-settings-input: #242424;
-  --resume-settings-border: #2f2f2f;
-  --resume-settings-border-strong: #3a3a3a;
-  --resume-settings-text: #e2e8f0;
-  --resume-settings-muted: #a8b4c4;
-  --resume-settings-info-border: #6b7684;
-  --resume-settings-accent: var(--accent, #e8d5b7);
-  --resume-settings-accent-dim: var(--accent-dim, rgba(232, 213, 183, 0.12));
+  --resume-settings-surface: var(--surface);
+  --resume-settings-input: var(--surface-2);
+  --resume-settings-border: var(--border);
+  --resume-settings-border-strong: var(--border-2);
+  --resume-settings-text: var(--text-1);
+  --resume-settings-muted: var(--text-2);
+  --resume-settings-info-border: var(--text-3);
+  --resume-settings-accent: var(--accent);
+  --resume-settings-accent-dim: var(--accent-dim);
 }
 
 .resume-settings-controls--light {
-  --resume-settings-surface: #ffffff;
-  --resume-settings-input: #f8fafc;
-  --resume-settings-border: #e2e8f0;
-  --resume-settings-border-strong: #cbd5e1;
-  --resume-settings-text: #334155;
-  --resume-settings-muted: #586678;
-  --resume-settings-info-border: #94a3b8;
-  --resume-settings-accent: #1e293b;
-  --resume-settings-accent-dim: #e2e8f0;
+  --resume-settings-surface: var(--surface);
+  --resume-settings-input: var(--surface-2);
+  --resume-settings-border: var(--border);
+  --resume-settings-border-strong: var(--border-2);
+  --resume-settings-text: var(--text-1);
+  --resume-settings-muted: var(--text-2);
+  --resume-settings-info-border: var(--text-3);
+  --resume-settings-accent: var(--accent);
+  --resume-settings-accent-dim: var(--accent-dim);
 }
 
 .resume-settings-controls--compact {

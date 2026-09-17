@@ -93,7 +93,7 @@
   gap: 10px;
   align-items: flex-start;
   background: var(--accent-dim);
-  border: 1px solid rgba(232,213,183,0.1);
+  border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
   color: var(--accent);
@@ -198,4 +198,30 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.repo-item-links {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--ink-muted, #6b6b6b);
+}
+
+.repo-item-links a {
+  color: var(--accent, #2f5c42);
+  text-decoration: none;
+}
+
+.repo-item-links a:hover {
+  text-decoration: underline;
+}
+
+.repo-links-hint {
+  margin: -4px 0 8px;
+  font-size: 12px;
+  color: var(--ink-muted, #6b6b6b);
+}
+
+.field-hint {
+  font-weight: 400;
+  color: var(--ink-muted, #6b6b6b);
 }

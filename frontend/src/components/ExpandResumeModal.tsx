@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { X, Loader2, Briefcase, FolderGit2 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { X, Loader2, Briefcase, FolderGit2, Search } from 'lucide-react';
 import type { RepositorySource } from '../types/repository';
 import { fetchRepositorySources } from '../utils/repositorySources';
 import './ExpandResumeModal.css';
@@ -15,10 +15,12 @@ export function ExpandResumeModal({ open, onClose, onSelect }: ExpandResumeModal
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<RepositorySource | null>(null);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     if (!open) return;
     setSelected(null);
+    setQuery('');
     setLoading(true);
     setError(null);
     fetchRepositorySources()
@@ -30,6 +32,29 @@ export function ExpandResumeModal({ open, onClose, onSelect }: ExpandResumeModal
       })
       .finally(() => setLoading(false));
   }, [open]);
+
+  /** Esc closes, which the click-the-scrim path alone did not cover. */
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
+  /** Title, company and the freewrite body — the list is a flat scroll and
+      grows with the repository, so it needs to be filterable. */
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sources;
+    return sources.filter((s) =>
+      [s.title, s.company ?? '', s.freewrite]
+        .join(' ')
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [sources, query]);
 
   if (!open) return null;
 
@@ -47,6 +72,20 @@ export function ExpandResumeModal({ open, onClose, onSelect }: ExpandResumeModal
           Select an experience or project to add to your resume. The AI will write 2–4 bullets from the source notes.
         </p>
 
+        {!loading && !error && sources.length > 0 ? (
+          <label className="expand-modal-search">
+            <Search size={14} aria-hidden />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Filter by title, company or notes"
+              aria-label="Filter repository entries"
+              autoFocus
+            />
+          </label>
+        ) : null}
+
         <div className="expand-modal-list">
           {loading ? (
             <div className="expand-modal-loading">
@@ -57,8 +96,12 @@ export function ExpandResumeModal({ open, onClose, onSelect }: ExpandResumeModal
             <p className="expand-modal-error">{error}</p>
           ) : sources.length === 0 ? (
             <p className="expand-modal-empty">No repository items found. Add experiences in the Repository tab first.</p>
+          ) : visible.length === 0 ? (
+            <p className="expand-modal-empty">
+              Nothing matches &ldquo;{query}&rdquo;.
+            </p>
           ) : (
-            sources.map((source) => {
+            visible.map((source) => {
               const key = `${source.kind}-${source.id}`;
               const isSelected = selected ? `${selected.kind}-${selected.id}` === key : false;
               const dateStr = [

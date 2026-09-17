@@ -1,8 +1,8 @@
 .resume-diff {
-  border: 1px solid #e2e8f0;
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
-  background: #fff;
+  background: var(--surface);
 }
 
 .resume-diff-summary {
@@ -10,8 +10,8 @@
   align-items: center;
   gap: 14px;
   padding: 8px 12px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
 
@@ -20,15 +20,15 @@
 }
 
 .resume-diff-stat--mod {
-  color: #a16207;
+  color: var(--amber);
 }
 
 .resume-diff-stat--add {
-  color: #15803d;
+  color: var(--green);
 }
 
 .resume-diff-stat--remove {
-  color: #b91c1c;
+  color: var(--red);
 }
 
 .resume-diff-list {
@@ -40,7 +40,7 @@
 }
 
 .resume-diff-card {
-  border-bottom: 1px solid #e2e8f0;
+  border-bottom: 1px solid var(--border);
   padding: 10px 12px;
 }
 
@@ -67,29 +67,29 @@
 }
 
 .resume-diff-badge--modified {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--amber-bg);
+  color: var(--amber);
 }
 
 .resume-diff-badge--added {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--green-bg);
+  color: var(--green);
 }
 
 .resume-diff-badge--removed {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--red-bg);
+  color: var(--red);
 }
 
 .resume-diff-location {
   font-size: 13px;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-1);
 }
 
 .resume-diff-label {
   font-size: 12px;
-  color: #64748b;
+  color: var(--text-3);
 }
 
 .resume-diff-label::before {
@@ -123,39 +123,39 @@
 }
 
 .resume-diff-block--removed {
-  background: #fef2f2;
-  border-left: 3px solid #ef4444;
+  background: var(--red-bg);
+  border-left: 3px solid var(--red);
 }
 
 .resume-diff-block--removed .resume-diff-block-tag {
-  color: #b91c1c;
+  color: var(--red);
 }
 
 .resume-diff-block--removed p {
-  color: #7f1d1d;
+  color: var(--red);
   text-decoration: line-through;
   text-decoration-color: rgba(185, 28, 28, 0.45);
 }
 
 .resume-diff-block--added {
-  background: #f0fdf4;
-  border-left: 3px solid #22c55e;
+  background: var(--green-bg);
+  border-left: 3px solid var(--green);
 }
 
 .resume-diff-block--added .resume-diff-block-tag {
-  color: #15803d;
+  color: var(--green);
 }
 
 .resume-diff-block--added p {
-  color: #14532d;
+  color: var(--green);
 }
 
 .resume-diff-ai-note {
   margin-top: 2px;
   padding: 8px 10px;
   border-radius: 6px;
-  background: #eff6ff;
-  border: 1px dashed #93c5fd;
+  background: var(--accent-dim);
+  border: 1px dashed var(--accent);
 }
 
 .resume-diff-ai-note-header {
@@ -164,18 +164,18 @@
   gap: 6px;
   font-size: 11px;
   font-weight: 600;
-  color: #1d4ed8;
+  color: var(--accent);
 }
 
 .resume-diff-ai-note p {
   margin: 4px 0 0;
   font-size: 12px;
   line-height: 1.45;
-  color: #1e40af;
+  color: var(--accent);
 }
 
 .resume-diff-empty {
   margin: 0;
-  color: #64748b;
+  color: var(--text-3);
   font-size: 13px;
 }

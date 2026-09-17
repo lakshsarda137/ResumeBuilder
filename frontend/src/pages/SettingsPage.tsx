@@ -30,7 +30,7 @@ const SETTINGS_PREVIEW_RESUME: ResumeData = {
     links: [
       { id: 'preview-email', value: 'candidate@email.com' },
       { id: 'preview-linkedin', value: 'linkedin.com/in/candidate' },
-      { id: 'preview-location', value: 'Houston, TX' },
+      { id: 'preview-location', value: 'Springfield, IL' },
     ],
   },
   sections: [
@@ -41,12 +41,12 @@ const SETTINGS_PREVIEW_RESUME: ResumeData = {
       entries: [
         {
           id: 'preview-edu-1',
-          title: 'Rice University',
-          location: 'Houston, TX',
+          title: 'State University',
+          location: 'Springfield, IL',
           date: 'Aug 2025 - May 2029',
           subtitle: 'B.S. in Computer Science and Mathematics',
           bullets: [
-            makeBullet('GPA: 4.0/4.0; Relevant Coursework: Algorithms, Data Science, Linear Algebra.'),
+            makeBullet('GPA: 3.9/4.0; Relevant Coursework: Algorithms, Data Science, Linear Algebra.'),
           ],
         },
       ],
@@ -385,7 +385,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="page settings-page">
+    <div className="page page--wide settings-page">
       <header className="page-header settings-header">
         <div>
           <h1 className="page-title">Settings</h1>
@@ -600,34 +600,12 @@ export function SettingsPage() {
 
       <section className="card settings-card">
         <h2>Type Settings</h2>
-        <div className="settings-preview">
-          <div className="settings-preview-toolbar">
-            <span>Live preview</span>
-            <div className="settings-preview-metrics" aria-label="Current page measurements">
-              <span>T {settings.pagePaddingTop}in</span>
-              <span>R {settings.pagePaddingRight}in</span>
-              <span>B {settings.pagePaddingBottom}in</span>
-              <span>L {settings.pagePaddingLeft}in</span>
-              <span>{settings.bodyFontSize}pt</span>
-              <span>{settings.lineHeight}x</span>
-              <span>Ink {settings.textIntensity}%</span>
-              <span>Rule {settings.ruleIntensity}%</span>
-              <span>Bold {settings.boldTextWeight}</span>
-            </div>
-          </div>
-          <div className="settings-preview-frame">
-            <div className="settings-preview-scale">
-              <ResumeDocument
-                data={SETTINGS_PREVIEW_RESUME}
-                onChange={() => {}}
-                editing={false}
-                id="settings-preview-resume"
-                settings={settings}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="settings-grid">
+        {/* Preview beside the controls, not above them. Stacked, it scrolled off
+            long before you reached Line height or Bottom margin — you were
+            dragging blind and scrolling back up to check. It is sticky so it
+            stays put for every slider in the card. */}
+        <div className="settings-type-layout">
+          <div className="settings-grid">
           <label className="field">
             <span>Body font</span>
             <select
@@ -758,14 +736,14 @@ export function SettingsPage() {
           {renderNumberField({
             label: 'Left margin (in)',
             field: 'pagePaddingLeft',
-            min: 0.4,
+            min: 0.3,
             max: 0.8,
             step: 0.01,
           })}
           {renderNumberField({
             label: 'Right margin (in)',
             field: 'pagePaddingRight',
-            min: 0.4,
+            min: 0.3,
             max: 0.8,
             step: 0.01,
           })}
@@ -804,6 +782,36 @@ export function SettingsPage() {
             max: 8,
             step: 0.5,
           })}
+          </div>
+
+          <aside className="settings-preview">
+            <span className="settings-preview-heading">Live preview</span>
+            <div className="settings-preview-frame">
+              <div className="settings-preview-scale">
+                <ResumeDocument
+                  data={SETTINGS_PREVIEW_RESUME}
+                  onChange={() => {}}
+                  editing={false}
+                  id="settings-preview-resume"
+                  settings={settings}
+                />
+              </div>
+            </div>
+            <div
+              className="settings-preview-metrics"
+              aria-label="Current page measurements"
+            >
+              <span>Top {settings.pagePaddingTop}in</span>
+              <span>Right {settings.pagePaddingRight}in</span>
+              <span>Bottom {settings.pagePaddingBottom}in</span>
+              <span>Left {settings.pagePaddingLeft}in</span>
+              <span>Body {settings.bodyFontSize}pt</span>
+              <span>Leading {settings.lineHeight}&times;</span>
+              <span>Ink {settings.textIntensity}%</span>
+              <span>Rule {settings.ruleIntensity}%</span>
+              <span>Bold {settings.boldTextWeight}</span>
+            </div>
+          </aside>
         </div>
       </section>
 
