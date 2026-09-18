@@ -35,3 +35,6 @@ frontend/src/personal/personal.local.ts
 *.sqlite*
 *.docx
 .claude/
+
+# Scratch notes and reference copies for sharing with an AI assistant
+helpful_info/
