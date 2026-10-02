@@ -1114,6 +1114,35 @@ function extractDelimitedPayloadFromPage(promptText = '') {
     });
   }
 
+  // A generated cover letter: { contact, date, greeting, paragraphs, closing,
+  // signatureName }. It carries none of the resume/import anchors the other
+  // gates look for, so without this branch a letter is never recognized as the
+  // captured payload. Two real paragraphs is the same bar the app applies
+  // before it will load a letter; the prompt's schema has one, which is what
+  // keeps it out. Mirrors isRealCoverLetterPayload in content-llm.js.
+  function isRealCoverLetterPayload(parsed) {
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.paragraphs)) {
+      return false;
+    }
+
+    const realParagraphs = parsed.paragraphs.filter((paragraph) => {
+      const text =
+        typeof paragraph === 'string'
+          ? paragraph
+          : typeof paragraph?.text === 'string'
+            ? paragraph.text
+            : '';
+      const trimmed = text.trim();
+      return (
+        hasRealCaptureText(trimmed) &&
+        trimmed.length > 40 &&
+        !/^(?:string|optional)\b/i.test(trimmed)
+      );
+    });
+
+    return realParagraphs.length >= 2;
+  }
+
   function expectsResumeWrapper() {
     return (
       /"baseline"\s*:/.test(promptText) &&
@@ -1161,11 +1190,70 @@ function extractDelimitedPayloadFromPage(promptText = '') {
       return isResumeWrapperPayload(parsed);
     }
 
-    if (isRealImportPayload(parsed) || isRealResumePayload(parsed)) {
+    if (
+      isRealImportPayload(parsed) ||
+      isRealResumePayload(parsed) ||
+      isRealCoverLetterPayload(parsed)
+    ) {
       return true;
     }
 
     return isResumeWrapperPayload(parsed);
+  }
+
+  // Re-escape stray double quotes inside JSON string values. A provider that
+  // renders its JSON reply as ordinary markdown rather than a code block loses
+  // the backslash escapes to the renderer, so the `\"` the model wrote arrives
+  // as a bare `"` and the object stops parsing partway through. Mirrors
+  // repairUnescapedQuotes in content-llm.js.
+  function repairUnescapedQuotes(json) {
+    let out = '';
+    let inString = false;
+    let escaped = false;
+
+    for (let index = 0; index < json.length; index += 1) {
+      const char = json[index];
+
+      if (!inString) {
+        out += char;
+        if (char === '"') {
+          inString = true;
+        }
+        continue;
+      }
+
+      if (escaped) {
+        out += char;
+        escaped = false;
+        continue;
+      }
+
+      if (char === '\\') {
+        out += char;
+        escaped = true;
+        continue;
+      }
+
+      if (char !== '"') {
+        out += char;
+        continue;
+      }
+
+      let lookahead = index + 1;
+      while (lookahead < json.length && /\s/.test(json[lookahead])) {
+        lookahead += 1;
+      }
+      const next = json[lookahead];
+
+      if (next === undefined || next === ':' || next === ',' || next === '}' || next === ']') {
+        out += char;
+        inString = false;
+      } else {
+        out += '\\"';
+      }
+    }
+
+    return out;
   }
 
   function parseCandidate(candidate) {
@@ -1177,19 +1265,27 @@ function extractDelimitedPayloadFromPage(promptText = '') {
       };
     }
 
+    let parsed;
     try {
-      const parsed = JSON.parse(repairJson(candidate));
-      return {
-        ok: true,
-        real: isCapturedPayload(parsed),
-      };
+      parsed = JSON.parse(repairJson(candidate));
     } catch (error) {
-      return {
-        ok: false,
-        real: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      // Last resort: re-escaping is a guess, so never apply it to a candidate
+      // that already parses.
+      try {
+        parsed = JSON.parse(repairJson(repairUnescapedQuotes(candidate)));
+      } catch {
+        return {
+          ok: false,
+          real: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
     }
+
+    return {
+      ok: true,
+      real: isCapturedPayload(parsed),
+    };
   }
 
   function expandToObject(text, anchorPos) {
@@ -1261,6 +1357,7 @@ function extractDelimitedPayloadFromPage(promptText = '') {
       '"contradictions"',
       '"sections"',
       '"contact"',
+      '"paragraphs"',
     ];
 
     for (const anchor of anchors) {
@@ -1305,11 +1402,26 @@ function extractDelimitedPayloadFromPage(promptText = '') {
   }
 
   function extractFromText(text) {
-    const delimitedCandidates = [
-      ...text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g),
-    ]
-      .map((match) => match[1]?.trim())
-      .filter(Boolean);
+    const START = '---JSON-START---';
+    const delimitedCandidates = [];
+    for (const match of text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g)) {
+      const body = match[1]?.trim();
+      if (!body) {
+        continue;
+      }
+      delimitedCandidates.push(body);
+
+      // A stray opening delimiter in the provider's own chrome pairs with the
+      // real closing one and swallows the actual block; re-cut from the last
+      // opening marker inside the match.
+      const innerStart = body.lastIndexOf(START);
+      if (innerStart !== -1) {
+        const recut = body.slice(innerStart + START.length).trim();
+        if (recut) {
+          delimitedCandidates.push(recut);
+        }
+      }
+    }
 
     const objectCandidates = jsonObjectCandidates(text);
     const best = parseBestCandidate([...delimitedCandidates, ...objectCandidates]);

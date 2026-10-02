@@ -703,6 +703,39 @@ function isRealResumePayload(parsed) {
   });
 }
 
+// A generated cover letter: { contact, date, greeting, paragraphs, closing,
+// signatureName }. It carries none of the resume/import anchors the other
+// gates look for, so without this branch a letter is never recognized as the
+// captured payload and the whole page text is relayed instead — with the
+// prompt's own schema in it, which is what the app then parses.
+//
+// Two real paragraphs is the same bar the app applies before it will load a
+// letter, so what this accepts is exactly what the app can use. The prompt
+// publishes a one-paragraph schema object, and that count is what keeps it out.
+function isRealCoverLetterPayload(parsed) {
+  if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.paragraphs)) {
+    return false;
+  }
+
+  const realParagraphs = parsed.paragraphs.filter((paragraph) => {
+    const text =
+      typeof paragraph === 'string'
+        ? paragraph
+        : typeof paragraph?.text === 'string'
+          ? paragraph.text
+          : '';
+    const trimmed = text.trim();
+    return (
+      hasRealCaptureText(trimmed) &&
+      trimmed.length > 40 &&
+      // Schema field descriptions ("string — one paragraph of connected prose").
+      !/^(?:string|optional)\b/i.test(trimmed)
+    );
+  });
+
+  return realParagraphs.length >= 2;
+}
+
 function expectsResumeWrapper(promptText = '') {
   return (
     /"baseline"\s*:/.test(promptText) &&
@@ -750,18 +783,85 @@ function isCapturedPayload(parsed, promptText = '') {
     return isResumeWrapperPayload(parsed);
   }
 
-  if (isRealImportPayload(parsed) || isRealResumePayload(parsed)) {
+  if (
+    isRealImportPayload(parsed) ||
+    isRealResumePayload(parsed) ||
+    isRealCoverLetterPayload(parsed)
+  ) {
     return true;
   }
 
   return isResumeWrapperPayload(parsed);
 }
 
+// Re-escape stray double quotes inside JSON string values. A provider that
+// renders its JSON reply as ordinary markdown rather than a code block loses
+// the backslash escapes to the renderer, so the `\"` the model wrote arrives
+// as a bare `"` and the object stops parsing partway through. (That rendering
+// also collapses the JSON's indentation, which is the visible tell.) A quote
+// inside a string closes it only when the next non-space character is
+// structural; anything else is content, so it gets escaped.
+function repairUnescapedQuotes(json) {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < json.length; index += 1) {
+    const char = json[index];
+
+    if (!inString) {
+      out += char;
+      if (char === '"') {
+        inString = true;
+      }
+      continue;
+    }
+
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      out += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char !== '"') {
+      out += char;
+      continue;
+    }
+
+    let lookahead = index + 1;
+    while (lookahead < json.length && /\s/.test(json[lookahead])) {
+      lookahead += 1;
+    }
+    const next = json[lookahead];
+
+    if (next === undefined || next === ':' || next === ',' || next === '}' || next === ']') {
+      out += char;
+      inString = false;
+    } else {
+      out += '\\"';
+    }
+  }
+
+  return out;
+}
+
 function parseJsonSafely(candidate) {
   try {
     return JSON.parse(repairJson(candidate));
   } catch {
-    return null;
+    // Last resort: re-escaping is a guess, so never apply it to a candidate
+    // that already parses.
+    try {
+      return JSON.parse(repairJson(repairUnescapedQuotes(candidate)));
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -865,14 +965,51 @@ function candidateAppearsInSubmittedPrompt(candidate, promptText = '') {
   });
 }
 
+// Strip a ```json fence wrapping an otherwise bare JSON body. A fence is what
+// stops a provider's markdown renderer from eating the JSON's backslash
+// escapes, so the reply we want most carries both the fence and the delimiters.
+function stripCodeFence(text) {
+  const match = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : text;
+}
+
 function getDelimitedJsonCandidates(text) {
   if (!text) {
     return [];
   }
 
-  return [...text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g)]
-    .map((match) => match[1]?.trim())
-    .filter(Boolean);
+  const START = '---JSON-START---';
+  const candidates = [];
+
+  for (const match of text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g)) {
+    const body = match[1]?.trim();
+    if (!body) {
+      continue;
+    }
+    candidates.push(body);
+    const unfenced = stripCodeFence(body);
+    if (unfenced !== body) {
+      candidates.push(unfenced);
+    }
+
+    // Providers print the opening delimiter in their own chrome — Claude's
+    // "Claude responded: ---JSON-START---" preview line is one — which pairs
+    // that stray marker with the real closing one and swallows the actual
+    // block. Re-cut from the last opening marker inside the match.
+    const innerStart = body.lastIndexOf(START);
+    if (innerStart !== -1) {
+      const recut = body.slice(innerStart + START.length).trim();
+      if (recut) {
+        candidates.push(recut);
+        const unfencedRecut = stripCodeFence(recut);
+        if (unfencedRecut !== recut) {
+          candidates.push(unfencedRecut);
+        }
+      }
+    }
+  }
+
+  return candidates;
 }
 
 function extractDelimitedJson(text, promptText = '') {
@@ -1107,6 +1244,10 @@ function looksLikeCaptureJson(text) {
     return true;
   }
   if (/"entries"\s*:\s*\[/i.test(text)) {
+    return true;
+  }
+  // cover letter shape: { contact, greeting, paragraphs, closing, ... }
+  if (/"paragraphs"\s*:\s*\[/i.test(text) && /"greeting"\s*:/.test(text)) {
     return true;
   }
   // import payload shape: { source_label, profile, entries }

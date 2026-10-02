@@ -33,6 +33,7 @@ Different AI chatbots write differently, and each one makes different mistakes. 
 - **Recruiter check:** after a resume is built, a fresh AI chat that has never seen your notes reads the resume for ten seconds and describes you in one or two sentences. If that description is wrong, the resume is not saying what you meant.
 - **Job match notes:** a side panel explains which lines of the resume match which parts of the job posting.
 - **Import:** pull your past work into the Repository from an old resume PDF or from your LinkedIn profile.
+- **Portfolio sync:** if you keep write-ups of your projects as markdown files (for example the ones behind a portfolio site), the app reads them into the Repository, one entry per file, with links back to each write-up. It re-checks every 10 minutes while the server is running, so edits to those files reach the app on their own.
 - **History:** every resume you build is saved, so you can open old versions later.
 - **Style settings:** change fonts, sizes, spacing, and section order.
 - **Private chats:** an option to use the AI website's private or temporary chat mode, so your resume is not saved in your chat history.
@@ -77,6 +78,7 @@ ResumeBuilder/
 - `frontend/src/utils/resumeHouseStyle.ts`: fixes a few formatting rules in code after the AI answers (no bold text, a period at the end of each bullet, no job locations, graduation date only), in case the AI missed them.
 - `frontend/src/utils/coverLetterWritingRules.ts`: the writing rules for cover letters.
 - `frontend/src/components/ResumeDocument.tsx`: the resume page you edit on screen.
+- `backend/portfolioSync.cjs`: reads the portfolio markdown files and updates the Repository from them, both for the button and for the 10-minute timer.
 - `backend/index.cjs`: the local server.
 - `extension/`: the code that opens the AI websites, sends the request, and reads the reply.
 
@@ -84,6 +86,7 @@ ResumeBuilder/
 
 - Your notes, education, and history are saved in a database file on your computer at `~/.resume-builder/data.db`. It is not part of this project folder.
 - Your name, email, phone, links, and the examples taken from your own experience are in `frontend/src/personal/personal.local.ts`. This file is listed in `.gitignore`, so it is never uploaded to GitHub. If the file is missing, the app uses placeholder details from `personal.example.ts`.
+- The portfolio folder to sync from, and the site URL used for its links, are in that same local file, under `portfolio`. Leave `contentDir` empty to turn the feature off and hide its button.
 
 ## Running it
 

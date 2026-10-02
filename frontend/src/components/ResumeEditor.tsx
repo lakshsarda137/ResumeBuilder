@@ -979,10 +979,15 @@ export function ResumeEditor() {
       // same provider that produced it. It runs alongside the cover letter,
       // except when both would share one provider: it is a cheap send, so it
       // waits for the letter rather than add same-provider concurrency.
+      // The cover-letter-from-PDF path is the exception: it builds no resume,
+      // so `next` is the one already on screen and a read of it would be a
+      // stale answer to a question this run never asked.
       recruiterReadRunIdRef.current += 1;
       setRecruiterRead(null);
       setRecruiterReadResumeJson(null);
-      const readProvider = session?.provider ?? connectedProvider ?? null;
+      const readProvider = coverLetterResult
+        ? null
+        : session?.provider ?? connectedProvider ?? null;
       if (readProvider) {
         const buildJobDescription = coverLetterRequest?.jobDescription ?? jobDescription;
         if (coverLetterRunning && coverLetterRequest?.provider === readProvider) {

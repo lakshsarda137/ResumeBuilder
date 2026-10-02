@@ -112,13 +112,34 @@ export function normalizeEntryLinks(raw: unknown): EntryLink[] {
   return out;
 }
 
-/** Build EntryLinks from a repository item's optional github/website fields. */
+/**
+ * Build EntryLinks from a repository item. `links` (a JSON array, or the string
+ * the API stores it as) wins when present, because it can hold more than the
+ * two legacy slots; otherwise the github/website fields are used.
+ */
 export function repoItemLinks(item: {
   github_url?: string | null;
   github_label?: string | null;
   website_url?: string | null;
   website_label?: string | null;
+  links?: EntryLink[] | string | null;
 }): EntryLink[] {
+  const raw = item.links;
+  if (raw) {
+    let parsed: unknown = raw;
+    if (typeof raw === 'string') {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        parsed = null;
+      }
+    }
+    const links = normalizeEntryLinks(parsed);
+    if (links.length > 0) {
+      return links;
+    }
+  }
+
   return normalizeEntryLinks([
     { label: item.github_label?.trim() || DEFAULT_GITHUB_LABEL, url: item.github_url ?? '' },
     { label: item.website_label?.trim() || DEFAULT_WEBSITE_LABEL, url: item.website_url ?? '' },

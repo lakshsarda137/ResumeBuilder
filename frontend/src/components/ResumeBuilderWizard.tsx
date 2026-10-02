@@ -83,7 +83,8 @@ import {
 import type { CoverLetterRequest } from '../utils/coverLetterRun';
 import type { CoverLetterData } from '../types/coverLetter';
 import { buildCoverLetterFromPdfPrompt } from '../utils/coverLetterPrompt';
-import { parseCoverLetterWithResumeResponse } from '../utils/parseCoverLetterResponse';
+import { parseGeneratedCoverLetter } from '../utils/parseCoverLetterResponse';
+import { saveCaptureDump } from '../utils/captureDump';
 import { readPdfFileAsBase64 } from '../utils/pdf';
 import {
   fetchRepositorySources,
@@ -444,6 +445,12 @@ export function ResumeBuilderWizard({
   const [loadingSources, setLoadingSources] = useState(false);
 
   const [selectionMode, setSelectionMode] = useState<SelectionMode>('manual');
+  /**
+   * Which repository items the cover-letter-from-resume path may draw on.
+   * `null` means every sendable source, the behaviour before this picker
+   * existed; a Set means the user has chosen.
+   */
+  const [coverLetterKeys, setCoverLetterKeys] = useState<Set<string> | null>(null);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [repoMaxYears, setRepoMaxYears] = useState(5);
   const [draftSettings, setDraftSettings] = useState(() =>
@@ -682,10 +689,24 @@ export function ResumeBuilderWizard({
     repoMaxYears,
   ]);
 
-  /** Every sendable repository source, for the cover-letter-from-PDF path (no picker there). */
+  /** Sendable repository sources, in the order the picker lists them. */
+  const coverLetterCandidates = useMemo(
+    () => allSources.filter((source) => source.sendable),
+    [allSources],
+  );
+
+  /**
+   * What the cover-letter-from-resume path actually sends. The letter is made
+   * of the detail the resume had no room for, but sending the whole warehouse
+   * invites the model to write about work the candidate does not want in this
+   * letter, so the picker decides.
+   */
   const coverLetterPdfSources = useMemo(
-    () => repoSources.filter((source) => source.sendable),
-    [repoSources],
+    () =>
+      coverLetterKeys
+        ? coverLetterCandidates.filter((source) => coverLetterKeys.has(sourceKey(source)))
+        : coverLetterCandidates,
+    [coverLetterCandidates, coverLetterKeys],
   );
 
   const selectedTemplate = useMemo(
@@ -799,6 +820,19 @@ export function ResumeBuilderWizard({
     const key = sourceKey(source);
     setSelectedKeys((prev) => {
       const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+
+  const toggleCoverLetterSource = (source: RepositorySource) => {
+    const key = sourceKey(source);
+    setCoverLetterKeys((prev) => {
+      const next = new Set(prev ?? coverLetterCandidates.map(sourceKey));
       if (next.has(key)) {
         next.delete(key);
       } else {
@@ -958,7 +992,18 @@ export function ResumeBuilderWizard({
     });
 
     pushPipeline('parsing_json', 'Parsing cover letter…');
-    const { coverLetter, resume } = parseCoverLetterWithResumeResponse(response.rawResponse!);
+    // The letter is the whole response now; the editor keeps the resume it has.
+    let coverLetter: CoverLetterData;
+    try {
+      coverLetter = parseGeneratedCoverLetter(response.rawResponse!);
+    } catch (error) {
+      const dumpPath = await saveCaptureDump(
+        response.rawResponse ?? '',
+        'cover-letter-capture.txt',
+      );
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(dumpPath ? `${message} Captured text written to ${dumpPath}` : message);
+    }
     const session = response.session ?? null;
     if (session) {
       saveAiSession(session);
@@ -966,7 +1011,7 @@ export function ResumeBuilderWizard({
 
     pushPipeline('preview_ready', 'Cover letter ready');
     onComplete(
-      resume ? enforceEducationGraduationDates(resume, educationDataRef.current) : currentResume,
+      currentResume,
       session,
       draftSettings,
       undefined,
@@ -2002,6 +2047,74 @@ export function ResumeBuilderWizard({
               {renderTypographyControls()}
             </div>
           </details>
+        </section>
+      )}
+
+      {mode === 'coverLetter' && (
+        <section className="rb-wizard-section rb-wizard-panel">
+          <h3>Source material for the letter</h3>
+          <p className="rb-wizard-note">
+            The letter is written from the detail that did not fit on the resume. Pick the
+            experiences and projects it may draw on — everything you leave unchecked stays
+            out of the prompt. Only <strong>freewrite</strong> repository entries can be sent.
+          </p>
+
+          {loadingSources ? (
+            <p className="rb-wizard-loading">
+              <Loader2 size={14} className="spin" /> Loading repository…
+            </p>
+          ) : coverLetterCandidates.length === 0 ? (
+            <p className="rb-wizard-empty">
+              No freewrite repository entries yet. The letter will be written from the
+              uploaded resume and the job description alone.
+            </p>
+          ) : (
+            <>
+              <div className="rb-wizard-source-actions">
+                <button
+                  type="button"
+                  className="rb-wizard-tab"
+                  onClick={() => setCoverLetterKeys(new Set(coverLetterCandidates.map(sourceKey)))}
+                >
+                  Select all
+                </button>
+                <button
+                  type="button"
+                  className="rb-wizard-tab"
+                  onClick={() => setCoverLetterKeys(new Set())}
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div className="rb-wizard-source-list">
+                {coverLetterCandidates.map((source) => {
+                  const key = sourceKey(source);
+                  return (
+                    <label key={key} className="rb-wizard-source-item">
+                      <input
+                        type="checkbox"
+                        className="rb-wizard-checkbox"
+                        checked={coverLetterPdfSources.some((picked) => sourceKey(picked) === key)}
+                        onChange={() => toggleCoverLetterSource(source)}
+                      />
+                      <span>{sourceLabel(source)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="rb-wizard-source-footer">
+                <p className="rb-wizard-source-summary">
+                  {coverLetterPdfSources.length} of {coverLetterCandidates.length} source
+                  {coverLetterCandidates.length === 1 ? '' : 's'} selected
+                  {coverLetterPdfSources.length === 0
+                    ? ' — the letter will use only the uploaded resume and the job description'
+                    : ''}
+                </p>
+              </div>
+            </>
+          )}
         </section>
       )}
 

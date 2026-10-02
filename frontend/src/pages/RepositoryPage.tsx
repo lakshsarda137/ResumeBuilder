@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronUp, Loader2, Lightbulb, Pencil, Check, X } from 'lucide-react';
 import { RepoImportPanel } from '../components/RepoImportPanel';
+import { PortfolioSyncButton } from '../components/PortfolioSyncButton';
 import { ClearAllButton } from '../components/ClearAllButton';
 import '../components/Layout.css';
 import './RepositoryPage.css';
@@ -22,6 +23,8 @@ interface RepoItem {
   github_label?: string | null;
   website_url?: string | null;
   website_label?: string | null;
+  links?: string | null;
+  source_slug?: string | null;
   created_at: string;
 }
 
@@ -210,6 +213,7 @@ export function RepositoryPage() {
               load();
             }}
           />
+          <PortfolioSyncButton onComplete={load} />
           <RepoImportPanel onComplete={load} />
           <button className="btn btn--primary" onClick={() => setShowForm(v => !v)}>
             <Plus size={15} /> Add entry

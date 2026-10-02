@@ -13,6 +13,10 @@ export const examplePersonalProfile: PersonalProfile = {
     github: 'github.com/alex-candidate',
     location: 'Springfield, IL',
   },
+  portfolio: {
+    contentDir: '',
+    baseUrl: '',
+  },
   defaultResume: {
     contact: {
       name: 'Alex Candidate',

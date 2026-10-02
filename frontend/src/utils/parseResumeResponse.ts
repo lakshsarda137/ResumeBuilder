@@ -52,6 +52,69 @@ export function extractJsonCandidate(text: string): string {
   );
 }
 
+/**
+ * Re-escape stray double quotes inside JSON string values.
+ *
+ * Providers do not always render a JSON reply inside a code block. Rendered as
+ * ordinary markdown, a backslash escape is consumed by the renderer, so the
+ * `\"` the model wrote reaches us as a bare `"` and the object stops parsing
+ * partway through — one quoted phrase in one paragraph loses a whole letter.
+ * (The same rendering collapses the JSON's indentation, which is the visible
+ * tell that a reply came through this way.)
+ *
+ * A quote inside a string closes it only when the next non-space character is
+ * structural, or the text ends. Anything else is content, so it gets escaped.
+ */
+export function repairUnescapedQuotes(json: string): string {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let index = 0; index < json.length; index += 1) {
+    const char = json[index];
+
+    if (!inString) {
+      out += char;
+      if (char === '"') {
+        inString = true;
+      }
+      continue;
+    }
+
+    if (escaped) {
+      out += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      out += char;
+      escaped = true;
+      continue;
+    }
+
+    if (char !== '"') {
+      out += char;
+      continue;
+    }
+
+    let lookahead = index + 1;
+    while (lookahead < json.length && /\s/.test(json[lookahead])) {
+      lookahead += 1;
+    }
+    const next = json[lookahead];
+
+    if (next === undefined || next === ':' || next === ',' || next === '}' || next === ']') {
+      out += char;
+      inString = false;
+    } else {
+      out += '\\"';
+    }
+  }
+
+  return out;
+}
+
 export function parseJsonCandidate(candidate: string): unknown {
   try {
     return JSON.parse(repairJson(candidate));
@@ -59,7 +122,13 @@ export function parseJsonCandidate(candidate: string): unknown {
     try {
       return JSON.parse(candidate);
     } catch {
-      return null;
+      // Last resort, because re-escaping is a guess about intent and a
+      // candidate that parses without it should never be second-guessed.
+      try {
+        return JSON.parse(repairJson(repairUnescapedQuotes(candidate)));
+      } catch {
+        return null;
+      }
     }
   }
 }
@@ -123,6 +192,17 @@ function expandToJsonObject(text: string, anchorPos: number): string {
   return '';
 }
 
+/**
+ * Strip a ```json fence wrapping an otherwise bare JSON body. The delimiters
+ * and a fence are not alternatives: a fence is what stops a provider's markdown
+ * renderer from eating the JSON's backslash escapes, so the reply we want most
+ * is one that carries both.
+ */
+function stripCodeFence(text: string): string {
+  const match = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : text;
+}
+
 export function collectJsonCandidates(text: string): string[] {
   const candidates: string[] = [];
   const seen = new Set<string>();
@@ -134,8 +214,21 @@ export function collectJsonCandidates(text: string): string[] {
     }
   };
 
+  const START = '---JSON-START---';
   for (const match of text.matchAll(/---JSON-START---\s*([\s\S]*?)\s*---JSON-END---/g)) {
     push(match[1]);
+    push(stripCodeFence(match[1].trim()));
+
+    // Providers print the opening delimiter in their own chrome — Claude's
+    // "Claude responded: ---JSON-START---" preview line is one — which pairs
+    // that stray marker with the real closing one and swallows the actual
+    // block as if it were prose. Re-cut from the last opening marker inside.
+    const innerStart = match[1].lastIndexOf(START);
+    if (innerStart !== -1) {
+      const recut = match[1].slice(innerStart + START.length).trim();
+      push(recut);
+      push(stripCodeFence(recut));
+    }
   }
 
   for (const match of text.matchAll(/```json\s*([\s\S]*?)```/gi)) {

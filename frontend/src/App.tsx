@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ResumeEditor } from './components/ResumeEditor';
@@ -8,9 +9,15 @@ import { HistoryPage } from './pages/HistoryPage';
 import { KnowledgePage } from './pages/KnowledgePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { PrivacyPage } from './pages/PrivacyPage';
+import { pushPortfolioConfig } from './utils/portfolioConfig';
 import './index.css';
 
 export default function App() {
+  // Give the server the portfolio location so its background sync can run.
+  useEffect(() => {
+    void pushPortfolioConfig();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

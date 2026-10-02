@@ -1159,3 +1159,10 @@
   padding-left: 12px;
   max-width: 220px;
 }
+
+/* Cover-letter source picker: Select all / Clear sit above the list. */
+.rb-wizard-source-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}

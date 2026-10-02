@@ -4,7 +4,6 @@ import type { ResumeData } from '../types/resume';
 import {
   mapRepositorySourcesForPrompt,
   buildResumeEducationContext,
-  RESUME_JSON_SCHEMA,
 } from './aiPrompt';
 import { EM_DASH_PROMPT_RULE } from './emDash';
 import { describeContactProfile, formatLetterDate } from './contactProfile';
@@ -33,7 +32,7 @@ export const COVER_LETTER_JSON_SCHEMA = `{
 }`;
 
 const COVER_LETTER_OUTPUT_RULES = `CRITICAL OUTPUT FORMAT — the editor can ONLY load JSON:
-1. Write exactly ---JSON-START--- on its own line, then the raw JSON object, then ---JSON-END--- on its own line.
+1. Write exactly ---JSON-START--- on its own line, then the JSON object inside a \`\`\`json fenced code block, then ---JSON-END--- on its own line. The fence matters: outside one, your chat renderer eats the backslash before every \\" in the letter text, and the object stops parsing at the first quoted phrase.
 2. The JSON must match this schema:
 ${COVER_LETTER_JSON_SCHEMA}
 3. There is no "recipient" key. Do not add one, and do not add a subject or "RE:" line.
@@ -110,6 +109,7 @@ ${COVER_LETTER_JD_COMMENT_RULES}
 WRITE A DRAFT, THEN REVISE IT FOR READABILITY BEFORE YOU CHECK ANYTHING ELSE.
 The first draft of a letter written under the constraints above will be dense and choppy: correct sentence by sentence, exhausting to read in sequence. Fixing that is a separate pass, and it is the one that decides whether this letter is any good. Do it first, because the compliance checks below are cheap and this one is not.
 - Read the draft straight through as a person would. Mark every place you stumbled, re-read a sentence, or lost track of who or what was being discussed. Rewrite each one.
+- Now read it again at skimming speed, the way a recruiter with thirty seconds will. Any sentence that did not land on that pass gets rewritten until it does: subject and verb up front, one clause, ordinary words.
 - For each paragraph, name its ONE point in your head. Any sentence not developing that point moves to another paragraph or gets cut.
 - Find every sentence with no connection to the sentence before it — especially bare standalone facts like "I'm applying for the X position." Merge it, connect it, or cut it.
 - Find every sentence over about 35 words and split it. Find every pair of consecutive long complex sentences and shorten one.
@@ -119,7 +119,12 @@ The first draft of a letter written under the constraints above will be dense an
 THEN CHECK COMPLIANCE:
 - Read every sentence against the resume. Delete any that merely restates it.
 - Count the sentences that begin with "I". Aim for under half, and never three in a row — but leave any "I" opening whose only alternative is a contorted sentence.
-- Search your draft for every banned word listed above and remove each one you find.
+- Search your draft for every banned word listed above and remove each one you find, including "keep coming back to", "come back to", "lived", and "broke" in any form.
+- Search your draft for the name of every company, startup, and project on the resume. Replace each with a plain description ("at my previous internship", "at my startup"). Only the employer this letter is addressed to keeps its name.
+- Search your draft for every sentence that refers to the posting, the job description, or what the employer is "looking for", and every sentence shaped like "you want X, and I have done X". Rewrite each so the fit comes through the work itself.
+- Find every sentence that opens with a wind-up before its subject — a date, a condition, a subordinate clause — and turn it around so the subject comes first.
+- Search for every sentence that says what something is NOT before saying what it is ("not X, but Y", "isn't just", "rather than", "less about X than Y"), including the version split across two sentences. Rewrite each as the positive claim alone.
+- Confirm the opening names the employer and the exact role title, the closing answers why this employer, and the last sentence of the letter is the thank-you.
 - Confirm there is no em dash anywhere, that no sentence claims a feeling, and that the specific detail you gave about the organization actually appears in the job description.
 
 ${COVER_LETTER_OUTPUT_RULES}`;
@@ -141,13 +146,17 @@ Reply with ONLY the output the file specifies: one JSON cover letter object wrap
  * Cover letter from an UPLOADED resume PDF plus a job description, with no
  * build step in between. The PDF is attached to the send (or, for Gemini,
  * extracted to text locally, exactly as the optimize path does). The model
- * writes the letter against that resume and also returns a faithful JSON
- * extraction of it, so the editor can show the letter beside the resume it
- * accompanies and the packet stays coherent in History.
+ * reads that resume and writes the letter against it.
  *
- * Output shape is the cover letter object with one extra top-level key,
- * "resume", rather than a new wrapper: the extension's capture gates accept a
- * top-level letter today and a wrapper would need its own gate.
+ * Output is the cover letter object alone. It used to carry a second
+ * top-level "resume" key holding a faithful extraction of the attached PDF,
+ * which the app never needed: the editor keeps the resume it already has. That
+ * extraction roughly tripled the response, and a response that long is what
+ * pushes a provider into truncating before the closing ---JSON-END---. When
+ * that happened the only complete letter-shaped JSON left on the page was the
+ * schema in the prompt itself, which surfaced as "Captured JSON was a
+ * cover-letter-shaped schema or placeholder". The letter is the deliverable,
+ * so it is now the whole response.
  */
 export function buildCoverLetterFromPdfPrompt({
   jobDescription,
@@ -194,10 +203,9 @@ ${settingsBlock}${sourceBlock}${buildResumeEducationContext(educationData)}
 CANDIDATE CONTACT FACTS (the letter header must carry exactly these, in this form, matching the resume header):
 ${describeContactProfile()}
 
-Do this in ONE pass:
+Do this:
 1. Read the attached resume PDF carefully. It is the resume this letter accompanies, so every employer, title, date, and metric in the letter must match it exactly, and the letter must not restate it.
-2. Extract the resume faithfully into the "resume" JSON object described below. Do not tailor, rewrite, summarize, or omit anything; this is a transcription so the app can show the letter beside the resume.
-3. Write the cover letter.
+2. Write the cover letter. Output ONLY the letter — do not transcribe, rewrite, or return the resume in any form.
 
 ${COVER_LETTER_WRITING_CONTRACT}
 
@@ -207,6 +215,7 @@ ${COVER_LETTER_JD_COMMENT_RULES}
 
 WRITE A DRAFT, THEN REVISE IT FOR READABILITY BEFORE YOU CHECK ANYTHING ELSE.
 - Read the draft straight through as a person would. Mark every place you stumbled, re-read a sentence, or lost track of who or what was being discussed. Rewrite each one.
+- Now read it again at skimming speed, the way a recruiter with thirty seconds will. Any sentence that did not land on that pass gets rewritten until it does: subject and verb up front, one clause, ordinary words.
 - For each paragraph, name its ONE point in your head. Any sentence not developing that point moves to another paragraph or gets cut.
 - Find every sentence with no connection to the sentence before it and merge it, connect it, or cut it.
 - Find every sentence over about 35 words and split it.
@@ -215,20 +224,21 @@ WRITE A DRAFT, THEN REVISE IT FOR READABILITY BEFORE YOU CHECK ANYTHING ELSE.
 THEN CHECK COMPLIANCE:
 - Read every sentence against the resume. Delete any that merely restates it.
 - Count the sentences that begin with "I". Aim for under half, and never three in a row.
-- Search your draft for every banned word listed above and remove each one you find.
+- Search your draft for every banned word listed above and remove each one you find, including "keep coming back to", "come back to", "lived", and "broke" in any form.
+- Search your draft for the name of every company, startup, and project on the resume. Replace each with a plain description ("at my previous internship", "at my startup"). Only the employer this letter is addressed to keeps its name.
+- Search your draft for every sentence that refers to the posting, the job description, or what the employer is "looking for", and every sentence shaped like "you want X, and I have done X". Rewrite each so the fit comes through the work itself.
+- Find every sentence that opens with a wind-up before its subject — a date, a condition, a subordinate clause — and turn it around so the subject comes first.
+- Search for every sentence that says what something is NOT before saying what it is ("not X, but Y", "isn't just", "rather than", "less about X than Y"), including the version split across two sentences. Rewrite each as the positive claim alone.
+- Confirm the opening names the employer and the exact role title, the closing answers why this employer, and the last sentence of the letter is the thank-you.
 - Confirm there is no em dash anywhere, that no sentence claims a feeling, and that the specific detail you gave about the organization actually appears in the job description.
 
 CRITICAL OUTPUT FORMAT — the editor can ONLY load JSON:
-1. Write exactly ---JSON-START--- on its own line, then the raw JSON object, then ---JSON-END--- on its own line.
-2. The JSON object is the cover letter object below, PLUS one extra top-level key "resume" holding the faithful extraction of the attached PDF:
-{
-  ...every key of the cover letter schema below, at the top level...,
-  "resume": ${RESUME_JSON_SCHEMA}
-}
-3. The cover letter schema:
+1. Write exactly ---JSON-START--- on its own line, then the JSON object inside a \`\`\`json fenced code block, then ---JSON-END--- on its own line. The fence matters: outside one, your chat renderer eats the backslash before every \\" in the letter text, and the object stops parsing at the first quoted phrase.
+2. The JSON object is the cover letter, and nothing else. It has exactly these top-level keys:
 ${COVER_LETTER_JSON_SCHEMA}
+3. Do NOT include a "resume" key, the resume's sections, or any other transcription of the attached PDF. The app already has the resume; returning it wastes the response and risks it being cut off before the closing delimiter.
 4. There is no "recipient" key. Do not add one, and do not add a subject or "RE:" line.
-5. Generate stable unique string ids for every paragraph and for every resume section, entry, link, and skill row. For resume skills sections use the "skills" array and keep "entries" as [].
+5. Generate stable unique string ids for every paragraph.
 6. Do not output the schema or its example placeholders as content. Never include meta-instructions, placeholders, todo text, editor notes, or bracketed blanks like "[Company Name]" in any visible field.
 7. No text outside the ---JSON-START--- / ---JSON-END--- delimiters.`;
 }

@@ -21,6 +21,15 @@ export interface RepoItem {
   website_url?: string | null;
   /** Anchor text for website_url; defaults to "Website" (e.g. "Play Online"). */
   website_label?: string | null;
+  /**
+   * Hyperlinks as a JSON array, for items that need more than the two legacy
+   * slots above (GitHub + live demo + the portfolio write-up). The API stores
+   * it as a JSON string; `repoItemLinks` accepts either form and prefers this
+   * one when it is present.
+   */
+  links?: EntryLink[] | string | null;
+  /** Portfolio write-up filename this item was synced from, e.g. "my-project". */
+  source_slug?: string | null;
   created_at: string;
   updated_at?: string;
 }

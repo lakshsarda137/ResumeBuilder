@@ -18,6 +18,16 @@ export interface PersonalProfile {
     /** "City, ST" */
     location: string;
   };
+  /**
+   * The portfolio site the repository can be synced from. `contentDir` is the
+   * absolute path to its folder of markdown write-ups; `baseUrl` is the public
+   * site, used to link each entry to its write-up page. Leave `contentDir`
+   * empty to hide the sync button.
+   */
+  portfolio: {
+    contentDir: string;
+    baseUrl: string;
+  };
   /** The resume the editor opens with before anything is built. */
   defaultResume: ResumeData;
   /** Example phrases quoted inside the prompt templates. */

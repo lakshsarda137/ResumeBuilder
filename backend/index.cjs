@@ -1,5 +1,6 @@
 const express = require('express');
 const Database = require('better-sqlite3');
+const { syncPortfolio } = require('./portfolioSync.cjs');
 const path = require('path');
 const os = require('os');
 const net = require('net');
@@ -73,6 +74,30 @@ for (const col of ['github_url', 'github_label', 'website_url', 'website_label']
   const has = db.prepare("SELECT 1 FROM pragma_table_info('repo_items') WHERE name = ?").get(col);
   if (!has) db.exec(`ALTER TABLE repo_items ADD COLUMN ${col} TEXT`);
 }
+
+// Portfolio import (added later): `links` holds a JSON array of
+// { label, url } so an item can carry more than the two legacy link slots
+// (e.g. GitHub + live demo + the portfolio write-up page). `source_slug` is the
+// portfolio content filename, used to match an item on re-sync.
+for (const col of ['links', 'source_slug']) {
+  const has = db.prepare("SELECT 1 FROM pragma_table_info('repo_items') WHERE name = ?").get(col);
+  if (!has) db.exec(`ALTER TABLE repo_items ADD COLUMN ${col} TEXT`);
+}
+
+// Where the portfolio write-ups live. The app pushes this from its (gitignored)
+// personal profile on load; the background timer then reads it from here, so the
+// sync keeps running with no browser tab open.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS portfolio_config (
+    id             TEXT PRIMARY KEY,
+    content_dir    TEXT,
+    base_url       TEXT,
+    auto_sync      INTEGER NOT NULL DEFAULT 1,
+    last_signature TEXT,
+    last_synced_at TEXT
+  );
+`);
+db.prepare(`INSERT OR IGNORE INTO portfolio_config (id) VALUES ('default')`).run();
 
 // Education start date (added later): the resume must always show the school as a
 // "Mon YYYY – Mon YYYY" range, so the enrolment date is stored alongside graduation.
@@ -560,16 +585,17 @@ app.get('/api/repo', (_req, res) => {
 
 app.post('/api/repo', (req, res) => {
   const { type, title, company, position, start_date, end_date, mode, content,
-    github_url, github_label, website_url, website_label } = req.body;
+    github_url, github_label, website_url, website_label, links, source_slug } = req.body;
   if (!title?.trim()) return res.status(400).json({ error: 'title required' });
   const id = nowId();
   db.prepare(`
     INSERT INTO repo_items (id, type, title, company, position, start_date, end_date, mode, content,
-      github_url, github_label, website_url, website_label)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      github_url, github_label, website_url, website_label, links, source_slug)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, type ?? 'experience', title.trim(), company ?? null, position ?? null,
     start_date ?? null, end_date ?? null, mode ?? 'optimized', content ?? '',
-    github_url || null, github_label || null, website_url || null, website_label || null);
+    github_url || null, github_label || null, website_url || null, website_label || null,
+    links ? JSON.stringify(links) : null, source_slug || null);
   res.json(db.prepare('SELECT * FROM repo_items WHERE id = ?').get(id));
 });
 
@@ -582,10 +608,13 @@ app.patch('/api/repo/:id', (req, res) => {
   const item = db.prepare('SELECT * FROM repo_items WHERE id = ?').get(req.params.id);
   if (!item) return res.status(404).json({ error: 'not found' });
   const fields = ['type','title','company','position','start_date','end_date','mode','content',
-    'github_url','github_label','website_url','website_label'];
+    'github_url','github_label','website_url','website_label','source_slug'];
   const updates = {};
   for (const f of fields) {
     if (req.body[f] !== undefined) updates[f] = req.body[f];
+  }
+  if (req.body.links !== undefined) {
+    updates.links = req.body.links ? JSON.stringify(req.body.links) : null;
   }
   if (Object.keys(updates).length === 0) return res.json(item);
   const setClauses = Object.keys(updates).map(k => `${k} = ?`).join(', ');
@@ -598,6 +627,72 @@ app.delete('/api/repo/:id', (req, res) => {
   db.prepare('DELETE FROM repo_items WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
+
+/* ── PORTFOLIO SYNC ──────────────────────────────────────────────────────── */
+
+function readPortfolioConfig() {
+  return db.prepare("SELECT * FROM portfolio_config WHERE id = 'default'").get();
+}
+
+app.get('/api/portfolio/config', (_req, res) => {
+  res.json(readPortfolioConfig());
+});
+
+app.post('/api/portfolio/config', (req, res) => {
+  const { contentDir, baseUrl, autoSync } = req.body ?? {};
+  db.prepare(`
+    UPDATE portfolio_config
+    SET content_dir = ?, base_url = ?, auto_sync = ?
+    WHERE id = 'default'
+  `).run(
+    contentDir ? String(contentDir).trim() : null,
+    baseUrl ? String(baseUrl).trim() : null,
+    autoSync === false ? 0 : 1,
+  );
+  res.json(readPortfolioConfig());
+});
+
+app.post('/api/portfolio/sync', (req, res) => {
+  const config = readPortfolioConfig();
+  if (!config?.content_dir) {
+    return res.status(400).json({ error: 'No portfolio folder configured.' });
+  }
+  try {
+    // A hand-pressed sync always runs, even when nothing in the folder changed.
+    res.json(syncPortfolio(db, config, nowId, { force: req.body?.force !== false }));
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * Keep the warehouse current while the server runs. Every ten minutes, and
+ * once shortly after startup. A run where no file has been edited since the
+ * last one does nothing and logs nothing, so an idle server stays quiet.
+ */
+const PORTFOLIO_SYNC_INTERVAL_MS = 10 * 60 * 1000;
+
+function runPortfolioAutoSync() {
+  const config = readPortfolioConfig();
+  if (!config?.content_dir || config.auto_sync === 0) {
+    return;
+  }
+  try {
+    const result = syncPortfolio(db, config, nowId);
+    const changed = (result.created?.length ?? 0) + (result.updated?.length ?? 0);
+    if (changed > 0) {
+      console.log(
+        `[portfolio] synced ${result.created.length} new, ${result.updated.length} updated ` +
+          `from ${result.dir}`,
+      );
+    }
+  } catch (error) {
+    console.warn(`[portfolio] auto-sync failed: ${error.message}`);
+  }
+}
+
+setTimeout(runPortfolioAutoSync, 5000).unref?.();
+setInterval(runPortfolioAutoSync, PORTFOLIO_SYNC_INTERVAL_MS).unref?.();
 
 /* ── EDUCATION ───────────────────────────────────────────────────────────── */
 

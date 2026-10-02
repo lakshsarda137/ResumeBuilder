@@ -12,14 +12,6 @@ import {
   isRecord,
 } from './parseResumeResponse';
 import { ensureContactProfile } from './contactProfile';
-import type { ResumeData } from '../types/resume';
-import {
-  looksLikeResumePayload,
-  normalizeAiResume,
-  resumeHasSubstantiveContent,
-} from './parseResumeResponse';
-
-const EMPTY_RESUME: ResumeData = { contact: { name: '', links: [] }, sections: [] };
 
 export const EMPTY_COVER_LETTER: CoverLetterData = {
   contact: { name: '', links: [] },
@@ -126,6 +118,28 @@ export function normalizeAiCoverLetter(
   };
 }
 
+/**
+ * Strings that only ever appear in the prompt we sent, never in a reply. If the
+ * captured text contains one, the extension relayed the whole provider page
+ * (prompt bubble included) instead of the assistant's answer, and every error
+ * below is really about the prompt's own schema being mistaken for output.
+ * Worth naming, because the fix is to reload the extension, not to retry.
+ */
+const PROMPT_ONLY_MARKERS = [
+  'CRITICAL OUTPUT FORMAT',
+  'THEN CHECK COMPLIANCE:',
+  'CANDIDATE CONTACT FACTS',
+];
+
+function describeCapture(rawResponse: string): string {
+  const relayedPrompt = PROMPT_ONLY_MARKERS.some((marker) => rawResponse.includes(marker));
+  const base = ` (captured ${rawResponse.length} characters`;
+  if (relayedPrompt) {
+    return `${base}, and they contain the prompt we sent — the extension relayed the whole provider page instead of the reply. Reload the extension at chrome://extensions, then try again.)`;
+  }
+  return `${base}.)`;
+}
+
 export function parseGeneratedCoverLetter(rawResponse: string): CoverLetterData {
   const candidates = collectJsonCandidates(rawResponse);
   let sawCoverLetterShape = false;
@@ -149,20 +163,22 @@ export function parseGeneratedCoverLetter(rawResponse: string): CoverLetterData 
     }
   }
 
+  const capture = describeCapture(rawResponse);
+
   if (sawCoverLetterShape) {
     throw new Error(
-      'Captured JSON was a cover-letter-shaped schema or placeholder, not a real generated cover letter. The provider likely returned or exposed prompt text before generation completed.',
+      `Captured JSON was a cover-letter-shaped schema or placeholder, not a real generated cover letter. The provider likely returned or exposed prompt text before generation completed.${capture}`,
     );
   }
 
   if (sawParseableJson) {
     throw new Error(
-      'Captured JSON was parseable but did not match the generated cover letter schema. Try again from a fresh chat.',
+      `Captured JSON was parseable but did not match the generated cover letter schema. Try again from a fresh chat.${capture}`,
     );
   }
 
   throw new Error(
-    'No complete generated cover letter JSON was detected. Try again from a fresh chat after the provider finishes generating.',
+    `No complete generated cover letter JSON was detected. Try again from a fresh chat after the provider finishes generating.${capture}`,
   );
 }
 
@@ -186,49 +202,4 @@ export function parseCoverLetterFromLlmResponse(
   }
 
   return normalizeAiCoverLetter(parsed, fallback);
-}
-
-/**
- * Parse the "cover letter from an uploaded resume PDF" response: a top-level
- * cover letter object carrying an optional "resume" key with the faithful
- * extraction of the PDF. The letter is required; the resume is best-effort,
- * since the letter is the deliverable and an extraction the model fumbled
- * should not cost the user the letter.
- */
-export function parseCoverLetterWithResumeResponse(rawResponse: string): {
-  coverLetter: CoverLetterData;
-  resume: ResumeData | null;
-} {
-  const candidates = collectJsonCandidates(rawResponse);
-  let sawCoverLetterShape = false;
-
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const parsed = parseJsonCandidate(candidates[index]);
-    if (!parsed || !looksLikeCoverLetterPayload(parsed)) {
-      continue;
-    }
-    sawCoverLetterShape = true;
-    const coverLetter = normalizeAiCoverLetter(parsed, EMPTY_COVER_LETTER);
-    if (!coverLetterHasSubstantiveContent(coverLetter)) {
-      continue;
-    }
-    const rawResume = isRecord(parsed) ? parsed.resume : undefined;
-    let resume: ResumeData | null = null;
-    if (looksLikeResumePayload(rawResume)) {
-      const normalized = normalizeAiResume(rawResume, EMPTY_RESUME);
-      if (resumeHasSubstantiveContent(normalized)) {
-        resume = normalized;
-      }
-    }
-    return { coverLetter, resume };
-  }
-
-  if (sawCoverLetterShape) {
-    throw new Error(
-      'Captured JSON was a cover-letter-shaped schema or placeholder, not a real generated cover letter. The provider likely returned or exposed prompt text before generation completed.',
-    );
-  }
-  throw new Error(
-    'No complete generated cover letter JSON was detected. Try again from a fresh chat after the provider finishes generating.',
-  );
 }
